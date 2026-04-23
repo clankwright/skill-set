@@ -12,7 +12,7 @@
 #   bin/remove-skills.sh <name> [<name> ...]      # only the named skills
 #   bin/remove-skills.sh -y                       # skip confirmation
 #   bin/remove-skills.sh --dry-run                # show what would be removed, delete nothing
-#   bin/remove-skills.sh --target DIR             # custom target (default: ~/.claude/skills/skill-set)
+#   bin/remove-skills.sh --target DIR             # custom target (default: ~/.claude/skills)
 #   bin/remove-skills.sh --source DIR             # custom source (default: <repo>/skills)
 #
 # Examples:
@@ -27,7 +27,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-TARGET="${HOME}/.claude/skills/skill-set"
+TARGET="${HOME}/.claude/skills"
 SOURCE="${REPO_ROOT}/skills"
 DRY_RUN=0
 ASSUME_YES=0

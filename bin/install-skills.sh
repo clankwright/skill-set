@@ -12,7 +12,7 @@
 #   bin/install-skills.sh <name> [<name> ...]      # only the named skills
 #   bin/install-skills.sh -y                       # skip confirmation
 #   bin/install-skills.sh --dry-run                # show what would change, copy nothing
-#   bin/install-skills.sh --target DIR             # custom target (default: ~/.claude/skills/skill-set)
+#   bin/install-skills.sh --target DIR             # custom target (default: ~/.claude/skills)
 #   bin/install-skills.sh --source DIR             # custom source (default: <repo>/skills)
 #
 # Examples:
@@ -31,7 +31,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-TARGET="${HOME}/.claude/skills/skill-set"
+TARGET="${HOME}/.claude/skills"
 SOURCE="${REPO_ROOT}/skills"
 DRY_RUN=0
 ASSUME_YES=0
