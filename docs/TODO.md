@@ -18,7 +18,7 @@
   Trim to the most recent 10 entries; older history lives in docs/SPEC.md phase blocks and `git log`.
 -->
 
-- 69d611f Revert install target segregation: harness only discovers direct children under ~/.claude/skills/ — by claude-code at 2026-04-24T00:00:00Z
+- b623cf6 Revert install target segregation: harness only discovers direct children under ~/.claude/skills/ — by claude-code at 2026-04-24T00:00:00Z
 - bb4fdb8 Rename repo transferable-skills → skill-set; segregate global install path under ~/.claude/skills/skill-set/ — by claude-code at 2026-04-23T23:08:58Z
 - 34cb36a Phase 9: optional chain looping + dogfood CLAUDE.md — by claude-code at 2026-04-23T12:31:40Z
 - bc3ec9c Phase 8.5: lift short-video-generator + social-promoter; first proprietary counterpart
