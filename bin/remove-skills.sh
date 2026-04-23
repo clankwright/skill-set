@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
-# install-skills.sh — one-way deploy of transferable skills from this repo into
-# the harness's user-skills directory.
+# remove-skills.sh — inverse of install-skills.sh. Removes transferable skills
+# from the harness's user-skills directory.
 #
-# The master repo (./skills/) is the canonical source. The target dir is a
-# deployed copy. Run this whenever you bump a transferable. Does NOT delete
-# skills at the target that aren't in the source — that prevents accidentally
-# wiping a project-local or hand-managed skill.
+# Only removes skill names that this repo's ./skills/ also defines — so a
+# project-local or hand-written skill under $TARGET with a name this repo
+# doesn't ship will never be touched. That's the same safety rail install-
+# skills.sh uses in the other direction.
 #
 # Usage:
-#   bin/install-skills.sh                          # all skills, interactive
-#   bin/install-skills.sh <name> [<name> ...]      # only the named skills
-#   bin/install-skills.sh -y                       # skip confirmation
-#   bin/install-skills.sh --dry-run                # show what would change, copy nothing
-#   bin/install-skills.sh --target DIR             # custom target (default: ~/.claude/skills)
-#   bin/install-skills.sh --source DIR             # custom source (default: <repo>/skills)
+#   bin/remove-skills.sh                          # all (from source list), interactive
+#   bin/remove-skills.sh <name> [<name> ...]      # only the named skills
+#   bin/remove-skills.sh -y                       # skip confirmation
+#   bin/remove-skills.sh --dry-run                # show what would be removed, delete nothing
+#   bin/remove-skills.sh --target DIR             # custom target (default: ~/.claude/skills)
+#   bin/remove-skills.sh --source DIR             # custom source (default: <repo>/skills)
 #
 # Examples:
-#   bin/install-skills.sh sanitize-transferable    # one skill
-#   bin/install-skills.sh -y supervisor manager    # two, no prompt
-#   bin/install-skills.sh --dry-run dev-cycle      # preview one
-#
-# Output groups skills by their source-repo category (e.g. framework/, dev/,
-# framework/coms/). Categories are a source-side organization; the harness
-# target layout stays flat ($TARGET/<name>/).
+#   bin/remove-skills.sh sanitize-transferable    # one skill
+#   bin/remove-skills.sh -y supervisor manager    # two, no prompt
+#   bin/remove-skills.sh --dry-run                # preview full uninstall
 #
 # Exit: 0 on success, 1 on error or user cancel.
 
@@ -53,11 +49,9 @@ while [ $# -gt 0 ]; do
 done
 
 [ -d "$SOURCE" ] || { echo "source dir does not exist: $SOURCE" >&2; exit 1; }
+[ -d "$TARGET" ] || { echo "target dir does not exist: $TARGET (nothing to remove)"; exit 0; }
 
-# Skills are grouped into category subdirs in the source repo (e.g.
-# skills/dev/dev-cycle/, skills/framework/coms/setup-telegram/) but the harness
-# expects a flat layout under $TARGET/<name>/. Find every SKILL.md recursively
-# and install each skill dir under its basename (category is dropped on copy).
+# Find every skill this repo defines (any nesting depth under $SOURCE).
 skill_dirs=()
 while IFS= read -r -d '' sm; do
     skill_dirs+=("$(dirname "$sm")/")
@@ -68,16 +62,14 @@ if [ "${#skill_dirs[@]}" -eq 0 ]; then
     exit 1
 fi
 
-# Detect name collisions across categories (same skill folder name used twice).
 dup=$(printf "%s\n" "${skill_dirs[@]}" | xargs -n1 basename | sort | uniq -d)
 if [ -n "$dup" ]; then
-    echo "error: duplicate skill names across categories: $dup" >&2
-    echo "(the harness target layout is flat; names must be unique)" >&2
+    echo "error: duplicate skill names across categories in source: $dup" >&2
     exit 1
 fi
 
 # Apply the name filter (if any). Every positional arg must match exactly one
-# skill; unknown names are a hard error so a typo doesn't silently no-op.
+# source-defined skill; unknown names are a hard error.
 if [ "${#FILTERS[@]}" -gt 0 ]; then
     filtered=()
     unmatched=()
@@ -104,54 +96,42 @@ if [ "${#FILTERS[@]}" -gt 0 ]; then
     skill_dirs=("${filtered[@]}")
 fi
 
-# Compute each skill's source-side category (path between $SOURCE and the skill
-# basename), then group the display output by category. This is cosmetic only;
-# the target layout stays flat.
 category_of() {
     local dir="$1"
     local rel="${dir#"$SOURCE"/}"
-    rel="${rel%/}"                       # strip trailing slash
+    rel="${rel%/}"
     local name
     name="$(basename "$rel")"
-    local cat="${rel%/"$name"}"          # everything before the final segment
+    local cat="${rel%/"$name"}"
     [ "$cat" = "$rel" ] && cat="(uncategorized)"
     printf "%s" "$cat"
 }
 
 status_of() {
-    local dir="$1"
-    local name="$2"
-    local sm="$dir/SKILL.md"
-    if [ ! -f "$sm" ]; then
-        printf "skipped: no SKILL.md"
-        return
-    fi
-    if [ -f "$TARGET/$name/SKILL.md" ]; then
-        if cmp -s "$sm" "$TARGET/$name/SKILL.md"; then
-            printf "unchanged"
-        else
-            printf "UPDATE"
-        fi
+    local name="$1"
+    if [ -d "$TARGET/$name" ]; then
+        printf "REMOVE"
     else
-        printf "NEW"
+        printf "not present"
     fi
 }
 
-echo "Source: $SOURCE"
-echo "Target: $TARGET"
+echo "Source (definition): $SOURCE"
+echo "Target (deploy):     $TARGET"
 if [ "${#FILTERS[@]}" -gt 0 ]; then
-    echo "Filter: ${FILTERS[*]}"
+    echo "Filter:              ${FILTERS[*]}"
 fi
 echo
-echo "Skills to deploy:"
+echo "Skills to remove from target:"
 
-# Stable group-by-category, skills within category sorted.
 tmp_rows=$(mktemp)
 trap 'rm -f "$tmp_rows"' EXIT
+will_remove=0
 for dir in "${skill_dirs[@]}"; do
     name="$(basename "$dir")"
     cat="$(category_of "$dir")"
-    st="$(status_of "$dir" "$name")"
+    st="$(status_of "$name")"
+    [ "$st" = "REMOVE" ] && will_remove=$((will_remove + 1))
     printf '%s\t%s\t%s\n' "$cat" "$name" "$st" >> "$tmp_rows"
 done
 
@@ -165,13 +145,21 @@ while IFS=$'\t' read -r cat name st; do
 done < <(sort -t$'\t' -k1,1 -k2,2 "$tmp_rows")
 echo
 
+if [ "$will_remove" -eq 0 ]; then
+    echo "nothing to remove."
+    exit 0
+fi
+
+echo "$will_remove skill(s) will be removed. Other entries under $TARGET are untouched."
+echo
+
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "(--dry-run; no changes made)"
     exit 0
 fi
 
 if [ "$ASSUME_YES" -ne 1 ]; then
-    printf "Proceed with copy? [y/N] "
+    printf "Proceed with removal? [y/N] "
     read -r reply
     case "$reply" in
         y|Y|yes|YES) ;;
@@ -179,15 +167,16 @@ if [ "$ASSUME_YES" -ne 1 ]; then
     esac
 fi
 
-mkdir -p "$TARGET"
-
 for dir in "${skill_dirs[@]}"; do
     name="$(basename "$dir")"
-    [ -f "$dir/SKILL.md" ] || continue
-    mkdir -p "$TARGET/$name"
-    # Copy the whole skill dir (SKILL.md + any optional assets/, scripts/, references/).
-    # -a preserves perms+timestamps; we don't pass --delete so target-only files survive.
-    cp -a "$dir/." "$TARGET/$name/"
+    target_path="$TARGET/$name"
+    # Safety rails: never rm outside $TARGET, never rm the target root itself.
+    case "$target_path" in
+        "$TARGET"/*) ;;
+        *) echo "refusing to remove path outside target: $target_path" >&2; exit 1 ;;
+    esac
+    [ -d "$target_path" ] || continue
+    rm -rf -- "$target_path"
 done
 
 echo "Done."

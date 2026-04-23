@@ -16,3 +16,7 @@ __pycache__/
 
 # Claude Code runtime state (local to each clone)
 .claude/
+
+# sanitize-transferable audit artifacts (regenerate on demand; never commit)
+*.findings.md
+*.sanitized.md
