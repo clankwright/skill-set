@@ -20,9 +20,9 @@ This skill **never silently edits** the target. It reports findings and (optiona
 ## Inputs
 
 1. **Target file**: the SKILL.md (or draft body) to scan.
-2. **Sanitization guidance**: `~/Dev/transferable-skills/templates/sanitization-guidance.md` — the rubric.
+2. **Sanitization guidance**: `~/Dev/skill-set/templates/sanitization-guidance.md` — the rubric.
 3. **Per-project banned-terms list** (when invoked from a project context): the proprietary supervisor's `## Banned terms` section, e.g. `~/Dev/<project>/.claude/skills/<persona>-supervisor/SKILL.md`. Pass via `--project-context <skill-md-path>` or auto-discover from `<cwd>/.claude/skills/*-supervisor/SKILL.md`.
-4. **Sibling SKILL.md files** in the master repo at `~/Dev/transferable-skills/skills/` — for *consistency comparison* (does this skill use the same generalizations as its siblings?).
+4. **Sibling SKILL.md files** in the master repo at `~/Dev/skill-set/skills/` — for *consistency comparison* (does this skill use the same generalizations as its siblings?).
 
 ## Process
 
@@ -54,7 +54,7 @@ Write a Markdown report to stdout AND to `<target>.findings.md` next to the targ
 # Sanitization findings — <target file path>
 
 **Scanned:** <utc-iso>
-**Guidance:** ~/Dev/transferable-skills/templates/sanitization-guidance.md
+**Guidance:** ~/Dev/skill-set/templates/sanitization-guidance.md
 **Project context:** <path to proprietary supervisor SKILL.md, or "none">
 
 ## Summary

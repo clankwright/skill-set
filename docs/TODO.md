@@ -1,4 +1,4 @@
-# transferable-skills TODO (handoff doc)
+# skill-set TODO (handoff doc)
 
 > Cross-cycle state. Every skill reads this on start and updates it on close. Three sections, in this order. Primary spec: `docs/SPEC.md`.
 
@@ -18,6 +18,7 @@
   Trim to the most recent 10 entries; older history lives in docs/SPEC.md phase blocks and `git log`.
 -->
 
+- cf07ffe Rename repo transferable-skills → skill-set; segregate global install path under ~/.claude/skills/skill-set/ — by claude-code at 2026-04-23T23:08:58Z
 - 34cb36a Phase 9: optional chain looping + dogfood CLAUDE.md — by claude-code at 2026-04-23T12:31:40Z
 - bc3ec9c Phase 8.5: lift short-video-generator + social-promoter; first proprietary counterpart
 - 795041d Phase 8.4: lift email-control-loop, agent-orchestrator
@@ -27,7 +28,6 @@
 - 1d61ac5 Phase 8.1: lift web-research, fact-checker, output-selector
 - 21ea214 Add skill-chain definitions as a first-class concept
 - 5b6a064 Phase 7 + sanitize pivot: lift non-dev transferables; replace regex leak-check with skill-based sanitization
-- 9ccd6ba Phase 6: CI workflow + frontmatter validator + leak-check refinements
 
 ## Next up (queued for next cycle)
 
@@ -42,4 +42,4 @@
 - Phase 9 `Add at least one transferable chain that uses loop: N by default` — reason: spec Phase 9 tail item; validates the YAML field against a real consuming flow (likely candidate: an iterative-writer or dev-cycle-with-review loop).
 - Phase 8.6 end-to-end smoke: chain `web-research → editorial-pass → social-promoter` against a real consuming project with clean supervisor verdict — reason: spec Phase 8 tail item, Phase 8.1-8.5 lifts already complete.
 - Phase 6 `Push to public GitHub repo` — reason: `git remote -v` is empty; blocks open-source release work.
-- Phase 2 `User runs bin/install-skills.sh -y to deploy the updated dev-cycle/dev-review into ~/.claude/skills/` — reason: user action, still pending.
+- Phase 2 `User runs bin/install-skills.sh -y to deploy the updated dev-cycle/dev-review into ~/.claude/skills/skill-set/` — reason: user action, still pending.

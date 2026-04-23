@@ -20,7 +20,7 @@ After a supervisor run produces one or more proposals. The supervisor's verdict 
 Two locations:
 
 - **Proprietary**: `<cwd>/.skill-runs/*/proposals/*.patch.md` — newest dirs first.
-- **Transferable**: `~/Dev/transferable-skills/proposals/*.patch.md`.
+- **Transferable**: `~/Dev/skill-set/proposals/*.patch.md`.
 
 List both, newest first, with: severity, target skill name, source run dir, one-line rationale (read from each proposal's header).
 
@@ -35,7 +35,7 @@ Show a numbered list. Wait for the user's choice. If the user picks a transferab
 ### 3. Resolve the target file
 
 - Proprietary proposal `<run-dir>/proposals/<skill-name>.patch.md` → target is `<cwd>/.claude/skills/<skill-name>/SKILL.md` (if `<skill-name>` is the proprietary's name) or whatever skill the proposal's header names.
-- Transferable proposal `~/Dev/transferable-skills/proposals/<UTC>_<skill-name>_from-<project>.patch.md` → target is `~/Dev/transferable-skills/skills/<skill-name>/SKILL.md`.
+- Transferable proposal `~/Dev/skill-set/proposals/<UTC>_<skill-name>_from-<project>.patch.md` → target is `~/Dev/skill-set/skills/<skill-name>/SKILL.md`.
 
 If the target doesn't exist, abort and report — proposals can only update existing skills, not create new ones (creating a new transferable goes through the manual `bin/new-skill-set.sh` flow).
 
@@ -85,7 +85,7 @@ Renaming preserves the audit trail (you can always see what was promoted, by who
 ### 8. Stage (don't commit)
 
 - **Proprietary** target lives under `<project>/.claude/skills/`. If that path is gitignored in the project (common), the change is local-only — no staging needed; just confirm to the user that the new file is in place.
-- **Transferable** target lives in the master repo. Stage with `git -C ~/Dev/transferable-skills add skills/<skill-name>/SKILL.md proposals/` so the user can craft the PR commit themselves. Print the suggested PR title (`Update <skill-name> v<old>→v<new>: <one-line>`), the suggested PR body (the proposal's rationale + the full sanitization footer copied verbatim), and the command to push.
+- **Transferable** target lives in the master repo. Stage with `git -C ~/Dev/skill-set add skills/<skill-name>/SKILL.md proposals/` so the user can craft the PR commit themselves. Print the suggested PR title (`Update <skill-name> v<old>→v<new>: <one-line>`), the suggested PR body (the proposal's rationale + the full sanitization footer copied verbatim), and the command to push.
 
 Never commit. Never push. Promotion is the user's hand on the trigger from here on.
 

@@ -26,7 +26,7 @@ Two canonical files per project carry cross-cycle state. Default location `<proj
 
 Contract for every cycle:
 
-1. **Open**: read both end-to-end before any other action. If `TODO.md` is missing, create it from `~/Dev/transferable-skills/templates/TODO.md` as the very first action; commit that creation as part of this cycle's single commit. Do not invent a different shape.
+1. **Open**: read both end-to-end before any other action. If `TODO.md` is missing, create it from `~/Dev/skill-set/templates/TODO.md` as the very first action; commit that creation as part of this cycle's single commit. Do not invent a different shape.
 2. **Decide** (see §1 below): pick from `TODO.md`'s "Next up" if non-empty, else from the spec's next unchecked item.
 3. **Mid-cycle**: append a single `## In flight` line at the start of work in this format: `- [<skill-name> @ <utc-iso>] <one-line>`. Rewrite (don't append again) as the work narrows. Do not commit mid-cycle "In flight" updates; they live unstaged until the close commit.
 4. **Close** (see §5–6 below): move the in-flight line to "Just shipped" with the commit SHA-short; if the cycle uncovered new work that doesn't belong in the spec, append it to "Next up." Trim "Just shipped" to the most recent 10 entries.
@@ -38,7 +38,7 @@ Contract for every cycle:
 2. Activate any language-specific environment the project uses (venv, node_modules, etc.).
 3. Confirm `git status` is clean. If there are staged or modified files from a prior aborted run, inspect them and either commit them (if they represent finished work) or stash/discard them before starting — do not silently include them in this cycle's commit.
 4. Read `docs/SPEC.md` (or the project's primary spec — see §1) end-to-end.
-5. Read `docs/TODO.md` end-to-end. If missing, create it from `~/Dev/transferable-skills/templates/TODO.md` and stage it for inclusion in this cycle's single commit; do NOT make a separate "create TODO" commit.
+5. Read `docs/TODO.md` end-to-end. If missing, create it from `~/Dev/skill-set/templates/TODO.md` and stage it for inclusion in this cycle's single commit; do NOT make a separate "create TODO" commit.
 
 ## 1. Decide what to work on
 

@@ -1,10 +1,10 @@
-# transferable-skills SPEC
+# skill-set SPEC
 
-This is the master spec for the transferable-skills system itself. Each consuming project keeps its own `docs/SPEC.md` for its own work; this file governs the framework.
+This is the master spec for the skill-set system itself. Each consuming project keeps its own `docs/SPEC.md` for its own work; this file governs the framework.
 
 ## Harness scope
 
-The framework is harness-agnostic: a `Harness` abstraction in `bin/skill-chain.py` isolates the choice of agent runtime (which CLI to spawn, what command-line shape, what stream format). The MVP ships with one implementation — `claude-code` — because that's what the prototype runs on; additional harnesses (Codex CLI, Gemini CLI, etc.) drop in by adding a `Harness` subclass. User-facing docs use harness-neutral terms ("agent", "harness", "skills directory"); the current default skills paths (`~/.claude/skills/`, `<project>/.claude/skills/`) come from the Claude Code harness and will be parameterized when a second harness lands.
+The framework is harness-agnostic: a `Harness` abstraction in `bin/skill-chain.py` isolates the choice of agent runtime (which CLI to spawn, what command-line shape, what stream format). The MVP ships with one implementation — `claude-code` — because that's what the prototype runs on; additional harnesses (Codex CLI, Gemini CLI, etc.) drop in by adding a `Harness` subclass. User-facing docs use harness-neutral terms ("agent", "harness", "skills directory"); the current default skills paths (`~/.claude/skills/skill-set/` for globally-installed transferables, `<project>/.claude/skills/` for proprietary) come from the Claude Code harness and will be parameterized when a second harness lands. The `skill-set/` segregation dir keeps this framework's skills from colliding with other Claude Code tools sharing `~/.claude/skills/`.
 
 ## Primary concepts
 
@@ -117,7 +117,7 @@ Before writing a transferable proposal, the supervisor invokes the `sanitize-tra
 - [x] Copy the prior `~/.claude/skills/dev-cycle/` and `dev-review/` implementations into `skills/` (canonical home is the master repo from now on; `bin/install-skills.sh` does a one-way copy back to the harness skills dir).
 - [x] Bake handoff-doc read/update contract into transferable preambles.
 - [x] `schema/skill-set.schema.json` validator written (the validator runner that enforces it lives in Phase 3 supervisor + Phase 6 CI).
-- [ ] User runs `bin/install-skills.sh -y` to deploy the updated dev-cycle/dev-review into `~/.claude/skills/`.
+- [ ] User runs `bin/install-skills.sh -y` to deploy the updated dev-cycle/dev-review into `~/.claude/skills/skill-set/`.
 
 ### Phase 3: supervisor
 

@@ -1,4 +1,4 @@
-# transferable-skills — project instructions
+# skill-set — project instructions
 
 This repo is the framework that defines how skill-chains, handoff docs, and supervisors work. When working here, **dogfood the framework's own contract on the framework itself.** The rules below are not aspirational; they are the same rules every skill that runs in any consuming project is required to follow.
 

@@ -30,7 +30,7 @@ Read these in order, all from the run log directory passed to you (the chain run
 
 1. **`MANIFEST.json`** — chain name, harness, per-skill exit codes, durations, model + token usage, git SHA before/after.
 2. **Each `<i>_<skill>.txt`** — the prettified, ANSI-stripped transcript of one skill invocation.
-3. **Each skill's current `SKILL.md`** — for the chain runner's CWD-local `.claude/skills/<skill>/SKILL.md` (proprietary) and, if the proprietary skill has a `transferable:` field, the parent at `~/Dev/transferable-skills/skills/<transferable>/SKILL.md`.
+3. **Each skill's current `SKILL.md`** — for the chain runner's CWD-local `.claude/skills/<skill>/SKILL.md` (proprietary) and, if the proprietary skill has a `transferable:` field, the parent at `~/Dev/skill-set/skills/<transferable>/SKILL.md`.
 4. **`~/.claude/state/manager-guidance.md`** if it exists — guiding principles the manager has nudged into your input on prior runs.
 5. **`docs/SPEC.md` and `docs/TODO.md`** — for context on what the chain was working toward.
 
@@ -60,7 +60,7 @@ Skip nitpicks (style, wording, "could be clearer", "what if"). If after honest e
 For each finding, write a full proposed rewrite of the affected `SKILL.md` to:
 
 - **`<run-dir>/proposals/<skill-name>.patch.md`** for proprietary patches.
-- **`~/Dev/transferable-skills/proposals/<UTC>_<transferable-name>_from-<project>.patch.md`** for transferable patches — but only after the leak check (§4) passes.
+- **`~/Dev/skill-set/proposals/<UTC>_<transferable-name>_from-<project>.patch.md`** for transferable patches — but only after the leak check (§4) passes.
 
 Each proposal file's structure:
 
@@ -106,7 +106,7 @@ clarification, minor for added behavior, major for changed contract)
 
 ### 4. Sanitize (transferable proposals only)
 
-Before writing any file under `~/Dev/transferable-skills/proposals/`, run the proposed body through the `sanitize-transferable` skill:
+Before writing any file under `~/Dev/skill-set/proposals/`, run the proposed body through the `sanitize-transferable` skill:
 
 1. Write the proposed body to a temp file (e.g. `<run-dir>/proposals/<skill>.transferable-draft.md`).
 2. Invoke `/sanitize-transferable <draft-file> --project-context <path-to-proprietary-supervisor-SKILL.md>`.
@@ -115,7 +115,7 @@ Before writing any file under `~/Dev/transferable-skills/proposals/`, run the pr
    - **`should-fix` findings only** → either rewrite the draft to address them all, or downgrade to proprietary-only.
    - **Zero findings or only `nit`** → safe to write the transferable proposal; copy the `Sanitization checklist` footer from the findings file into the proposal as-is, then fill in the per-category counts.
 
-Sanitization is judgment-based; it's an LLM pass against `~/Dev/transferable-skills/templates/sanitization-guidance.md` plus the per-project banned-terms list. Do not try to grep — `sanitize-transferable` exists precisely so the supervisor doesn't have to play regex games.
+Sanitization is judgment-based; it's an LLM pass against `~/Dev/skill-set/templates/sanitization-guidance.md` plus the per-project banned-terms list. Do not try to grep — `sanitize-transferable` exists precisely so the supervisor doesn't have to play regex games.
 
 ### 5. Update docs/TODO.md (rare)
 
@@ -171,7 +171,7 @@ Escalation does NOT change what the supervisor writes; it just sets a flag the m
 
 ## Output rules
 
-- **Only write under `<run-dir>/`, `~/Dev/transferable-skills/proposals/`, and (rarely) `docs/TODO.md`.** Never elsewhere.
+- **Only write under `<run-dir>/`, `~/Dev/skill-set/proposals/`, and (rarely) `docs/TODO.md`.** Never elsewhere.
 - **Never call git.** No commits, no pushes, no branch creation. Proposals are unstaged files; promotion happens later under user gating.
 - **Never deploy.** No SSH, no service restarts, no curl against a live site.
 

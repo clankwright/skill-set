@@ -7,7 +7,7 @@
 # Add to /etc/rc.conf to enable:
 #   manager_bot_enable="YES"
 #   manager_bot_user="<username>"
-#   manager_bot_dir="/path/to/transferable-skills"
+#   manager_bot_dir="/path/to/skill-set"
 #   manager_bot_env_file="/path/to/.config/manager-telegram.env"
 
 . /etc/rc.subr
@@ -18,7 +18,7 @@ load_rc_config $name
 
 : ${manager_bot_enable:="NO"}
 : ${manager_bot_user:="nobody"}
-: ${manager_bot_dir:="/path/to/transferable-skills"}
+: ${manager_bot_dir:="/path/to/skill-set"}
 : ${manager_bot_env_file:="/path/to/.config/manager-telegram.env"}
 : ${manager_bot_log:="/var/log/manager_bot.log"}
 : ${manager_bot_python:="/usr/local/bin/python3.11"}

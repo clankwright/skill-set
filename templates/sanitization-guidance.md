@@ -60,7 +60,7 @@ If your skill says "the deploy step is `ssh <host-alias> && git pull`," it has a
 These are NOT leaks; the framework is built around them:
 
 - The harness vendor (`Claude Code`, `anthropic.com`) — the framework explicitly supports the Claude Code harness as its only MVP implementation.
-- The framework's own paths (`~/Dev/transferable-skills/skills/`, `~/.claude/state/`).
+- The framework's own paths (`~/Dev/skill-set/skills/`, `~/.claude/state/`).
 - Industry-standard tools, languages, formats (`pytest`, `git`, `JSON`, `Markdown`).
 - RFC-defined values (port 80, port 443, TLS, RFC 5321 email length).
 - Standard placeholder TLDs (RFC 2606: `example.com`, `example.org`, `example.net`).
