@@ -18,6 +18,7 @@
   Trim to the most recent 10 entries; older history lives in docs/SPEC.md phase blocks and `git log`.
 -->
 
+- 34cb36a Phase 9: optional chain looping + dogfood CLAUDE.md — by claude-code at 2026-04-23T12:31:40Z
 - bc3ec9c Phase 8.5: lift short-video-generator + social-promoter; first proprietary counterpart
 - 795041d Phase 8.4: lift email-control-loop, agent-orchestrator
 - 9c5d5c0 Phase 8.3: lift llm-judge-ranker, translator
@@ -27,7 +28,6 @@
 - 21ea214 Add skill-chain definitions as a first-class concept
 - 5b6a064 Phase 7 + sanitize pivot: lift non-dev transferables; replace regex leak-check with skill-based sanitization
 - 9ccd6ba Phase 6: CI workflow + frontmatter validator + leak-check refinements
-- 7363463 Phase 5: manager skill + Telegram bot + service units
 
 ## Next up (queued for next cycle)
 
