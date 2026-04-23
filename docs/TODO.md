@@ -38,6 +38,10 @@
   Order: blockers/highest-impact first.
 -->
 
+- [naming] Validator rule: proprietary `name:` MUST differ from `transferable:` — reason: user directive; enforces the distinct-name convention that keeps install/remove from ever colliding with proprietary skills.
+- [naming] Document the `ss-<transferable>` convention for proprietary counterparts in SPEC.md, covering both project-scoped (`<project>/.claude/skills/`) and personal-global (`~/.claude/skills/`) scopes — reason: user directive; formalizes collision prevention and the `ss-` prefix (user picked over `me-`).
+- [naming] Install-time safety net in `bin/install-skills.sh`: when a target skill exists and diverges from source beyond frontmatter, show diff and require per-skill confirmation (skip in `-y` mode unless `--force`) — reason: user directive; protects hand-edited targets from silent overwrite.
+- [naming] Rename user's diverged `~/.claude/skills/linkedin-easy-apply/` to `ss-linkedin-easy-apply`, update its frontmatter (`name:` + `transferable: linkedin-easy-apply`), back up canonical copy outside `~/.claude/` — reason: user directive; first application of the new convention, unblocks installing the sanitized transferable `linkedin-easy-apply` alongside.
 - Phase 9 `Document the loop flag + YAML field in README.md` — reason: spec Phase 9 tail item; the runner/schema support ships this cycle but the user-facing README still only describes one-shot chains.
 - Phase 9 `Add at least one transferable chain that uses loop: N by default` — reason: spec Phase 9 tail item; validates the YAML field against a real consuming flow (likely candidate: an iterative-writer or dev-cycle-with-review loop).
 - Phase 8.6 end-to-end smoke: chain `web-research → editorial-pass → social-promoter` against a real consuming project with clean supervisor verdict — reason: spec Phase 8 tail item, Phase 8.1-8.5 lifts already complete.
