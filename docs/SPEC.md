@@ -1,0 +1,155 @@
+# transferable-skills SPEC
+
+This is the master spec for the transferable-skills system itself. Each consuming project keeps its own `docs/SPEC.md` for its own work; this file governs the framework.
+
+## Harness scope
+
+The framework is harness-agnostic: a `Harness` abstraction in `bin/skill-chain.py` isolates the choice of agent runtime (which CLI to spawn, what command-line shape, what stream format). The MVP ships with one implementation — `claude-code` — because that's what the prototype runs on; additional harnesses (Codex CLI, Gemini CLI, etc.) drop in by adding a `Harness` subclass. User-facing docs use harness-neutral terms ("agent", "harness", "skills directory"); the current default skills paths (`~/.claude/skills/`, `<project>/.claude/skills/`) come from the Claude Code harness and will be parameterized when a second harness lands.
+
+## Primary concepts
+
+### Skill-chain
+
+A `.yaml` file naming a sequence of skills the chain runner executes in order. Same transferable/proprietary split as skills:
+
+- **Transferable chains** live at `<repo>/chains/<name>.yaml`.
+- **Proprietary chains** live at `<project>/.claude/chains/<name>.yaml`.
+- A proprietary chain MAY name the transferable chain it instantiates via `transferable: <name>` (informational; no inheritance/override behavior in MVP — proprietary chains list their full skill sequence explicitly).
+
+Frontmatter shape (validated by `schema/skill-chain.schema.json`):
+
+```yaml
+name: dev-cycle-with-review        # must match filename without .yaml
+description: ...
+version: 1.0.0
+user-invocable: true               # default true
+auto-supervisor: true              # default true
+skills:                            # required, ordered
+  - dev-cycle
+  - dev-review
+transferable: dev-cycle-with-review  # proprietary only
+transferable-version: ">=1.0.0"      # proprietary only, optional
+```
+
+Invocation:
+
+```bash
+bin/skill-chain.py --chain <name>     # resolves cwd/.claude/chains/ then repo/chains/
+bin/skill-chain.py <skill> [<skill>]  # ad-hoc, no chain file needed
+```
+
+### Skill-set
+
+A `(transferable, proprietary)` pair of `SKILL.md` files, linked via the `transferable:` field in the proprietary's YAML frontmatter:
+
+```yaml
+---
+name: myproject-dev
+description: ...
+user-invocable: true
+transferable: dev-cycle
+transferable-version: ">=1.0.0"
+---
+```
+
+Transferable skills don't back-link (1:N relationship). Validation: `schema/skill-set.schema.json`.
+
+### Handoff docs
+
+Every project keeps two canonical files (`docs/SPEC.md`, `docs/TODO.md`) read by every skill on start and updated by every skill on close. See `templates/`.
+
+`SPEC.md` shape: long-lived, phase checklists with `- [ ]`/`- [x]`, closed phases get a 1-paragraph context + bulleted change log.
+
+`TODO.md` shape (three sections):
+```markdown
+## In flight
+- [<skill> @ <utc>] <one-line>
+
+## Just shipped (last cycle)
+- <sha> <one-line> — by <skill> at <utc>
+
+## Next up (queued for next cycle)
+- <one-line> — reason / source
+```
+
+Skill contract (codified in transferable preambles):
+1. Read both docs end-to-end before any other action.
+2. Pick from `TODO.md` "Next up" if non-empty, else next unchecked item in `SPEC.md`.
+3. Write a single "In flight" line at start; rewrite (don't append) as work narrows.
+4. On close: move "In flight" → "Just shipped" with commit SHA; append any new work to "Next up"; trim "Just shipped" to last 10.
+5. Both docs commit in the same commit as the code change.
+
+### Run log
+
+Each chain invocation writes to `<project>/.skill-runs/<UTC>_<chain-name>/`:
+
+- `MANIFEST.json` — chain name, harness, skill list, exit codes, durations, model, token usage, git SHA before/after.
+- `<i>_<skill>.jsonl` — raw stream events emitted by the harness (one JSON object per line).
+- `<i>_<skill>.txt` — prettified, ANSI-stripped transcript.
+- `supervisor_verdict.md` — appended at end of chain (when supervisor runs).
+- `proposals/<skill-name>.patch.md` — proposed `SKILL.md` rewrites (proprietary or transferable).
+
+### Sanitization (transferable proposals only)
+
+Before writing a transferable proposal, the supervisor invokes the `sanitize-transferable` skill, which scans the draft against `templates/sanitization-guidance.md` (rubric) and the per-project banned-terms list maintained by the proprietary supervisor. Sanitization is judgment-based — an LLM pass, not regex. Any `must-fix` finding aborts the write; the lesson stays in the proprietary proposal only. Every transferable proposal carries a `Sanitization checklist:` footer the sanitize skill generates and the human reviewer fills in; CI rejects PRs without a complete footer.
+
+## Phases
+
+### Phase 1: skeleton + log capture
+
+- [x] `git init` master repo, MIT LICENSE, README, SPEC, .gitignore.
+- [x] `templates/SPEC.md`, `templates/TODO.md`.
+- [x] Relocate the chain runner into the master repo as `bin/skill-chain.py` (single canonical copy, no symlinks).
+- [x] Add `--log-dir` to chain script; write `MANIFEST.json` + per-skill `.jsonl` + `.txt`.
+- [x] Introduce `Harness` abstraction (Claude Code as MVP impl); `--harness` flag + `$AGENT_HARNESS`.
+- [x] Smoke-test a real dev-cycle chain end-to-end from a consuming project.
+- [x] Bootstrap the consuming project's `docs/TODO.md` from template.
+
+### Phase 2: linkage + globals lift
+
+- [x] Add `transferable: dev-cycle` / `transferable: dev-review` to the consuming project's proprietary skills (in `<project>/.claude/skills/`).
+- [x] Copy the prior `~/.claude/skills/dev-cycle/` and `dev-review/` implementations into `skills/` (canonical home is the master repo from now on; `bin/install-skills.sh` does a one-way copy back to the harness skills dir).
+- [x] Bake handoff-doc read/update contract into transferable preambles.
+- [x] `schema/skill-set.schema.json` validator written (the validator runner that enforces it lives in Phase 3 supervisor + Phase 6 CI).
+- [ ] User runs `bin/install-skills.sh -y` to deploy the updated dev-cycle/dev-review into `~/.claude/skills/`.
+
+### Phase 3: supervisor
+
+- [x] `skills/supervisor/SKILL.md` (transferable).
+- [x] First proprietary `<project>-supervisor/SKILL.md` built in a consuming project.
+- [x] Auto-append proprietary supervisor in `bin/skill-chain.py`.
+- [x] `templates/sanitization-guidance.md` + `skills/sanitize-transferable/` (LLM-judgment scan, not regex grep).
+
+### Phase 4: proposal promotion
+
+- [x] `~/.claude/skills/promote-skill-proposal/SKILL.md`.
+
+### Phase 5: manager + Telegram bot
+
+- [x] `skills/manager/SKILL.md` (transferable).
+- [x] First proprietary manager in a consuming project.
+- [x] `bin/notify-telegram.sh` (outbound).
+- [x] `bin/manager-bot.py` (long-poll).
+- [x] Service unit (systemd) + rc.d script.
+
+### Phase 6: open-source
+
+- [ ] Push to public GitHub repo.
+- [x] CI: frontmatter validator + sanitization-footer-on-PR enforcement (leak/grep enforcement removed — replaced by sanitize-transferable skill run pre-PR by contributors).
+- [x] CONTRIBUTING.md.
+
+### Phase 7: portability proof
+
+- [x] Build a second skill-set in a non-dev field (lead-gen, content-ops, infra). Done by lifting `lead-generation`, `domain-seo-research`, `linkedin-easy-apply`, `linkedin-networking` from existing globals.
+- [x] Confirm `supervisor` and `manager` work unmodified across both — they're domain-agnostic by construction; the validator passes all skills uniformly.
+
+### Phase 8: lift long-running agents into transferables
+
+A 12-agent framework was ported into this repo as 12 target skills (11 transferable, 1 split into transferable + first proprietary counterpart). 5 sub-phases ordered by complexity / interdependency. Each lift converted a language-model-agent Python module into a SKILL.md natural-language procedure; agent-framework infrastructure (rate-limiting wrappers, tool helpers) mapped to harness-provided primitives. Each lifted skill passed `sanitize-transferable` + `validate-frontmatter` before commit.
+
+- [x] Phase 8.1: `web-research`, `fact-checker`, `output-selector`.
+- [x] Phase 8.2: `iterative-writer`, `literary-critic`, `editorial-pass`.
+- [x] Phase 8.3: `llm-judge-ranker`, `translator`.
+- [x] Phase 8.4: `email-control-loop`, `agent-orchestrator`.
+- [x] Phase 8.5: `short-video-generator`, `social-promoter` + first proprietary counterpart in a consuming project's `.claude/skills/`.
+- [ ] End-to-end smoke: a chain `web-research → editorial-pass → social-promoter` runs to completion against a real project with a clean supervisor verdict. (User-driven validation; deferred until the user runs a real cycle.)

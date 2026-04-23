@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/toadlyBroodle/transferable-skills/schema/skill-chain.schema.json",
+  "title": "Skill-chain definition",
+  "description": "Validates a chain definition file. Transferable chains live at <repo>/chains/<name>.yaml; proprietary chains live at <project>/.claude/chains/<name>.yaml.",
+  "type": "object",
+  "required": ["name", "description", "version", "skills"],
+  "additionalProperties": true,
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
+      "description": "kebab-case identifier; must match the file basename (without .yaml)."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 20,
+      "description": "What this chain accomplishes end-to-end. Specific enough that a user picking from a list can choose correctly."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.-]+)?$"
+    },
+    "skills": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered list of skill names. The chain runner invokes each in sequence; non-zero exit aborts the rest. The project's auto-supervisor (if any) is appended automatically unless --no-supervisor is passed.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+      }
+    },
+    "transferable": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
+      "description": "PROPRIETARY chains only: the name of the transferable chain this is a project-specific instantiation of. Informational (no inheritance / override behavior in MVP); used by the supervisor to correlate cycles across projects that follow the same conceptual flow."
+    },
+    "transferable-version": {
+      "type": "string",
+      "description": "PROPRIETARY chains only: npm-style range pinning the transferable counterpart."
+    },
+    "auto-supervisor": {
+      "type": "boolean",
+      "default": true,
+      "description": "If false, the chain runner does NOT auto-append the project's supervisor. Equivalent to passing --no-supervisor on the CLI. Default true."
+    },
+    "user-invocable": {
+      "type": "boolean",
+      "default": true,
+      "description": "If false, this chain is intended to be triggered only by another chain or a higher-level orchestrator, not directly by the user."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "required": ["transferable-version"] },
+      "then": { "required": ["transferable"] }
+    }
+  ]
+}

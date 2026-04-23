@@ -1,0 +1,10 @@
+name: research-write-promote
+description: Full content cycle from research through publication on a social platform. Runs research-and-write, then social-promoter to draft and publish a promotional post linking back to the new content. Use only when the social-promoter has a proprietary brand counterpart configured for the target platform.
+version: 1.0.0
+user-invocable: true
+skills:
+  - web-research
+  - iterative-writer
+  - literary-critic
+  - editorial-pass
+  - social-promoter

@@ -1,0 +1,18 @@
+# Per-job run logs (each consuming project keeps its own outside this repo;
+# any local symlinks or test logs land here too)
+.skill-runs/
+
+# Generated proposal scratch (real proposals live under proposals/ and are
+# committed; a contributor's local sandbox sits here)
+proposals/.scratch/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
+
+# Claude Code runtime state (local to each clone)
+.claude/

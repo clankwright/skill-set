@@ -1,0 +1,8 @@
+name: editorial-with-fact-check
+description: Editorial pass over an existing draft with explicit fact-checking before final polish. Use when the source draft is rough, makes claims that need verification, or came from an upstream agent rather than a human author.
+version: 1.0.0
+user-invocable: true
+skills:
+  - fact-checker
+  - literary-critic
+  - editorial-pass

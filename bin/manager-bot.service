@@ -1,0 +1,28 @@
+[Unit]
+Description=Manager Telegram Bot (transferable-skills)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Edit these to match your environment.
+User=<username>
+WorkingDirectory=/path/to/transferable-skills
+# TELEGRAM_ENV_FILE points at a .env-style file with TELEGRAM_BOT_TOKEN and
+# TELEGRAM_CHAT_ID. The bot also reads MANAGER_STATE_DIR if set (default
+# ~/.claude/state).
+Environment="TELEGRAM_ENV_FILE=/path/to/.config/manager-telegram.env"
+ExecStart=/usr/bin/python3 /path/to/transferable-skills/bin/manager-bot.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/path/to/.claude/state/manager-bot.log
+StandardError=append:/path/to/.claude/state/manager-bot.log
+
+# Hardening — drop what the bot doesn't need.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/path/to/.claude/state
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/toadlyBroodle/transferable-skills/schema/skill-set.schema.json",
+  "title": "Skill-set frontmatter",
+  "description": "Validates the YAML frontmatter at the top of every SKILL.md, both transferable (in this repo) and proprietary (in a project's harness skills dir).",
+  "type": "object",
+  "required": ["name", "description", "version"],
+  "additionalProperties": true,
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
+      "description": "kebab-case identifier; must match the folder name."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Human-readable summary; what the skill does and when it triggers. Must be specific enough that an LLM router can pick it from a list of similar skills."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.-]+)?$",
+      "description": "SemVer (MAJOR.MINOR.PATCH, optional pre-release suffix)."
+    },
+    "user-invocable": {
+      "type": "boolean",
+      "description": "If true, the user can run this skill directly via the harness's slash-command surface. If absent or false, the skill is only invoked indirectly (by the chain runner, supervisor, or another skill)."
+    },
+    "transferable": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
+      "description": "PROPRIETARY skills only: the name of the transferable counterpart in the master repo. Transferable skills omit this field."
+    },
+    "transferable-version": {
+      "type": "string",
+      "description": "PROPRIETARY skills only: npm-style version range pinning the transferable counterpart (e.g. '>=1.0.0', '^1.2.0', '~1.0.5')."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "required": ["transferable-version"] },
+      "then": { "required": ["transferable"] }
+    }
+  ]
+}

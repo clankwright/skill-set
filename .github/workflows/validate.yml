@@ -1,0 +1,84 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-skills:
+    name: Validate frontmatter + leak-check transferables
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install --no-cache-dir pyyaml jsonschema
+
+      - name: Validate every SKILL.md frontmatter
+        run: python3 bin/validate-frontmatter.py
+
+      # Note: leak / sanitization checks are now LLM-judgment-driven via the
+      # sanitize-transferable skill, run by contributors before opening a PR.
+      # CI's role is reduced to (a) frontmatter validation above and
+      # (b) verifying the PR description's Sanitization checklist below.
+
+  sanitization-footer:
+    name: Sanitization checklist on PRs that touch skills/
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed transferable skills
+        id: changed
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed=$(git diff --name-only "$base..$head" -- 'skills/**/SKILL.md' | tr '\n' ' ')
+          echo "files=$changed" >> "$GITHUB_OUTPUT"
+          if [ -z "$changed" ]; then
+            echo "no transferable skills changed; sanitization footer not required."
+          else
+            echo "changed transferable skills: $changed"
+          fi
+
+      - name: Verify PR body has a complete Sanitization checklist
+        if: steps.changed.outputs.files != ''
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          body = os.environ.get("PR_BODY") or ""
+          # Look for a heading (any level) containing "Sanitization checklist".
+          heading_re = re.compile(r"(?im)^#{0,6}\s*sanitization\s*checklist[^\n]*\n+(.*?)(?=^#|\Z)", re.DOTALL | re.MULTILINE)
+          m = heading_re.search(body)
+          if not m:
+              print("::error::PR body is missing a 'Sanitization checklist' section. "
+                    "PRs that touch skills/**/SKILL.md must include the supervisor's "
+                    "filled-in checklist (see CONTRIBUTING.md).")
+              sys.exit(1)
+          block = m.group(1)
+          # Count [x] checkboxes; must be at least 4 (the 4 generic rules in the supervisor's
+          # template). Empty/unchecked boxes fail.
+          checked = len(re.findall(r"^\s*-\s*\[x\]", block, flags=re.MULTILINE | re.IGNORECASE))
+          unchecked = len(re.findall(r"^\s*-\s*\[\s*\]", block, flags=re.MULTILINE))
+          if unchecked > 0 or checked < 4:
+              print(f"::error::Sanitization checklist incomplete: {checked} checked, "
+                    f"{unchecked} unchecked. Every box must be ticked, with each "
+                    f"banned term explicitly named (e.g. '- [x] checked: not present: <term>').")
+              sys.exit(1)
+          print(f"sanitization checklist OK: {checked} boxes ticked, {unchecked} unchecked.")
+          PY
