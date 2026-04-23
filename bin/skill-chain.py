@@ -3,7 +3,9 @@
 Run one or more agent skills in sequence, streaming prettified output.
 
 Usage:
-    skill-chain.py [--log-dir <dir>] [--chain-name <name>] [--harness <name>] <skill> [<skill> ...]
+    skill-chain.py [--log-dir <dir>] [--chain-name <name>] [--harness <name>]
+                   [--loop <N>] [--loop-delay <seconds>]
+                   <skill> [<skill> ...]
 
 Each skill runs as its own subprocess of the configured agent harness.
 Skills are chained with shell-style && semantics: non-zero exit aborts
@@ -13,11 +15,21 @@ Designed for autonomous long-running skills (e.g. /dev-cycle, /dev-review).
 Renders assistant text, tool calls, and session summaries so you can follow
 progress at a glance.
 
+Looping: --loop N (or the chain YAML's `loop:` field) runs the full skill
+sequence N times. --loop 0 loops until a non-supervisor skill fails or the
+user interrupts with Ctrl-C. --loop-delay inserts a sleep between iterations.
+When looping, each iteration's logs land in its own <log-dir>/iter_NN/
+subdir with its own MANIFEST.json; the top-level MANIFEST.json records the
+iteration summaries.
+
 When --log-dir is set (or omitted, in which case the script auto-creates
 ./.skill-runs/<UTC>_<chain-name>/), the chain also writes:
   - <i>_<skill>.jsonl  raw stream events from the harness
   - <i>_<skill>.txt    ANSI-stripped prettified transcript (what you saw)
   - MANIFEST.json      chain metadata + per-skill exit/duration/usage + git SHAs
+                       (for --loop != 1: top-level manifest carries an
+                       `iterations` array; per-iteration details are in
+                       iter_NN/MANIFEST.json)
 
 Harness abstraction
 -------------------
@@ -521,11 +533,76 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              "skills argument.",
     )
     p.add_argument(
+        "--loop",
+        type=int,
+        default=None,
+        help="Run the full skill sequence this many times (default 1 = no loop). "
+             "0 = loop until a non-supervisor skill fails or the user interrupts. "
+             "Overrides the chain YAML's `loop:` field when both are set.",
+    )
+    p.add_argument(
+        "--loop-delay",
+        type=float,
+        default=None,
+        help="Seconds to sleep between iterations when --loop != 1. "
+             "Overrides the chain YAML's `loop-delay:` field when both are set.",
+    )
+    p.add_argument(
         "skills",
         nargs="*",
         help="One or more skill names to run in sequence. Omit when --chain is set.",
     )
     return p.parse_args(argv)
+
+
+def run_iteration(
+    harness: Harness,
+    skills_to_run: list[str],
+    iter_log_dir: Path | None,
+    auto_supervisor: str | None,
+    iteration: int,
+    total_iterations: int | None,
+    cwd: str,
+) -> tuple[int, dict]:
+    """Run one pass of the chain. Returns (exit_code, iteration_manifest)."""
+    if total_iterations != 1:
+        if total_iterations is None:
+            label = f"iteration {iteration} (looping until failure)"
+        else:
+            label = f"iteration {iteration}/{total_iterations}"
+        print("", flush=True)
+        print(c(f"===== {label} =====", BOLD + BLUE), flush=True)
+        print("", flush=True)
+
+    iter_manifest: dict = {
+        "iteration": iteration,
+        "log_subdir": iter_log_dir.name if iter_log_dir else None,
+        "started_at": _utc_iso(),
+        "git_sha_before": _git_sha(cwd),
+        "skills": [],
+    }
+
+    rc = 0
+    for i, skill in enumerate(skills_to_run):
+        skill_rc, record = run_skill(harness, skill, i, iter_log_dir)
+        if skill == auto_supervisor:
+            record["role"] = "supervisor"
+        iter_manifest["skills"].append(record)
+        if skill_rc != 0:
+            # Supervisor failure should NOT abort downstream work or surface as the
+            # chain's exit code, since the cycle's real work already shipped.
+            if skill == auto_supervisor:
+                print(c(f"\n[supervisor] {skill} exited with {skill_rc}; "
+                        f"continuing (chain remains successful)", ORANGE), flush=True)
+                continue
+            print(f"\n{c(f'/{skill} exited with {skill_rc}; aborting chain', RED)}", flush=True)
+            rc = skill_rc
+            break
+
+    iter_manifest["finished_at"] = _utc_iso()
+    iter_manifest["git_sha_after"] = _git_sha(cwd)
+    iter_manifest["exit_code"] = rc
+    return rc, iter_manifest
 
 
 def main() -> int:
@@ -551,6 +628,28 @@ def main() -> int:
         chain_name = args.chain_name or skills_arg[0]
     args.skills = skills_arg  # for downstream code that references args.skills
 
+    # Resolve loop parameters (CLI wins over chain YAML).
+    if args.loop is not None:
+        loop_count = args.loop
+    elif chain_def is not None and "loop" in chain_def:
+        loop_count = int(chain_def["loop"])
+    else:
+        loop_count = 1
+    if loop_count < 0:
+        raise SystemExit("--loop must be >= 0 (0 = until failure / Ctrl-C)")
+
+    if args.loop_delay is not None:
+        loop_delay = args.loop_delay
+    elif chain_def is not None and "loop-delay" in chain_def:
+        loop_delay = float(chain_def["loop-delay"])
+    else:
+        loop_delay = 0.0
+    if loop_delay < 0:
+        raise SystemExit("--loop-delay must be >= 0")
+
+    looping = (loop_count != 1)
+    infinite = (loop_count == 0)
+
     log_dir: Path | None
     if args.no_log:
         log_dir = None
@@ -566,6 +665,10 @@ def main() -> int:
     if chain_def is not None:
         print(c(f"[chain]   {chain_def.get('name', args.chain)}  "
                 f"(from {chain_def.get('_source', '?')})", DIM), flush=True)
+    if looping:
+        loop_desc = "until failure / Ctrl-C" if infinite else f"{loop_count} iterations"
+        delay_desc = f", {loop_delay}s delay between" if loop_delay > 0 else ""
+        print(c(f"[loop]    {loop_desc}{delay_desc}", DIM), flush=True)
 
     # Auto-append a project-local supervisor (e.g. <cwd>/.claude/skills/<project>-supervisor/)
     # if one exists and the user didn't already include it in the chain.
@@ -588,32 +691,73 @@ def main() -> int:
         "auto_supervisor": auto_supervisor,
         "started_at": _utc_iso(),
         "cwd": cwd,
-        "git_sha_before": _git_sha(cwd),
-        "skills": [],
     }
+    if looping:
+        manifest["loop"] = {
+            "requested": loop_count,      # 0 means infinite
+            "delay_seconds": loop_delay,
+            "completed": 0,
+        }
+        manifest["iterations"] = []
 
     final_rc = 0
-    for i, skill in enumerate(skills_to_run):
-        rc, record = run_skill(harness, skill, i, log_dir)
-        # Mark whether this slot is the supervisor (informational; helps the manager).
-        if skill == auto_supervisor:
-            record["role"] = "supervisor"
-        manifest["skills"].append(record)
-        if rc != 0:
-            # Supervisor failure should NOT abort downstream work or surface as the
-            # chain's exit code, since the cycle's real work already shipped. Surface
-            # it but keep the chain green.
-            if skill == auto_supervisor:
-                print(c(f"\n[supervisor] {skill} exited with {rc}; "
-                        f"continuing (chain remains successful)", ORANGE), flush=True)
-                continue
-            print(f"\n{c(f'/{skill} exited with {rc}; aborting chain', RED)}", flush=True)
-            final_rc = rc
-            break
+    iteration = 0
+    iterations_collected: list[dict] = []
+    try:
+        while True:
+            iteration += 1
+            if looping and log_dir is not None:
+                iter_log_dir: Path | None = log_dir / f"iter_{iteration:02d}"
+            else:
+                iter_log_dir = log_dir
+
+            rc, iter_manifest = run_iteration(
+                harness,
+                skills_to_run,
+                iter_log_dir,
+                auto_supervisor,
+                iteration,
+                None if infinite else loop_count,
+                cwd,
+            )
+            iterations_collected.append(iter_manifest)
+
+            # Per-iteration MANIFEST.json only when looping (flat layout for loop=1
+            # preserves the pre-loop shape for any tooling reading these files).
+            if looping and iter_log_dir is not None:
+                (iter_log_dir / "MANIFEST.json").write_text(
+                    json.dumps(iter_manifest, indent=2) + "\n", encoding="utf-8"
+                )
+
+            if rc != 0:
+                final_rc = rc
+                break
+            if not infinite and iteration >= loop_count:
+                break
+            if loop_delay > 0:
+                print(c(f"[loop] sleeping {loop_delay}s before iteration {iteration + 1}", DIM), flush=True)
+                time.sleep(loop_delay)
+    except KeyboardInterrupt:
+        print(c(f"\n[loop] interrupted after {iteration} iteration(s)", ORANGE), flush=True)
+        if final_rc == 0:
+            final_rc = 130
 
     manifest["finished_at"] = _utc_iso()
-    manifest["git_sha_after"] = _git_sha(cwd)
     manifest["exit_code"] = final_rc
+
+    if iterations_collected:
+        manifest["git_sha_before"] = iterations_collected[0]["git_sha_before"]
+        manifest["git_sha_after"]  = iterations_collected[-1]["git_sha_after"]
+    else:
+        manifest["git_sha_before"] = _git_sha(cwd)
+        manifest["git_sha_after"]  = manifest["git_sha_before"]
+
+    if looping:
+        manifest["loop"]["completed"] = iteration
+        manifest["iterations"] = iterations_collected
+    else:
+        # Preserve the original flat shape for single-run manifests.
+        manifest["skills"] = iterations_collected[0]["skills"] if iterations_collected else []
 
     if log_dir is not None:
         (log_dir / "MANIFEST.json").write_text(

@@ -38,6 +38,8 @@
   Order: blockers/highest-impact first.
 -->
 
+- Phase 9 `Document the loop flag + YAML field in README.md` — reason: spec Phase 9 tail item; the runner/schema support ships this cycle but the user-facing README still only describes one-shot chains.
+- Phase 9 `Add at least one transferable chain that uses loop: N by default` — reason: spec Phase 9 tail item; validates the YAML field against a real consuming flow (likely candidate: an iterative-writer or dev-cycle-with-review loop).
 - Phase 8.6 end-to-end smoke: chain `web-research → editorial-pass → social-promoter` against a real consuming project with clean supervisor verdict — reason: spec Phase 8 tail item, Phase 8.1-8.5 lifts already complete.
 - Phase 6 `Push to public GitHub repo` — reason: `git remote -v` is empty; blocks open-source release work.
 - Phase 2 `User runs bin/install-skills.sh -y to deploy the updated dev-cycle/dev-review into ~/.claude/skills/` — reason: user action, still pending.

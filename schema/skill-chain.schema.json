@@ -48,6 +48,18 @@
       "type": "boolean",
       "default": true,
       "description": "If false, this chain is intended to be triggered only by another chain or a higher-level orchestrator, not directly by the user."
+    },
+    "loop": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 1,
+      "description": "Default iteration count for this chain. 1 = run once (default, current behavior). N > 1 = run the full skill sequence N times. 0 = loop until a non-supervisor skill fails or the user interrupts. CLI flag --loop overrides this field."
+    },
+    "loop-delay": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0,
+      "description": "Seconds to sleep between iterations when loop != 1. Ignored for single-iteration runs. CLI flag --loop-delay overrides this field."
     }
   },
   "allOf": [

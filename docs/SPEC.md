@@ -24,6 +24,8 @@ description: ...
 version: 1.0.0
 user-invocable: true               # default true
 auto-supervisor: true              # default true
+loop: 1                            # default 1; N>1 runs the sequence N times; 0 = until failure/Ctrl-C
+loop-delay: 0                      # default 0; seconds to sleep between iterations
 skills:                            # required, ordered
   - dev-cycle
   - dev-review
@@ -34,9 +36,13 @@ transferable-version: ">=1.0.0"      # proprietary only, optional
 Invocation:
 
 ```bash
-bin/skill-chain.py --chain <name>     # resolves cwd/.claude/chains/ then repo/chains/
-bin/skill-chain.py <skill> [<skill>]  # ad-hoc, no chain file needed
+bin/skill-chain.py --chain <name>                  # resolves cwd/.claude/chains/ then repo/chains/
+bin/skill-chain.py --chain <name> --loop 5         # override loop count at runtime
+bin/skill-chain.py --chain <name> --loop 0         # loop until failure / Ctrl-C
+bin/skill-chain.py <skill> [<skill>]               # ad-hoc, no chain file needed
 ```
+
+When `loop != 1`, each iteration's artifacts land in a `<log-dir>/iter_NN/` subdir with its own `MANIFEST.json`; the top-level `MANIFEST.json` carries an `iterations: [...]` array summarizing each pass. For `loop == 1` the single-run flat layout is preserved unchanged, so existing tooling is untouched. A non-supervisor skill failure aborts the whole loop; Ctrl-C cleanly breaks out after the current skill finishes.
 
 ### Skill-set
 
@@ -153,3 +159,14 @@ A 12-agent framework was ported into this repo as 12 target skills (11 transfera
 - [x] Phase 8.4: `email-control-loop`, `agent-orchestrator`.
 - [x] Phase 8.5: `short-video-generator`, `social-promoter` + first proprietary counterpart in a consuming project's `.claude/skills/`.
 - [ ] End-to-end smoke: a chain `web-research → editorial-pass → social-promoter` runs to completion against a real project with a clean supervisor verdict. (User-driven validation; deferred until the user runs a real cycle.)
+
+### Phase 9: optional chain looping
+
+Add opt-in iteration to the chain runner so a single chain definition can repeat its full skill sequence N times (or until a non-supervisor failure). Rationale: long-running skills (dev-cycle, editorial-pass, social-promoter) often want to tick through several items from `TODO.md > Next up` in one sitting without a human re-invoking the chain each pass. The supervisor still runs once per iteration, keeping the handoff-doc contract intact between cycles.
+
+- [x] `loop` + `loop-delay` fields added to `schema/skill-chain.schema.json` (defaults 1 / 0; fully backward compatible).
+- [x] `bin/skill-chain.py` gains `--loop` and `--loop-delay` CLI flags (CLI overrides YAML). `--loop 0` loops until a non-supervisor failure or Ctrl-C.
+- [x] Iteration-per-subdir log layout (`iter_NN/MANIFEST.json`) when `loop != 1`; single-run flat layout preserved for `loop == 1`.
+- [x] Top-level `MANIFEST.json` carries `iterations: [...]` + `loop: {requested, delay_seconds, completed}` when looping.
+- [ ] Document the loop flag + YAML field in `README.md`.
+- [ ] Add at least one transferable chain that uses `loop: N` by default (candidate: an iterative-writer or dev-cycle-with-review loop).
