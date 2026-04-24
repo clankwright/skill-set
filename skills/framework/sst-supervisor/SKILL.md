@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.1.0
+version: 1.1.1
 ---
 
 # Supervisor
@@ -149,7 +149,9 @@ Escalation does NOT change what the supervisor writes; it just sets a flag the m
 
 ## Permissions contract
 
-The supervisor writes under `.claude/skills/`, which is normally gated by harness approval prompts. Those prompts are bypassed by the chain runner (`bin/skill-chain.py` passes `--dangerously-skip-permissions` to every skill invocation it spawns, supervisor included), so in the autonomous path every Write/Edit here is auto-approved. If you are ever running the supervisor manually outside a chain run, expect approval prompts on each write; that is intentional — manual runs are inherently interactive.
+The supervisor writes under `.claude/skills/`, which would normally require interactive approval on each Write/Edit. Those prompts are bypassed by the chain runner, which spawns every skill with `--permission-mode bypassPermissions`. That mode has an explicit carveout for `.claude/skills/**`, `.claude/commands/**`, and `.claude/agents/**` — writes there proceed without a prompt. (The superficially-similar `--dangerously-skip-permissions` flag does NOT have this carveout in practice and would still prompt on skills writes; do not substitute it.)
+
+If you are ever running the supervisor manually outside a chain run, expect approval prompts on each write; that is intentional — manual runs are inherently interactive.
 
 Do NOT add a side-channel (env var, lock file, config toggle) to skip prompts in other code paths. The harness flag is the single source of truth; changing it changes the behavior uniformly.
 

@@ -119,7 +119,14 @@ class ClaudeCodeHarness(Harness):
         )
         return [
             "claude",
-            "--dangerously-skip-permissions",
+            # bypassPermissions, not --dangerously-skip-permissions. The latter
+            # empirically still prompts on writes under `.claude/skills/**` even
+            # though its help text claims it bypasses all checks — which breaks
+            # Phase 11's direct-overwrite path (sst-supervisor rewriting peer
+            # SKILL.md files). bypassPermissions has an explicit carveout for
+            # .claude/skills, .claude/commands, .claude/agents because claude
+            # routinely writes there. See Claude Code permissions docs.
+            "--permission-mode", "bypassPermissions",
             "--model", "opus",
             "-p",
             "--verbose",

@@ -23,6 +23,7 @@
   phase blocks and `git log`.
 -->
 
+- Phase 11 permissions fix: harness switched from --dangerously-skip-permissions to --permission-mode bypassPermissions so the supervisor's direct-overwrite path into .claude/skills/ actually works (skip-permissions empirically still prompts there despite its help text). sst-supervisor v1.1.1 with updated permissions contract; SPEC.md Phase 11 block updated — by claude-code at 2026-04-24T05:15:00Z
 - sst-dev-cycle v1.0.2 + framework handoff contract: Just-shipped format drops commit SHA (a commit can't contain its own hash; amend-based workarounds leave dangling references); skill, templates, CLAUDE.md, SPEC.md, sst-dev-review aligned to the new format — by claude-code at 2026-04-24T04:45:00Z
 - 93bf49b Phase 11: auto-promote field on chain schema (off | proprietary | all, default proprietary); sst-supervisor rewritten to route direct-overwrite vs SKILL.patch.md sidecar by scope + mode; sst-promote-skill-proposal rewritten to scan sidecars across project/harness/master-repo and promote via atomic rename — by claude-code at 2026-04-24T04:00:00Z
 - 2e9e1d3 Phase 10 correction: trimmed the 17 sst-* skills that were installed in adc9ea8 but had no prior bare-name presence. Harness now holds only the 6 sst-* replacements (sst-dev-cycle, sst-dev-review, sst-lead-generation, sst-domain-seo-research, sst-linkedin-networking, sst-sanitize-transferable) + ssp-linkedin-easy-apply + vps-email-setup — by claude-code at 2026-04-24T01:10:00Z
