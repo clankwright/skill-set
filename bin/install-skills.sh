@@ -55,9 +55,10 @@ done
 [ -d "$SOURCE" ] || { echo "source dir does not exist: $SOURCE" >&2; exit 1; }
 
 # Skills are grouped into category subdirs in the source repo (e.g.
-# skills/dev/dev-cycle/, skills/framework/coms/setup-telegram/) but the harness
-# expects a flat layout under $TARGET/<name>/. Find every SKILL.md recursively
-# and install each skill dir under its basename (category is dropped on copy).
+# skills/dev/sst-dev-cycle/, skills/framework/coms/sst-setup-telegram/) but the
+# harness expects a flat layout under $TARGET/<name>/. Find every SKILL.md
+# recursively and install each skill dir under its basename (category is
+# dropped on copy).
 skill_dirs=()
 while IFS= read -r -d '' sm; do
     skill_dirs+=("$(dirname "$sm")/")

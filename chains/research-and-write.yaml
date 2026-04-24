@@ -3,7 +3,7 @@ description: Research a topic from scratch, draft long-form content, critique th
 version: 1.0.0
 user-invocable: true
 skills:
-  - web-research
-  - iterative-writer
-  - literary-critic
-  - editorial-pass
+  - sst-web-research
+  - sst-iterative-writer
+  - sst-literary-critic
+  - sst-editorial-pass

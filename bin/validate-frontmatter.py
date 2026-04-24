@@ -107,6 +107,20 @@ def validate_one(path: Path, schema: dict) -> list[str]:
             f"identical names collide at the harness skills dir)"
         )
 
+    # sst- prefix rule for transferables in this repo's canonical skills/ tree.
+    # Proprietary skills (declaring `transferable:`) are exempt because they
+    # follow the ssp-/<project>- prefix conventions. Skills validated outside
+    # SKILLS_DIR (e.g. a consuming project's own SKILL.md) are also exempt.
+    try:
+        in_repo_skills = path.resolve().is_relative_to(SKILLS_DIR)
+    except AttributeError:
+        in_repo_skills = str(path.resolve()).startswith(str(SKILLS_DIR) + "/")
+    if in_repo_skills and actual_name and not transferable and not actual_name.startswith("sst-"):
+        errors.append(
+            f"{path}: transferable skill in this repo MUST use `sst-` prefix "
+            f"(got `name: {actual_name!r}`); see docs/SPEC.md 'Skill-set' section"
+        )
+
     return errors
 
 

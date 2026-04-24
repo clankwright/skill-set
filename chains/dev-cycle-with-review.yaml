@@ -1,7 +1,7 @@
 name: dev-cycle-with-review
-description: Full TDD cycle followed by a critical post-cycle review. The dev-cycle ships one change end-to-end; dev-review then second-passes the resulting commit and files concrete spec follow-ups for the next cycle. Auto-appends the project's supervisor by default.
+description: Full TDD cycle followed by a critical post-cycle review. The sst-dev-cycle ships one change end-to-end; sst-dev-review then second-passes the resulting commit and files concrete spec follow-ups for the next cycle. Auto-appends the project's supervisor by default.
 version: 1.0.0
 user-invocable: true
 skills:
-  - dev-cycle
-  - dev-review
+  - sst-dev-cycle
+  - sst-dev-review

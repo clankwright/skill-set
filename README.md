@@ -21,7 +21,7 @@ The pairing is the unit of reuse. The transferable holds the *method* (TDD cycle
 - `bin/install-skills.sh` — copies every `skills/**/<name>/` into the harness's user-skills directory (default `~/.claude/skills/<name>/`, flat — categories are dropped on install) so the harness picks them up globally. Claude Code only scans direct children of its skills dir, so the layout must stay flat.
 - `bin/manager-bot.py` — long-poll Telegram bot for the manager skill.
 - `templates/SPEC.md`, `templates/TODO.md` — the canonical handoff docs every project must keep.
-- `templates/sanitization-guidance.md` — the rubric the `sanitize-transferable` skill applies before any transferable promotion.
+- `templates/sanitization-guidance.md` — the rubric the `sst-sanitize-transferable` skill applies before any transferable promotion.
 - `schema/` — JSON Schema specs the validator (and CI) lint against.
 - `proposals/` — supervisor-generated transferable-skill patches awaiting human review.
 
@@ -30,8 +30,8 @@ The pairing is the unit of reuse. The transferable holds the *method* (TDD cycle
 | Loop       | Cadence              | Owner                     |
 |------------|----------------------|---------------------------|
 | Job        | per chain invocation | `bin/skill-chain.py`      |
-| Supervisor | end of every chain   | `skills/framework/supervisor/` |
-| Manager    | periodic / on demand | `skills/framework/manager/` + bot |
+| Supervisor | end of every chain   | `skills/framework/sst-supervisor/` |
+| Manager    | periodic / on demand | `skills/framework/sst-manager/` + bot |
 
 Each loop reads the project's handoff docs (`docs/SPEC.md`, `docs/TODO.md`) and writes back to them. Cross-cycle state lives in those files, not in any agent's context window.
 

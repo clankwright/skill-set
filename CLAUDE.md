@@ -33,7 +33,7 @@ On close of every substantive change:
 
 ## Never bypass the sanitization path
 
-Any change that promotes a proprietary skill into a transferable one (or drafts a transferable proposal) must go through `skills/framework/sanitize-transferable/` and include the sanitization-checklist footer. CI rejects PRs that skip this.
+Any change that promotes a proprietary skill into a transferable one (or drafts a transferable proposal) must go through `skills/framework/sst-sanitize-transferable/` and include the sanitization-checklist footer. CI rejects PRs that skip this.
 
 ## Don't fork the contract
 

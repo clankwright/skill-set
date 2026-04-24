@@ -3,5 +3,5 @@ description: Given a directory of N candidate artifacts (drafts, designs, code v
 version: 1.0.0
 user-invocable: true
 skills:
-  - llm-judge-ranker
-  - output-selector
+  - sst-llm-judge-ranker
+  - sst-output-selector

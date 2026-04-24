@@ -3,6 +3,6 @@ description: Editorial pass over an existing draft with explicit fact-checking b
 version: 1.0.0
 user-invocable: true
 skills:
-  - fact-checker
-  - literary-critic
-  - editorial-pass
+  - sst-fact-checker
+  - sst-literary-critic
+  - sst-editorial-pass

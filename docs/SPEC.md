@@ -27,8 +27,8 @@ auto-supervisor: true              # default true
 loop: 1                            # default 1; N>1 runs the sequence N times; 0 = until failure/Ctrl-C
 loop-delay: 0                      # default 0; seconds to sleep between iterations
 skills:                            # required, ordered
-  - dev-cycle
-  - dev-review
+  - sst-dev-cycle
+  - sst-dev-review
 transferable: dev-cycle-with-review  # proprietary only
 transferable-version: ">=1.0.0"      # proprietary only, optional
 ```
@@ -111,7 +111,7 @@ Each chain invocation writes to `<project>/.skill-runs/<UTC>_<chain-name>/`:
 
 ### Sanitization (transferable proposals only)
 
-Before writing a transferable proposal, the supervisor invokes the `sanitize-transferable` skill, which scans the draft against `templates/sanitization-guidance.md` (rubric) and the per-project banned-terms list maintained by the proprietary supervisor. Sanitization is judgment-based — an LLM pass, not regex. Any `must-fix` finding aborts the write; the lesson stays in the proprietary proposal only. Every transferable proposal carries a `Sanitization checklist:` footer the sanitize skill generates and the human reviewer fills in; CI rejects PRs without a complete footer.
+Before writing a transferable proposal, the supervisor invokes the `sst-sanitize-transferable` skill, which scans the draft against `templates/sanitization-guidance.md` (rubric) and the per-project banned-terms list maintained by the proprietary supervisor. Sanitization is judgment-based — an LLM pass, not regex. Any `must-fix` finding aborts the write; the lesson stays in the proprietary proposal only. Every transferable proposal carries a `Sanitization checklist:` footer the sanitize skill generates and the human reviewer fills in; CI rejects PRs without a complete footer.
 
 ## Phases
 
@@ -131,7 +131,7 @@ Before writing a transferable proposal, the supervisor invokes the `sanitize-tra
 - [x] Copy the prior `~/.claude/skills/dev-cycle/` and `dev-review/` implementations into `skills/` (canonical home is the master repo from now on; `bin/install-skills.sh` does a one-way copy back to the harness skills dir).
 - [x] Bake handoff-doc read/update contract into transferable preambles.
 - [x] `schema/skill-set.schema.json` validator written (the validator runner that enforces it lives in Phase 3 supervisor + Phase 6 CI).
-- [ ] User runs `bin/install-skills.sh -y` to deploy the updated dev-cycle/dev-review into `~/.claude/skills/`.
+- [ ] User runs `bin/install-skills.sh -y` to deploy the updated sst-dev-cycle/sst-dev-review into `~/.claude/skills/`.
 
 ### Phase 3: supervisor
 
@@ -160,30 +160,30 @@ Before writing a transferable proposal, the supervisor invokes the `sanitize-tra
 
 ### Phase 7: portability proof
 
-- [x] Build a second skill-set in a non-dev field (lead-gen, content-ops, infra). Done by lifting `lead-generation`, `domain-seo-research`, `linkedin-easy-apply`, `linkedin-networking` from existing globals.
-- [x] Confirm `supervisor` and `manager` work unmodified across both — they're domain-agnostic by construction; the validator passes all skills uniformly.
+- [x] Build a second skill-set in a non-dev field (lead-gen, content-ops, infra). Done by lifting `sst-lead-generation`, `sst-domain-seo-research`, `sst-linkedin-easy-apply`, `sst-linkedin-networking` from existing globals.
+- [x] Confirm `sst-supervisor` and `sst-manager` work unmodified across both — they're domain-agnostic by construction; the validator passes all skills uniformly.
 
 ### Phase 8: lift long-running agents into transferables
 
-A 12-agent framework was ported into this repo as 12 target skills (11 transferable, 1 split into transferable + first proprietary counterpart). 5 sub-phases ordered by complexity / interdependency. Each lift converted a language-model-agent Python module into a SKILL.md natural-language procedure; agent-framework infrastructure (rate-limiting wrappers, tool helpers) mapped to harness-provided primitives. Each lifted skill passed `sanitize-transferable` + `validate-frontmatter` before commit.
+A 12-agent framework was ported into this repo as 12 target skills (11 transferable, 1 split into transferable + first proprietary counterpart). 5 sub-phases ordered by complexity / interdependency. Each lift converted a language-model-agent Python module into a SKILL.md natural-language procedure; agent-framework infrastructure (rate-limiting wrappers, tool helpers) mapped to harness-provided primitives. Each lifted skill passed `sst-sanitize-transferable` + `validate-frontmatter` before commit.
 
-- [x] Phase 8.1: `web-research`, `fact-checker`, `output-selector`.
-- [x] Phase 8.2: `iterative-writer`, `literary-critic`, `editorial-pass`.
-- [x] Phase 8.3: `llm-judge-ranker`, `translator`.
-- [x] Phase 8.4: `email-control-loop`, `agent-orchestrator`.
-- [x] Phase 8.5: `short-video-generator`, `social-promoter` + first proprietary counterpart in a consuming project's `.claude/skills/`.
-- [ ] End-to-end smoke: a chain `web-research → editorial-pass → social-promoter` runs to completion against a real project with a clean supervisor verdict. (User-driven validation; deferred until the user runs a real cycle.)
+- [x] Phase 8.1: `sst-web-research`, `sst-fact-checker`, `sst-output-selector`.
+- [x] Phase 8.2: `sst-iterative-writer`, `sst-literary-critic`, `sst-editorial-pass`.
+- [x] Phase 8.3: `sst-llm-judge-ranker`, `sst-translator`.
+- [x] Phase 8.4: `sst-email-control-loop`, `sst-agent-orchestrator`.
+- [x] Phase 8.5: `sst-short-video-generator`, `sst-social-promoter` + first proprietary counterpart in a consuming project's `.claude/skills/`.
+- [ ] End-to-end smoke: a chain `sst-web-research → sst-editorial-pass → sst-social-promoter` runs to completion against a real project with a clean supervisor verdict. (User-driven validation; deferred until the user runs a real cycle.)
 
 ### Phase 9: optional chain looping
 
-Add opt-in iteration to the chain runner so a single chain definition can repeat its full skill sequence N times (or until a non-supervisor failure). Rationale: long-running skills (dev-cycle, editorial-pass, social-promoter) often want to tick through several items from `TODO.md > Next up` in one sitting without a human re-invoking the chain each pass. The supervisor still runs once per iteration, keeping the handoff-doc contract intact between cycles.
+Add opt-in iteration to the chain runner so a single chain definition can repeat its full skill sequence N times (or until a non-supervisor failure). Rationale: long-running skills (sst-dev-cycle, sst-editorial-pass, sst-social-promoter) often want to tick through several items from `TODO.md > Next up` in one sitting without a human re-invoking the chain each pass. The supervisor still runs once per iteration, keeping the handoff-doc contract intact between cycles.
 
 - [x] `loop` + `loop-delay` fields added to `schema/skill-chain.schema.json` (defaults 1 / 0; fully backward compatible).
 - [x] `bin/skill-chain.py` gains `--loop` and `--loop-delay` CLI flags (CLI overrides YAML). `--loop 0` loops until a non-supervisor failure or Ctrl-C.
 - [x] Iteration-per-subdir log layout (`iter_NN/MANIFEST.json`) when `loop != 1`; single-run flat layout preserved for `loop == 1`.
 - [x] Top-level `MANIFEST.json` carries `iterations: [...]` + `loop: {requested, delay_seconds, completed}` when looping.
 - [ ] Document the loop flag + YAML field in `README.md`.
-- [ ] Add at least one transferable chain that uses `loop: N` by default (candidate: an iterative-writer or dev-cycle-with-review loop).
+- [ ] Add at least one transferable chain that uses `loop: N` by default (candidate: an sst-iterative-writer or dev-cycle-with-review loop).
 
 ### Phase 10: proprietary-naming enforcement + sst-/ssp- migration
 
@@ -191,6 +191,6 @@ Formalize the distinct-name rule and the `sst-<base>` / `ssp-<base>` prefix conv
 
 - [x] Validator rule in `bin/validate-frontmatter.py`: rejects proprietary skills where `name == transferable`.
 - [x] SPEC section documenting the distinct-name rule, `sst-`/`ssp-` prefix convention, and the two proprietary scopes.
-- [ ] Rename all transferables in `skills/` from bare names to `sst-<base>`; update every cross-reference in SKILL.md bodies, chain YAMLs, docs, and templates. Strengthen the validator to require `sst-` prefix on transferables once the rename lands.
+- [x] Rename all transferables in `skills/` from bare names to `sst-<base>`; update every cross-reference in SKILL.md bodies, chain YAMLs, docs, and templates. Strengthened the validator to require `sst-` prefix on transferables inside this repo's `skills/` tree.
 - [ ] Install-time safety net in `bin/install-skills.sh`: when a target skill exists and diverges from source beyond frontmatter, show diff and require per-skill confirmation; in `-y` mode, skip unless `--force` is passed.
-- [ ] Audit `~/.claude/skills/` for user-diverged copies; rename `linkedin-easy-apply` → `ssp-linkedin-easy-apply` + link via `transferable:`; back up canonical copy outside `~/.claude/`.
+- [ ] Audit `~/.claude/skills/` for user-diverged copies; rename `linkedin-easy-apply` (bare, pre-sst-) → `ssp-linkedin-easy-apply` + link via `transferable: sst-linkedin-easy-apply`; back up canonical copy outside `~/.claude/`.
