@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.2.0
+version: 1.3.0
 ---
 
 # Supervisor
@@ -19,8 +19,8 @@ The supervisor never fixes code or files spec items. Those belong to the skills 
 ## Operating principles
 
 - **Auto-promote is a safety perimeter, not a feature to bypass.** When the chain sets `auto-promote: proprietary`, proprietary skills under `<cwd>/.claude/skills/` may be overwritten directly; transferables are still written as `SKILL.patch.md` sidecars. When set to `all`, transferables may also be overwritten but only after `sst-sanitize-transferable` reports `must-fix: 0`; any sanitization failure downgrades that skill to a sidecar write. When `off`, every write is a sidecar. Never cross these lines.
-- **Be specific.** Every update (direct or sidecar) cites the exact run-log line(s) that motivated it (`<i>_<skill>.txt:<line>`) in the verdict file. No vague "improve error handling" notes.
-- **Clean is the default.** A run where every skill behaved well produces zero updates and a one-line verdict. Don't manufacture findings to justify the invocation.
+- **Every proposed line change cites a transcript line. No citation, no change.** This is the anti-scope-creep gate. Before writing any draft, enumerate every line-level addition, deletion, or rewrite you intend to make, and map each one to a specific run-log line (`<i>_<skill>.txt:<line>`) that motivates it. Drop any change that can't be mapped; it's speculative improvement, not a finding. §3's drafting step enforces this explicitly — the mapping is a hard gate, not a courtesy. "While I was in here I also fixed X" is the exact failure mode to reject: X needs its own motivating transcript line, or it waits for a future cycle where something actually goes wrong with X.
+- **Clean is the default.** A run where every skill behaved well produces zero updates and a one-line verdict. Don't manufacture findings to justify the invocation. A cycle that articulates N findings must not produce a patch with >N changes — extra changes are scope creep.
 - **Sanitize before crossing the proprietary→transferable boundary.** The transferable layer is open-source. A leak there can never be retracted from clones. Use the leak rules; refuse to write a transferable update (direct OR sidecar) that fails any rule.
 - **The proprietary skill is allowed to know everything.** Proprietary updates can include any project nouns, paths, secrets-as-references-not-values. Don't water them down; they exist precisely to hold proprietary detail.
 - **One sidecar per skill, always overwriting.** `SKILL.patch.md` is not a per-run artifact: if a prior cycle left one and this cycle has a fresh finding for the same skill, overwrite it. If this cycle has nothing to say about a skill that has a stale sidecar, leave the sidecar alone (the user may be mid-review).
@@ -58,7 +58,19 @@ Skip nitpicks (style, wording, "could be clearer", "what if"). If after honest e
 
 ### 3. Write the update — direct or sidecar
 
-For each finding, draft the full rewritten `SKILL.md` (frontmatter + body). Bump `version:` per SemVer: patch for prose clarification, minor for added behavior, major for changed contract. Then route the write based on (a) whether the skill is proprietary or transferable, and (b) the chain's `auto-promote` value from §Inputs step 1.
+**Before drafting ANY content, build the change-intent table.** This is the anti-scope-creep hard gate. For the target skill, list every line-level change you intend to make in the draft, one row per change, and map each to the specific transcript line(s) that motivate it:
+
+```
+| # | kind (add/delete/rewrite) | section / anchor in the skill | motivating citation |
+| 1 | rewrite                   | §0.2 "clean git state" bullet | 01_<skill>.txt:L123 (ran `git status` with .claude/skills/ dirty, correctly proceeded but prose says "stop") |
+| 2 | add                       | §Hard rules, last bullet      | 01_<skill>.txt:L298 (chained `git stash && checkout HEAD~1`, clobbered tree, ran `git fsck --lost-found`) |
+```
+
+**If you can't fill in the "motivating citation" column for a row, drop that row.** No exceptions for "while I was in here I noticed," "this would also be nice," "for consistency," or "future-proofing." Those are speculative improvements and belong to a future cycle where something actually goes wrong. The findings you articulated in §1–2 define the scope; the change-intent table MUST be a strict subset of motivations that appear in the transcript, not a superset.
+
+**Count check.** If your change-intent table has more rows than the findings you enumerated in §1, stop and reconcile: either (a) you elided a finding in §1 that should have been listed separately — add it, or (b) one of the table rows is scope creep — drop it. Exactly one of those is true. A patch that makes 3 changes from 2 findings is the failure mode the framework is trying to prevent.
+
+Once the change-intent table passes both gates (every row cited, row-count ≤ finding-count), then draft the full rewritten `SKILL.md` (frontmatter + body). Bump `version:` per SemVer: patch for prose clarification, minor for added behavior, major for changed contract. Then route the write based on (a) whether the skill is proprietary or transferable, and (b) the chain's `auto-promote` value from §Inputs step 1.
 
 **Routing table:**
 
@@ -120,10 +132,21 @@ clean | <N> updates | escalate
 
 ## Updates written
 
-- direct: `<abs-path-to-SKILL.md>` — v<old>→v<new>, <severity>, one-line rationale. Cited: `<i>_<skill>.txt:<line>`.
-- sidecar: `<abs-path-to-SKILL.patch.md>` — v<old>→v<new>, <severity>, one-line rationale. Cited: `<i>_<skill>.txt:<line>`. Promote with: `/sst-promote-skill-proposal`.
-- master-repo (staged, not committed): `<path>` — for transferable updates written in `all` mode with clean sanitization. User opens the PR.
-- (or: `none`)
+For each update, record the change-intent table from §3 verbatim. This is the auditable evidence that no row was added without a transcript-line citation. Readers (the manager skill, the user, the next supervisor run) can confirm at a glance that changes = findings.
+
+```
+- direct: <abs-path-to-SKILL.md> — v<old>→v<new>, <severity>, one-line summary.
+  Change-intent table:
+    1. <kind> @ <section> — <motivating citation: <i>_<skill>.txt:<line>>
+    2. <kind> @ <section> — <motivating citation: <i>_<skill>.txt:<line>>
+- sidecar: <abs-path-to-SKILL.patch.md> — v<old>→v<new>, <severity>, one-line summary.
+  Change-intent table: (same shape)
+  Promote with: /sst-promote-skill-proposal
+- master-repo (staged, not committed): <path> — for transferable updates written in `all` mode with clean sanitization. User opens the PR.
+- (or: none)
+```
+
+A row without a citation in this section is a bug — re-verify before signing off. The manager skill treats a missing-citation verdict as an escalation signal on its next poll.
 
 ## Sanitization footers
 
