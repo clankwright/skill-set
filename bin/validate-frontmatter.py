@@ -88,6 +88,25 @@ def validate_one(path: Path, schema: dict) -> list[str]:
             f"{expected_name!r} (folder name is the canonical identifier)"
         )
 
+    # Proprietary distinct-name rule: a proprietary skill (one that declares
+    # `transferable:`) MUST have a `name:` different from its transferable.
+    # Both install under the same harness skills directory, so identical names
+    # would collide and install/remove would silently clobber proprietary work.
+    # Convention: transferables use prefix `sst-`, proprietary counterparts use
+    # `ssp-` (see docs/SPEC.md Skill-set concept).
+    transferable = fm.get("transferable")
+    if transferable and actual_name and actual_name == transferable:
+        suggested = (
+            transferable.replace("sst-", "ssp-", 1)
+            if transferable.startswith("sst-")
+            else f"ssp-{transferable}"
+        )
+        errors.append(
+            f"{path}: proprietary `name: {actual_name!r}` must differ from "
+            f"`transferable: {transferable!r}` (use `{suggested}`; "
+            f"identical names collide at the harness skills dir)"
+        )
+
     return errors
 
 

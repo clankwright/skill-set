@@ -50,15 +50,29 @@ A `(transferable, proprietary)` pair of `SKILL.md` files, linked via the `transf
 
 ```yaml
 ---
-name: myproject-dev
+name: ssp-dev-cycle                  # proprietary; MUST differ from `transferable:`
 description: ...
 user-invocable: true
-transferable: dev-cycle
+transferable: sst-dev-cycle          # transferable counterpart
 transferable-version: ">=1.0.0"
 ---
 ```
 
-Transferable skills don't back-link (1:N relationship). Validation: `schema/skill-set.schema.json`.
+Transferable skills don't back-link (1:N relationship). Validation: `schema/skill-set.schema.json` + the distinct-name check in `bin/validate-frontmatter.py`.
+
+**Distinct-name rule.** A proprietary skill's `name:` MUST differ from its `transferable:`. Both install under the same harness skills directory (`~/.claude/skills/<name>/` for personal-global, `<project>/.claude/skills/<name>/` for project-scoped), so identical names would collide and `install-skills.sh` would silently clobber hand-edited proprietary content. Enforced by the validator; no opt-out.
+
+**`sst-` / `ssp-` prefix convention.** All skill-set skills carry a framework-identifying prefix:
+
+- Transferable skills (canonical, shipped here under `skills/`) use `sst-<base>`. Examples: `sst-dev-cycle`, `sst-linkedin-easy-apply`, `sst-sanitize-transferable`.
+- Proprietary counterparts use `ssp-<base>`. Examples: `ssp-dev-cycle`, `ssp-linkedin-easy-apply`. They declare `transferable: sst-<base>` in frontmatter.
+
+Project-scoped proprietary MAY substitute a project-name prefix when tightly coupled to one codebase (e.g. `myproject-dev-cycle`); that also satisfies the distinct-name rule. The `ssp-` default is preferred for portability. The prefix makes it visible at a glance which skills came from this framework and on which side of the split, and keeps unrelated user-authored skills cleanly separable.
+
+**Scopes.** Two canonical homes for proprietary skills:
+
+1. **Project-scoped** at `<project>/.claude/skills/<name>/` — discovered only when the harness runs in that project. For skills specialized to a single codebase.
+2. **Personal-global** at `~/.claude/skills/<name>/` — discovered from any directory. For skills specialized to the user's identity, tooling, or config (e.g. `ssp-linkedin-easy-apply` carrying a resume path + salary floor). Because `install-skills.sh` only touches names defined in this repo's `skills/`, `ssp-*` skills are never overwritten when the transferable counterpart is bumped.
 
 ### Handoff docs
 
@@ -170,3 +184,13 @@ Add opt-in iteration to the chain runner so a single chain definition can repeat
 - [x] Top-level `MANIFEST.json` carries `iterations: [...]` + `loop: {requested, delay_seconds, completed}` when looping.
 - [ ] Document the loop flag + YAML field in `README.md`.
 - [ ] Add at least one transferable chain that uses `loop: N` by default (candidate: an iterative-writer or dev-cycle-with-review loop).
+
+### Phase 10: proprietary-naming enforcement + sst-/ssp- migration
+
+Formalize the distinct-name rule and the `sst-<base>` / `ssp-<base>` prefix convention (see "Skill-set" section). Migrate every existing transferable in this repo from bare names to the `sst-` prefix and update every cross-reference. Add an install-time safety net so hand-edited targets under `~/.claude/skills/` are never silently clobbered on `install-skills.sh` runs.
+
+- [x] Validator rule in `bin/validate-frontmatter.py`: rejects proprietary skills where `name == transferable`.
+- [x] SPEC section documenting the distinct-name rule, `sst-`/`ssp-` prefix convention, and the two proprietary scopes.
+- [ ] Rename all transferables in `skills/` from bare names to `sst-<base>`; update every cross-reference in SKILL.md bodies, chain YAMLs, docs, and templates. Strengthen the validator to require `sst-` prefix on transferables once the rename lands.
+- [ ] Install-time safety net in `bin/install-skills.sh`: when a target skill exists and diverges from source beyond frontmatter, show diff and require per-skill confirmation; in `-y` mode, skip unless `--force` is passed.
+- [ ] Audit `~/.claude/skills/` for user-diverged copies; rename `linkedin-easy-apply` → `ssp-linkedin-easy-apply` + link via `transferable:`; back up canonical copy outside `~/.claude/`.

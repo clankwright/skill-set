@@ -18,6 +18,7 @@
   Trim to the most recent 10 entries; older history lives in docs/SPEC.md phase blocks and `git log`.
 -->
 
+- XXXXXXX Phase 10 start: distinct-name validator rule + sst-/ssp- prefix convention in SPEC — by claude-code at 2026-04-24T00:15:00Z
 - b623cf6 Revert install target segregation: harness only discovers direct children under ~/.claude/skills/ — by claude-code at 2026-04-24T00:00:00Z
 - bb4fdb8 Rename repo transferable-skills → skill-set; segregate global install path under ~/.claude/skills/skill-set/ — by claude-code at 2026-04-23T23:08:58Z
 - 34cb36a Phase 9: optional chain looping + dogfood CLAUDE.md — by claude-code at 2026-04-23T12:31:40Z
@@ -27,7 +28,6 @@
 - c1bec46 Fix YAML parse failure in editorial-pass frontmatter; harden validator
 - 9d98937 Phase 8.2: lift literary-critic, iterative-writer, editorial-pass
 - 1d61ac5 Phase 8.1: lift web-research, fact-checker, output-selector
-- 21ea214 Add skill-chain definitions as a first-class concept
 
 ## Next up (queued for next cycle)
 
@@ -38,10 +38,9 @@
   Order: blockers/highest-impact first.
 -->
 
-- [naming] Validator rule: proprietary `name:` MUST differ from `transferable:` — reason: user directive; enforces the distinct-name convention that keeps install/remove from ever colliding with proprietary skills.
-- [naming] Document the `ss-<transferable>` convention for proprietary counterparts in SPEC.md, covering both project-scoped (`<project>/.claude/skills/`) and personal-global (`~/.claude/skills/`) scopes — reason: user directive; formalizes collision prevention and the `ss-` prefix (user picked over `me-`).
-- [naming] Install-time safety net in `bin/install-skills.sh`: when a target skill exists and diverges from source beyond frontmatter, show diff and require per-skill confirmation (skip in `-y` mode unless `--force`) — reason: user directive; protects hand-edited targets from silent overwrite.
-- [naming] Rename user's diverged `~/.claude/skills/linkedin-easy-apply/` to `ss-linkedin-easy-apply`, update its frontmatter (`name:` + `transferable: linkedin-easy-apply`), back up canonical copy outside `~/.claude/` — reason: user directive; first application of the new convention, unblocks installing the sanitized transferable `linkedin-easy-apply` alongside.
+- [Phase 10] Rename all transferables in `skills/` from bare to `sst-<base>`; update every cross-reference in SKILL.md bodies, chain YAMLs, docs, templates; strengthen validator to require `sst-` prefix on transferables — reason: spec Phase 10; mechanical but large, touches every skill in the repo.
+- [Phase 10] Install-time safety net in `bin/install-skills.sh`: when target diverges from source beyond frontmatter, show diff and require per-skill confirmation (skip in `-y` mode unless `--force`) — reason: spec Phase 10; protects hand-edited targets from silent overwrite.
+- [Phase 10] Rename user's diverged `~/.claude/skills/linkedin-easy-apply/` to `ssp-linkedin-easy-apply`, update frontmatter (`name: ssp-linkedin-easy-apply` + `transferable: sst-linkedin-easy-apply`), back up canonical copy outside `~/.claude/` — reason: spec Phase 10; first application of the new convention.
 - Phase 9 `Document the loop flag + YAML field in README.md` — reason: spec Phase 9 tail item; the runner/schema support ships this cycle but the user-facing README still only describes one-shot chains.
 - Phase 9 `Add at least one transferable chain that uses loop: N by default` — reason: spec Phase 9 tail item; validates the YAML field against a real consuming flow (likely candidate: an iterative-writer or dev-cycle-with-review loop).
 - Phase 8.6 end-to-end smoke: chain `web-research → editorial-pass → social-promoter` against a real consuming project with clean supervisor verdict — reason: spec Phase 8 tail item, Phase 8.1-8.5 lifts already complete.
