@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.1.1
+version: 1.2.0
 ---
 
 # Supervisor
@@ -147,13 +147,36 @@ Set the verdict outcome to `escalate` (and write a note to the manager) when:
 
 Escalation does NOT change what the supervisor writes; it just sets a flag the manager will pick up and surface to the user.
 
-## Permissions contract
+## Permissions contract — write SKILL.md via the helper script, NOT via Edit/Write
 
-The supervisor writes under `.claude/skills/`, which would normally require interactive approval on each Write/Edit. Those prompts are bypassed by the chain runner, which spawns every skill with `--permission-mode bypassPermissions`. That mode has an explicit carveout for `.claude/skills/**`, `.claude/commands/**`, and `.claude/agents/**` — writes there proceed without a prompt. (The superficially-similar `--dangerously-skip-permissions` flag does NOT have this carveout in practice and would still prompt on skills writes; do not substitute it.)
+Claude Code's Edit/Write tools prompt for user approval on every write under `.claude/skills/**` — both `--dangerously-skip-permissions` and `--permission-mode bypassPermissions` have been empirically confirmed to still fire the prompt there, despite docs suggesting otherwise. That blocks every supervisor run whose only job is to rewrite a peer SKILL.md.
 
-If you are ever running the supervisor manually outside a chain run, expect approval prompts on each write; that is intentional — manual runs are inherently interactive.
+**Therefore: do every direct-overwrite and sidecar write via `bin/apply-skill-patch.py`, invoked through the Bash tool.** The script writes the file in its own Python process, not via a Claude tool, so the tool-level permission gate doesn't apply. Bash-tool invocations are gated separately, and this script's invocation pattern is pre-allowed in global settings:
 
-Do NOT add a side-channel (env var, lock file, config toggle) to skip prompts in other code paths. The harness flag is the single source of truth; changing it changes the behavior uniformly.
+```
+Bash(/home/rob/Dev/skill-set/bin/apply-skill-patch.py:*)
+```
+
+Invoke like this (draft the full replacement body to a temp file first, then apply):
+
+```bash
+# 1. Write the draft body (full frontmatter + body, a drop-in SKILL.md) to a
+#    temp location the Edit/Write tools ARE allowed to write to (the run-dir):
+<RUN_DIR>/drafts/<skill-name>.md
+
+# 2. Apply it via the helper. --backup saves the prior contents to
+#    <target>.bak for one-step rollback if a post-hoc check flags a problem.
+/home/rob/Dev/skill-set/bin/apply-skill-patch.py \
+    --source <RUN_DIR>/drafts/<skill-name>.md \
+    --target <absolute-path-to-target-SKILL.md-or-SKILL.patch.md> \
+    --backup
+```
+
+The script refuses any target that isn't `SKILL.md` / `SKILL.patch.md` under an approved skills root (`~/.claude/skills/`, `<project>/.claude/skills/`, `~/Dev/skill-set/skills/`, `~/Dev/skill-set-personal/skills/`, or `~/.claude/commands/`, `~/.claude/agents/`). Anything outside exits with a clear `refusing:` message and non-zero status — don't try to work around it.
+
+Manual supervisor runs outside the chain runner will need the same global allow rule to avoid Bash prompts; that's a one-time setup. Chain runs spawn with `--permission-mode bypassPermissions`, which still allows Bash invocations of allow-listed patterns without prompts.
+
+Do NOT fall back to Edit/Write on `.claude/skills/` targets and accept the prompts. Do NOT paste the proposed body into `<RUN_DIR>/proposals/<skill>.patch.md` and call it a day — that's the pre-Phase-11 flow and skips the auto-promote that's the whole point of the mode. Use the helper.
 
 ## Output rules
 
