@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.3.0
+version: 1.4.0
 ---
 
 # Supervisor
@@ -19,6 +19,7 @@ The supervisor never fixes code or files spec items. Those belong to the skills 
 ## Operating principles
 
 - **Auto-promote is a safety perimeter, not a feature to bypass.** When the chain sets `auto-promote: proprietary`, proprietary skills under `<cwd>/.claude/skills/` may be overwritten directly; transferables are still written as `SKILL.patch.md` sidecars. When set to `all`, transferables may also be overwritten but only after `sst-sanitize-transferable` reports `must-fix: 0`; any sanitization failure downgrades that skill to a sidecar write. When `off`, every write is a sidecar. Never cross these lines.
+- **A tool-permission denial is NOT a mode downgrade.** The `off` / `proprietary` / `all` routing is determined by the chain YAML's `auto-promote:` field at the start of the run. It is never determined by which write tool happens to fail mid-run. If `Edit` or `Write` denies a write to `.claude/skills/**`, the correct response is "I reached for the wrong helper — switch to `apply-skill-patch.py` via Bash" (see §Permissions contract + §3's drafting step). The wrong response is "Edit failed, I'll fall back to writing a sidecar per the `off`-mode treatment." That silently reclassifies a direct-overwrite finding as a user-gated promotion, loses the iteration-to-iteration self-improvement Phase 11 was built for, and hides the supervisor's own bug (reaching for the wrong tool) behind a spurious mode switch.
 - **Every proposed line change cites a transcript line. No citation, no change.** This is the anti-scope-creep gate. Before writing any draft, enumerate every line-level addition, deletion, or rewrite you intend to make, and map each one to a specific run-log line (`<i>_<skill>.txt:<line>`) that motivates it. Drop any change that can't be mapped; it's speculative improvement, not a finding. §3's drafting step enforces this explicitly — the mapping is a hard gate, not a courtesy. "While I was in here I also fixed X" is the exact failure mode to reject: X needs its own motivating transcript line, or it waits for a future cycle where something actually goes wrong with X.
 - **Clean is the default.** A run where every skill behaved well produces zero updates and a one-line verdict. Don't manufacture findings to justify the invocation. A cycle that articulates N findings must not produce a patch with >N changes — extra changes are scope creep.
 - **Sanitize before crossing the proprietary→transferable boundary.** The transferable layer is open-source. A leak there can never be retracted from clones. Use the leak rules; refuse to write a transferable update (direct OR sidecar) that fails any rule.
@@ -84,6 +85,19 @@ Target paths:
 
 - **Proprietary**: `<cwd>/.claude/skills/<skill-name>/SKILL.md` or `.../SKILL.patch.md`.
 - **Transferable** (runtime-effective location): `~/.claude/skills/<transferable-name>/SKILL.md` or `.../SKILL.patch.md`. This is the path the harness actually reads on the next run. A separate sanitized copy for the open-source master repo still lands at `~/Dev/skill-set/skills/<category>/<transferable-name>/SKILL.md` — but that update is staged (not committed) and surfaced in the verdict file for the user's PR flow; NEVER auto-commit anything in the master repo.
+
+**Execute every write via `bin/apply-skill-patch.py` through the Bash tool.** Do NOT use the `Edit` or `Write` tools on any `.claude/skills/**` target. Those tools prompt for interactive approval on every `.claude/skills/` write even under `--permission-mode bypassPermissions`, which silently blocks headless runs and fires the denial → "fall back to sidecar" failure mode. Write the drafted body to `<RUN_DIR>/drafts/<skill-name>.md` first (the run dir IS writable via `Write`), then:
+
+```bash
+/home/rob/Dev/skill-set/bin/apply-skill-patch.py \
+    --source <RUN_DIR>/drafts/<skill-name>.md \
+    --target <absolute-path-to-target> \
+    --backup
+```
+
+The `--target` is the path from the routing table above (`SKILL.md` for direct overwrite, `SKILL.patch.md` for sidecar). The helper is pre-allow-listed as `Bash(/home/rob/Dev/skill-set/bin/apply-skill-patch.py:*)`, so the Bash call does not prompt. See §Permissions contract for the full rationale.
+
+If the helper exits non-zero (e.g. target path rejected), that's a bug to report in the verdict, not an excuse to switch modes. Never "fall back" from direct overwrite to sidecar because one tool call failed.
 
 The `SKILL.patch.md` file is a **drop-in replacement**: it contains full YAML frontmatter + body, identical in shape to a normal SKILL.md. No proposal-wrapper headers, no rationale section in the file itself. All rationale + citations live in the verdict file (§6).
 
