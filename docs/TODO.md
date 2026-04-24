@@ -18,6 +18,7 @@
   Trim to the most recent 10 entries; older history lives in docs/SPEC.md phase blocks and `git log`.
 -->
 
+- XXXXXXX Phase 10 correction: trimmed the 17 sst-* skills that were installed in adc9ea8 but had no prior bare-name presence. Harness now holds only the 6 sst-* replacements (sst-dev-cycle, sst-dev-review, sst-lead-generation, sst-domain-seo-research, sst-linkedin-networking, sst-sanitize-transferable) + ssp-linkedin-easy-apply + vps-email-setup — by claude-code at 2026-04-24T01:10:00Z
 - adc9ea8 Phase 10 final: installed all 23 sst-* skills into ~/.claude/skills/ and removed 6 stale bare-name dirs (dev-cycle, dev-review, lead-generation, domain-seo-research, linkedin-networking, sanitize-transferable) after diff-audit confirmed no user edits. Harness now shows sst-*/ssp- only — by claude-code at 2026-04-24T01:00:00Z
 - 8a32abd Phase 10 install safety net: bin/install-skills.sh now detects DIVERGED targets (body differs beyond frontmatter), skips them in -y mode, prompts interactively, and overrides via --force — by claude-code at 2026-04-24T00:45:00Z
 - 5fc1223 Phase 10 rename: all 23 transferables to sst- prefix; cross-refs, chain YAMLs, docs, templates updated; sst- prefix enforced by validator — by claude-code at 2026-04-24T00:30:00Z
