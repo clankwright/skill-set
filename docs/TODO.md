@@ -18,7 +18,7 @@
   Trim to the most recent 10 entries; older history lives in docs/SPEC.md phase blocks and `git log`.
 -->
 
-- XXXXXXX Phase 10 final: installed all 23 sst-* skills into ~/.claude/skills/ and removed 6 stale bare-name dirs (dev-cycle, dev-review, lead-generation, domain-seo-research, linkedin-networking, sanitize-transferable) after diff-audit confirmed no user edits. Harness now shows sst-*/ssp- only — by claude-code at 2026-04-24T01:00:00Z
+- adc9ea8 Phase 10 final: installed all 23 sst-* skills into ~/.claude/skills/ and removed 6 stale bare-name dirs (dev-cycle, dev-review, lead-generation, domain-seo-research, linkedin-networking, sanitize-transferable) after diff-audit confirmed no user edits. Harness now shows sst-*/ssp- only — by claude-code at 2026-04-24T01:00:00Z
 - 8a32abd Phase 10 install safety net: bin/install-skills.sh now detects DIVERGED targets (body differs beyond frontmatter), skips them in -y mode, prompts interactively, and overrides via --force — by claude-code at 2026-04-24T00:45:00Z
 - 5fc1223 Phase 10 rename: all 23 transferables to sst- prefix; cross-refs, chain YAMLs, docs, templates updated; sst- prefix enforced by validator — by claude-code at 2026-04-24T00:30:00Z
 - 55e6693 Phase 10 start: distinct-name validator rule + sst-/ssp- prefix convention in SPEC — by claude-code at 2026-04-24T00:15:00Z
