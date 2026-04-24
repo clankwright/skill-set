@@ -127,6 +127,15 @@ class ClaudeCodeHarness(Harness):
             # .claude/skills, .claude/commands, .claude/agents because claude
             # routinely writes there. See Claude Code permissions docs.
             "--permission-mode", "bypassPermissions",
+            # --max-turns is undocumented in --help but is a real flag that
+            # raises the per-invocation turn/tool-call ceiling for `-p` mode.
+            # Without it, supervisor runs that do proprietary overwrite +
+            # transferable sanitize + transferable sidecar + verdict have
+            # terminated cleanly at ~31 turns with `[ok]` status mid-workflow
+            # (server-side pause_turn). 100 buys headroom for multi-write
+            # cycles without burning cache on runaway agents. See
+            # github.com/anthropics/claude-code/issues/16963.
+            "--max-turns", "100",
             "--model", "opus",
             "-p",
             "--verbose",
