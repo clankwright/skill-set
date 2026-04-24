@@ -1,8 +1,8 @@
 ---
 name: sst-supervisor
-description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and proposes patches to the skills themselves — both proprietary and (sanitized) transferable counterparts. Writes a verdict file and zero or more proposal markdown files. NEVER edits SKILL.md files directly; promotion to a real edit happens via /sst-promote-skill-proposal under user gating. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
+description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Supervisor
@@ -11,26 +11,27 @@ The supervisor is the third loop in the system: after a chain of skills runs to 
 
 The supervisor never fixes code or files spec items. Those belong to the skills it analyzes. The supervisor's only outputs are:
 
-1. **`<run-dir>/supervisor_verdict.md`** — a one-screen summary of the chain (clean / N proposals / escalate).
-2. **`<run-dir>/proposals/<skill-name>.patch.md`** — a proposed full rewrite of the proprietary `SKILL.md`, with rationale and citations.
-3. **`<master-repo>/proposals/<UTC>_<skill>_from-<project>.patch.md`** — a proposed full rewrite of the transferable `SKILL.md`, only if the lesson sanitizes cleanly.
+1. **`<run-dir>/supervisor_verdict.md`** — a one-screen summary of the chain (clean / N updates / escalate) that also records the exact paths written.
+2. **`<skill-dir>/SKILL.md`** — direct overwrite of a proprietary `SKILL.md`, when the chain is running with `auto-promote: proprietary` (the default) or `auto-promote: all`. The improved prose is then available to the NEXT chain iteration with zero extra steps.
+3. **`<skill-dir>/SKILL.patch.md`** — a proposed full rewrite dropped as a sidecar next to the target `SKILL.md`, when auto-promote is `off`, or for transferable skills under any mode short of `all`-with-clean-sanitization. One file per skill, overwritten each cycle. Promoted to a real edit by the user via `/sst-promote-skill-proposal`.
 4. **`docs/TODO.md`** — adds entries to `## Next up` if a finding implies project work the next sst-dev-cycle should pick up (rare; most supervisor findings target the skills, not the project).
 
 ## Operating principles
 
-- **Never edit a SKILL.md file directly.** Always write to `proposals/`. Promotion is user-gated through `/sst-promote-skill-proposal`.
-- **Be specific.** Every proposal cites the exact run-log line(s) that motivated it (`<i>_<skill>.txt:<line>`). No vague "improve error handling" suggestions.
-- **Clean is the default.** A run where every skill behaved well produces zero proposals and a one-line verdict. Don't manufacture findings to justify the invocation.
-- **Sanitize before crossing the proprietary→transferable boundary.** The transferable layer is open-source. A leak there can never be retracted from clones. Use the leak rules; refuse to write a transferable proposal that fails any rule.
-- **The proprietary skill is allowed to know everything.** Proprietary proposals can include any project nouns, paths, secrets-as-references-not-values. Don't water them down; they exist precisely to hold proprietary detail.
+- **Auto-promote is a safety perimeter, not a feature to bypass.** When the chain sets `auto-promote: proprietary`, proprietary skills under `<cwd>/.claude/skills/` may be overwritten directly; transferables are still written as `SKILL.patch.md` sidecars. When set to `all`, transferables may also be overwritten but only after `sst-sanitize-transferable` reports `must-fix: 0`; any sanitization failure downgrades that skill to a sidecar write. When `off`, every write is a sidecar. Never cross these lines.
+- **Be specific.** Every update (direct or sidecar) cites the exact run-log line(s) that motivated it (`<i>_<skill>.txt:<line>`) in the verdict file. No vague "improve error handling" notes.
+- **Clean is the default.** A run where every skill behaved well produces zero updates and a one-line verdict. Don't manufacture findings to justify the invocation.
+- **Sanitize before crossing the proprietary→transferable boundary.** The transferable layer is open-source. A leak there can never be retracted from clones. Use the leak rules; refuse to write a transferable update (direct OR sidecar) that fails any rule.
+- **The proprietary skill is allowed to know everything.** Proprietary updates can include any project nouns, paths, secrets-as-references-not-values. Don't water them down; they exist precisely to hold proprietary detail.
+- **One sidecar per skill, always overwriting.** `SKILL.patch.md` is not a per-run artifact: if a prior cycle left one and this cycle has a fresh finding for the same skill, overwrite it. If this cycle has nothing to say about a skill that has a stale sidecar, leave the sidecar alone (the user may be mid-review).
 
 ## Inputs
 
 Read these in order, all from the run log directory passed to you (the chain runner reports its location on every invocation as `[log-dir] <path>`):
 
-1. **`MANIFEST.json`** — chain name, harness, per-skill exit codes, durations, model + token usage, git SHA before/after.
+1. **`MANIFEST.json`** — chain name, harness, per-skill exit codes, durations, model + token usage, git SHA before/after. Also carries `chain_definition` (path to the chain YAML) — read that YAML and note the `auto-promote:` field; default is `proprietary` when the field is absent. This value controls §3's output routing.
 2. **Each `<i>_<skill>.txt`** — the prettified, ANSI-stripped transcript of one skill invocation.
-3. **Each skill's current `SKILL.md`** — for the chain runner's CWD-local `.claude/skills/<skill>/SKILL.md` (proprietary) and, if the proprietary skill has a `transferable:` field, the parent at `~/Dev/skill-set/skills/<transferable>/SKILL.md`.
+3. **Each skill's current `SKILL.md`** — for the chain runner's CWD-local `.claude/skills/<skill>/SKILL.md` (proprietary) and, if the proprietary skill has a `transferable:` field, the installed transferable at `~/.claude/skills/<transferable>/SKILL.md` (runtime read path, same dir where any sidecar `SKILL.patch.md` lives).
 4. **`~/.claude/state/manager-guidance.md`** if it exists — guiding principles the manager has nudged into your input on prior runs.
 5. **`docs/SPEC.md` and `docs/TODO.md`** — for context on what the chain was working toward.
 
@@ -55,65 +56,37 @@ Two severities. **No third tier.**
 
 Skip nitpicks (style, wording, "could be clearer", "what if"). If after honest examination you have zero findings at this bar, that's a clean result — report it and stop.
 
-### 3. Draft proposals
+### 3. Write the update — direct or sidecar
 
-For each finding, write a full proposed rewrite of the affected `SKILL.md` to:
+For each finding, draft the full rewritten `SKILL.md` (frontmatter + body). Bump `version:` per SemVer: patch for prose clarification, minor for added behavior, major for changed contract. Then route the write based on (a) whether the skill is proprietary or transferable, and (b) the chain's `auto-promote` value from §Inputs step 1.
 
-- **`<run-dir>/proposals/<skill-name>.patch.md`** for proprietary patches.
-- **`~/Dev/skill-set/proposals/<UTC>_<transferable-name>_from-<project>.patch.md`** for transferable patches — but only after the leak check (§4) passes.
+**Routing table:**
 
-Each proposal file's structure:
+| auto-promote | Proprietary skill          | Transferable skill                                                     |
+| :---         | :---                       | :---                                                                   |
+| `off`        | sidecar `SKILL.patch.md`   | sidecar `SKILL.patch.md`                                               |
+| `proprietary`| direct overwrite `SKILL.md`| sidecar `SKILL.patch.md`                                               |
+| `all`        | direct overwrite `SKILL.md`| direct overwrite `SKILL.md` iff §4 sanitization returns `must-fix: 0`; else sidecar |
 
-```markdown
-# Proposal: <skill-name> v<old> → v<new-suggestion>
+Target paths:
 
-**Source:** run `<run-dir-name>` (commit `<sha-after>`)
-**Severity:** blocker | should-fix
-**Rationale:**
-<2-4 sentences. What did the run show? Cite the transcript line(s).>
+- **Proprietary**: `<cwd>/.claude/skills/<skill-name>/SKILL.md` or `.../SKILL.patch.md`.
+- **Transferable** (runtime-effective location): `~/.claude/skills/<transferable-name>/SKILL.md` or `.../SKILL.patch.md`. This is the path the harness actually reads on the next run. A separate sanitized copy for the open-source master repo still lands at `~/Dev/skill-set/skills/<category>/<transferable-name>/SKILL.md` — but that update is staged (not committed) and surfaced in the verdict file for the user's PR flow; NEVER auto-commit anything in the master repo.
 
-**Cited transcript lines:**
-- `<i>_<skill>.txt:<line>` — <quoted snippet, ≤120 chars>
-- ...
+The `SKILL.patch.md` file is a **drop-in replacement**: it contains full YAML frontmatter + body, identical in shape to a normal SKILL.md. No proposal-wrapper headers, no rationale section in the file itself. All rationale + citations live in the verdict file (§6).
 
----
+If a prior cycle left a stale `SKILL.patch.md` on a skill that this cycle has no finding for, **do not touch it** — the user may be mid-review. Only overwrite a sidecar when this cycle has a fresh finding for that skill.
 
-## Proposed full SKILL.md content:
+### 4. Sanitize (any transferable write, direct or sidecar)
 
-```yaml
----
-name: <skill-name>
-... (full frontmatter, version bumped per SemVer rules: patch for prose
-clarification, minor for added behavior, major for changed contract)
----
-```
+Before writing to ANY transferable target — whether that's a direct overwrite at `~/.claude/skills/<transferable-name>/SKILL.md` (auto-promote: `all`), a sidecar at `~/.claude/skills/<transferable-name>/SKILL.patch.md`, or the master-repo staged copy at `~/Dev/skill-set/skills/<category>/<transferable-name>/SKILL.md` — run the proposed body through `sst-sanitize-transferable`:
 
-```markdown
-<full proposed body>
-```
-
----
-
-## Sanitization checklist
-(transferable proposals only; OMIT this section for proprietary proposals)
-
-- [ ] No project name, company name, domain name, IP, port number, or secret env-var name.
-- [ ] No OS/stack-specific commands tied to one deployment (init-system names, service-manager paths, VPS-provider names, etc.).
-- [ ] No paths under /home/, /opt/, project-local /usr/local/etc/.
-- [ ] No proprietary terms from the project's banned-terms list (...): <list each one explicitly with "checked: not present">.
-- [ ] The lesson is genuinely abstractable; if I had to use a project noun to express it, I would have left it in the proprietary proposal only.
-```
-
-### 4. Sanitize (transferable proposals only)
-
-Before writing any file under `~/Dev/skill-set/proposals/`, run the proposed body through the `sst-sanitize-transferable` skill:
-
-1. Write the proposed body to a temp file (e.g. `<run-dir>/proposals/<skill>.transferable-draft.md`).
+1. Write the proposed body to a temp file (e.g. `<run-dir>/transferable-draft-<skill>.md`).
 2. Invoke `/sst-sanitize-transferable <draft-file> --project-context <path-to-proprietary-supervisor-SKILL.md>`.
 3. Read the resulting `<draft-file>.findings.md`. Categorize:
-   - **Any `must-fix` findings** → abort the transferable write. Move the lesson to the proprietary proposal only, with a note: `(transferable promotion blocked by sst-sanitize-transferable findings; see <draft>.findings.md)`.
+   - **Any `must-fix` findings** → abort every transferable write for this skill (runtime path AND master-repo path). The lesson stays as a proprietary-only update, with a note in the verdict file: `(transferable promotion blocked by sst-sanitize-transferable findings; see <draft>.findings.md)`.
    - **`should-fix` findings only** → either rewrite the draft to address them all, or downgrade to proprietary-only.
-   - **Zero findings or only `nit`** → safe to write the transferable proposal; copy the `Sanitization checklist` footer from the findings file into the proposal as-is, then fill in the per-category counts.
+   - **Zero findings or only `nit`** → safe to write the transferable targets. If `auto-promote: all`, overwrite the runtime `SKILL.md`; otherwise write the runtime-path sidecar `SKILL.patch.md`. In both cases, also write the master-repo sanitized copy (staged, not committed). Append the `Sanitization checklist` footer from the findings file to the verdict entry for that skill, filled with per-category counts.
 
 Sanitization is judgment-based; it's an LLM pass against `~/Dev/skill-set/templates/sanitization-guidance.md` plus the per-project banned-terms list. Do not try to grep — `sst-sanitize-transferable` exists precisely so the supervisor doesn't have to play regex games.
 
@@ -134,22 +107,27 @@ Do not move existing entries; do not touch `## In flight` or `## Just shipped`.
 ```markdown
 # Supervisor verdict — <run-dir-name>
 
-**Chain:** <chain-name>  ·  **Commit:** <sha-after>  ·  **Generated:** <utc-iso>
+**Chain:** <chain-name>  ·  **auto-promote:** <off|proprietary|all>  ·  **Commit:** <sha-after>  ·  **Generated:** <utc-iso>
 
 ## Outcome
 
-clean | <N> proposals | escalate
+clean | <N> updates | escalate
 
 ## Per-skill summary
 
-- `<skill-name>` (`<sha-of-current-SKILL.md>`): <clean | <N> findings>
+- `<skill-name>` (`<sha-of-SKILL.md-before>`): <clean | <N> findings; direct overwrite | sidecar SKILL.patch.md | transferable blocked by sanitization>
 - ...
 
-## Proposals filed
+## Updates written
 
-- proprietary: `<run-dir>/proposals/<skill-name>.patch.md` — severity, one-line rationale.
-- transferable: `<master-repo>/proposals/<file>.patch.md` — severity, one-line rationale.
+- direct: `<abs-path-to-SKILL.md>` — v<old>→v<new>, <severity>, one-line rationale. Cited: `<i>_<skill>.txt:<line>`.
+- sidecar: `<abs-path-to-SKILL.patch.md>` — v<old>→v<new>, <severity>, one-line rationale. Cited: `<i>_<skill>.txt:<line>`. Promote with: `/sst-promote-skill-proposal`.
+- master-repo (staged, not committed): `<path>` — for transferable updates written in `all` mode with clean sanitization. User opens the PR.
 - (or: `none`)
+
+## Sanitization footers
+
+(Appended verbatim from `<draft>.findings.md` for each transferable write, per §4. Omit entirely when no transferable writes happened.)
 
 ## Notes for the manager
 
@@ -169,11 +147,18 @@ Set the verdict outcome to `escalate` (and write a note to the manager) when:
 
 Escalation does NOT change what the supervisor writes; it just sets a flag the manager will pick up and surface to the user.
 
+## Permissions contract
+
+The supervisor writes under `.claude/skills/`, which is normally gated by harness approval prompts. Those prompts are bypassed by the chain runner (`bin/skill-chain.py` passes `--dangerously-skip-permissions` to every skill invocation it spawns, supervisor included), so in the autonomous path every Write/Edit here is auto-approved. If you are ever running the supervisor manually outside a chain run, expect approval prompts on each write; that is intentional — manual runs are inherently interactive.
+
+Do NOT add a side-channel (env var, lock file, config toggle) to skip prompts in other code paths. The harness flag is the single source of truth; changing it changes the behavior uniformly.
+
 ## Output rules
 
-- **Only write under `<run-dir>/`, `~/Dev/skill-set/proposals/`, and (rarely) `docs/TODO.md`.** Never elsewhere.
-- **Never call git.** No commits, no pushes, no branch creation. Proposals are unstaged files; promotion happens later under user gating.
+- **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for proprietary updates; (c) `~/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for transferable updates (runtime-effective path); (d) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for the master-repo staged sanitized copy of a transferable update; (e) `docs/TODO.md` under `## Next up` (rare). Never elsewhere.
+- **Never call git.** No commits, no pushes, no branch creation. Direct overwrites to SKILL.md are left unstaged under `<cwd>/.claude/skills/` (often gitignored anyway) and staged-but-uncommitted under `~/Dev/skill-set/` so the user can open the PR with the sanitization footer from the verdict file.
 - **Never deploy.** No SSH, no service restarts, no curl against a live site.
+- **Never touch a stale `SKILL.patch.md` you didn't just write.** If this cycle had no finding for a skill that already has a sidecar, leave the sidecar alone; the user may be mid-review.
 
 ## When invoked with no run-log dir argument
 

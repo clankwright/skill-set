@@ -194,3 +194,25 @@ Formalize the distinct-name rule and the `sst-<base>` / `ssp-<base>` prefix conv
 - [x] Rename all transferables in `skills/` from bare names to `sst-<base>`; update every cross-reference in SKILL.md bodies, chain YAMLs, docs, and templates. Strengthened the validator to require `sst-` prefix on transferables inside this repo's `skills/` tree.
 - [x] Install-time safety net in `bin/install-skills.sh`: a target is DIVERGED when its SKILL.md body differs from source beyond the YAML frontmatter. Interactive runs show a per-skill diff and prompt before overwrite; `-y` mode skips DIVERGED targets (count reported at the end); `--force` overrides and overwrites.
 - [x] Audit `~/.claude/skills/` for user-diverged copies; renamed `linkedin-easy-apply` (bare, pre-sst-) → `ssp-linkedin-easy-apply` with `transferable: sst-linkedin-easy-apply` link; canonical copy kept at `~/Dev/skill-set-personal/skills/ssp-linkedin-easy-apply/` (outside `~/.claude/` so it survives a harness reset). Discovery verified: harness now lists `ssp-linkedin-easy-apply`.
+
+### Phase 11: auto-promote mode
+
+Close the learning loop between chain iterations. Before Phase 11 the supervisor wrote its proposed `SKILL.md` rewrites to `<run-dir>/proposals/<skill>.patch.md`, which accumulated one file per cycle and could only be turned into a real edit by a separate user-gated `/sst-promote-skill-proposal` invocation. That meant a looping chain (`sdrai-cycle`, `sst-dev-cycle`, etc.) never consumed its own supervisor's improvements within the same run; the next iteration re-read the same stale skill and the supervisor frequently re-filed the same proposal.
+
+Phase 11 introduces an `auto-promote` field on the chain definition (schema: `off | proprietary | all`, default `proprietary`) that tells the supervisor to route its output by scope:
+
+| auto-promote | Proprietary skill           | Transferable skill                                                   |
+| :---         | :---                        | :---                                                                 |
+| `off`        | sidecar `SKILL.patch.md`    | sidecar `SKILL.patch.md`                                             |
+| `proprietary`| direct overwrite `SKILL.md` | sidecar `SKILL.patch.md`                                             |
+| `all`        | direct overwrite `SKILL.md` | direct overwrite `SKILL.md` iff `sst-sanitize-transferable` reports `must-fix: 0`; else sidecar |
+
+The `SKILL.patch.md` sidecar is a drop-in replacement (full frontmatter + body) rather than a proposal-with-header. One per skill, overwritten each cycle; rationale + citations live in the run's `supervisor_verdict.md`. `/sst-promote-skill-proposal` now consumes sidecars: `mv SKILL.patch.md SKILL.md` after user-gated diff review.
+
+**Zero changes to `bin/skill-chain.py`.** The runner's existing `--dangerously-skip-permissions` flag already unblocks supervisor writes under `.claude/skills/`; the supervisor reads `auto-promote` from the chain YAML (via `MANIFEST.chain_definition`) and routes accordingly. Rollback of an unwanted direct overwrite is `git checkout <path>/SKILL.md`.
+
+- [x] `auto-promote` enum added to `schema/skill-chain.schema.json` (default `proprietary`; backward-compatible for chains that omit it).
+- [x] `sst-supervisor` rewritten: routing table in §3, transferable sanitization extended in §4 to cover direct overwrites, verdict file structure records direct-vs-sidecar targets + per-write sanitization footers. Permissions contract documented.
+- [x] `sst-promote-skill-proposal` rewritten: scans three sidecar-capable roots (`<cwd>/.claude/skills/`, `~/.claude/skills/`, `~/Dev/skill-set/skills/`), promotes via atomic rename. Transferable sanitization re-run before every promotion.
+- [ ] Update every transferable chain YAML under `chains/` to set `auto-promote:` explicitly (all three modes exercised across the set), then document the field in `README.md`.
+- [ ] First end-to-end loop that actually consumes its own supervisor's improvements: pick a consuming chain (likely `sdrai-cycle` in the personal skill-set) and verify two consecutive iterations of a synthetic `should-fix` finding converge on iteration 2 instead of re-filing in iteration 3+.

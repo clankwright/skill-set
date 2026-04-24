@@ -18,6 +18,7 @@
   Trim to the most recent 10 entries; older history lives in docs/SPEC.md phase blocks and `git log`.
 -->
 
+- <PENDING-SHA> Phase 11: auto-promote field on chain schema (off | proprietary | all, default proprietary); sst-supervisor rewritten to route direct-overwrite vs SKILL.patch.md sidecar by scope + mode; sst-promote-skill-proposal rewritten to scan sidecars across project/harness/master-repo and promote via atomic rename — by claude-code at 2026-04-24T04:00:00Z
 - 2e9e1d3 Phase 10 correction: trimmed the 17 sst-* skills that were installed in adc9ea8 but had no prior bare-name presence. Harness now holds only the 6 sst-* replacements (sst-dev-cycle, sst-dev-review, sst-lead-generation, sst-domain-seo-research, sst-linkedin-networking, sst-sanitize-transferable) + ssp-linkedin-easy-apply + vps-email-setup — by claude-code at 2026-04-24T01:10:00Z
 - adc9ea8 Phase 10 final: installed all 23 sst-* skills into ~/.claude/skills/ and removed 6 stale bare-name dirs (dev-cycle, dev-review, lead-generation, domain-seo-research, linkedin-networking, sanitize-transferable) after diff-audit confirmed no user edits. Harness now shows sst-*/ssp- only — by claude-code at 2026-04-24T01:00:00Z
 - 8a32abd Phase 10 install safety net: bin/install-skills.sh now detects DIVERGED targets (body differs beyond frontmatter), skips them in -y mode, prompts interactively, and overrides via --force — by claude-code at 2026-04-24T00:45:00Z
@@ -27,9 +28,6 @@
 - bb4fdb8 Rename repo transferable-skills → skill-set; segregate global install path under ~/.claude/skills/skill-set/ — by claude-code at 2026-04-23T23:08:58Z
 - 34cb36a Phase 9: optional chain looping + dogfood CLAUDE.md — by claude-code at 2026-04-23T12:31:40Z
 - bc3ec9c Phase 8.5: lift short-video-generator + social-promoter; first proprietary counterpart
-- 795041d Phase 8.4: lift email-control-loop, agent-orchestrator
-- 9c5d5c0 Phase 8.3: lift llm-judge-ranker, translator
-- c1bec46 Fix YAML parse failure in editorial-pass frontmatter; harden validator
 
 ## Next up (queued for next cycle)
 
@@ -40,6 +38,8 @@
   Order: blockers/highest-impact first.
 -->
 
+- Phase 11 `Update transferable chains under chains/ to set auto-promote explicitly + document the field in README.md` — reason: spec Phase 11 tail item; schema + skill routing shipped this cycle but the existing chains all rely on the default and the README still doesn't mention the mode.
+- Phase 11 `End-to-end loop convergence test` — reason: spec Phase 11 tail item; verify two consecutive iterations of the same synthetic should-fix finding converge on iteration 2 (improved skill applied) instead of re-filing on iteration 3+.
 - Phase 9 `Document the loop flag + YAML field in README.md` — reason: spec Phase 9 tail item; the runner/schema support ships this cycle but the user-facing README still only describes one-shot chains.
 - Phase 9 `Add at least one transferable chain that uses loop: N by default` — reason: spec Phase 9 tail item; validates the YAML field against a real consuming flow (likely candidate: an sst-iterative-writer or dev-cycle-with-review loop).
 - Phase 8.6 end-to-end smoke: chain `sst-web-research → sst-editorial-pass → sst-social-promoter` against a real consuming project with clean supervisor verdict — reason: spec Phase 8 tail item, Phase 8.1-8.5 lifts already complete.

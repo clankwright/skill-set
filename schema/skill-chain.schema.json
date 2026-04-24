@@ -60,6 +60,12 @@
       "minimum": 0,
       "default": 0,
       "description": "Seconds to sleep between iterations when loop != 1. Ignored for single-iteration runs. CLI flag --loop-delay overrides this field."
+    },
+    "auto-promote": {
+      "type": "string",
+      "enum": ["off", "proprietary", "all"],
+      "default": "proprietary",
+      "description": "Controls where the supervisor writes proposed SKILL.md rewrites. 'off': writes to <skill-dir>/SKILL.patch.md (one per skill, overwritten each run); user promotes manually via /sst-promote-skill-proposal. 'proprietary' (default): supervisor overwrites proprietary SKILL.md files in <cwd>/.claude/skills/ directly so the next iteration sees the improved prose; transferables still go to SKILL.patch.md for human review. 'all': also overwrites transferable SKILL.md files under ~/.claude/skills/, but only after sst-sanitize-transferable reports must-fix=0; otherwise that skill falls back to SKILL.patch.md with a warning. Rollback of an unwanted auto-applied change is `git checkout <path>/SKILL.md`."
     }
   },
   "allOf": [
