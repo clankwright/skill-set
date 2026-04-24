@@ -1,8 +1,8 @@
 ---
 name: sst-dev-cycle
-description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
+description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one amended commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.0.0
+version: 1.0.2
 ---
 
 # Autonomous TDD Cycle
@@ -14,7 +14,7 @@ One invocation = one shipped change. Read the spec, decide, write failing tests,
 - **Run to 100% completion. Never stop to ask.** If a step fails, diagnose and fix the root cause and retry. Only escalate to the user if you've exhausted reasonable attempts on an external blocker (server unreachable, missing credential, ambiguous spec wording that can't be resolved by reading the code).
 - **Tests define done.** Write the failing test first. If the test would require a mock that contradicts the real architecture, fix the test design — don't write implementation-first to "see what shape makes sense."
 - **Small scope per cycle.** One unchecked spec item (or one bug). Don't bundle unrelated changes. If you notice an adjacent issue, note it in the spec's deferred list or a follow-ups file rather than fixing it inline.
-- **One commit.** Implementation + tests + spec + TODO update in a single commit. Push once. No separate spec-only or TODO-only push.
+- **One commit.** Implementation + tests + spec + TODO update (including the new Just-shipped line) ship as one commit. Push once. No separate spec-only commit, no separate TODO-only commit. The Just-shipped line format does NOT include the commit's own SHA — that's provably impossible (a commit cannot contain its own hash). Correlate Just-shipped entries to commits by the one-line summary + utc-iso + `git log --oneline --grep`.
 - **Fix root causes, never mask failures.** No `@pytest.mark.skip`, no `xfail`, no `-k` to exclude failing tests, no deleting assertions "temporarily." If a test is wrong, fix the test with a clear rationale; if the code is wrong, fix the code.
 
 ## Handoff docs (read on open, update on close — every cycle)
@@ -29,8 +29,8 @@ Contract for every cycle:
 1. **Open**: read both end-to-end before any other action. If `TODO.md` is missing, create it from `~/Dev/skill-set/templates/TODO.md` as the very first action; commit that creation as part of this cycle's single commit. Do not invent a different shape.
 2. **Decide** (see §1 below): pick from `TODO.md`'s "Next up" if non-empty, else from the spec's next unchecked item.
 3. **Mid-cycle**: append a single `## In flight` line at the start of work in this format: `- [<skill-name> @ <utc-iso>] <one-line>`. Rewrite (don't append again) as the work narrows. Do not commit mid-cycle "In flight" updates; they live unstaged until the close commit.
-4. **Close** (see §5–6 below): move the in-flight line to "Just shipped" with the commit SHA-short; if the cycle uncovered new work that doesn't belong in the spec, append it to "Next up." Trim "Just shipped" to the most recent 10 entries.
-5. Both `SPEC.md` and `TODO.md` ship in the same commit as the code change (see §6).
+4. **Close** (see §5–6 below): clear the in-flight line; write the new Just-shipped line (`- <one-line summary> — by <skill-name> at <utc-iso>`, no SHA); if the cycle uncovered new work that doesn't belong in the spec, append it to "Next up"; trim "Just shipped" to the most recent 10 entries. Then commit everything in one commit.
+5. `SPEC.md`, `TODO.md`, and the code change ship as one commit — never as multiple commits. The Just-shipped line does NOT include the commit's own SHA (impossible without an amend-then-rewrite hack that produces stale SHAs); readers correlate entries to commits by the one-line summary, not by hash.
 
 ## 0. Pre-flight
 
@@ -96,17 +96,18 @@ If the project has known-flaky test files that are separately tracked, explicitl
 
 For UI changes, also verify in a real browser (Playwright MCP against a local dev server). Target zero console errors. Stop the local dev server when you're done verifying.
 
-## 5. Update the spec + TODO.md
+## 5. Update the spec + TODO.md (all updates in a single pass, no SHA in Just-shipped)
 
 **`SPEC.md`**: flip `- [ ]` to `- [x]` for what you shipped. If this closes a sub-phase or milestone, add a section mirroring the format of the most recent completed one: 1-paragraph context, bulleted checklist of changes with file citations, test-count delta. Update any index / status summary file that the project keeps (e.g. a `CLAUDE.md` phase list).
 
-**`TODO.md`** — three updates, in order:
+**`TODO.md`** — four updates, all applied before committing:
 
-1. Move the line you wrote to `## In flight` in §1 over to `## Just shipped (last cycle)` at the top: `- <sha-short> <one-line summary> — by <this-skill-name> at <utc-iso>`. Use the SHA-short from the commit you're about to make (you'll know it after the commit lands; do this update in §6 after the first `git commit`, or pre-write a placeholder and amend — placeholder + amend is cleaner since the commit body is one atomic unit).
-2. If you uncovered new work that doesn't merit a spec edit (small follow-ups, adjacent fixes, deferred polish), append each to `## Next up (queued for next cycle)` with format `- <one-line> — <reason/source>`.
-3. Trim `## Just shipped (last cycle)` to the most recent 10 entries; older entries are reflected in `SPEC.md` checkboxes and `git log` already.
+1. Clear the `## In flight` line you wrote in §1 (delete it entirely; the "Just shipped" entry replaces it).
+2. Prepend a new entry at the top of `## Just shipped (last cycle)` in format: `- <one-line summary> — by <this-skill-name> at <utc-iso>`. **No SHA.** A commit cannot contain its own hash — any SHA you write would either be a placeholder requiring amend-rewrite (the SHA goes stale the instant you amend) or a fake/dangling reference. Downstream consumers (sst-dev-review, sst-supervisor, sst-manager, human readers) correlate Just-shipped entries to commits via the one-line summary and `git log --oneline --grep`; git log is the ledger, TODO is the summary.
+3. If you uncovered new work that doesn't merit a spec edit (small follow-ups, adjacent fixes, deferred polish), append each to `## Next up (queued for next cycle)` with format `- <one-line> — <reason/source>`.
+4. Trim `## Just shipped (last cycle)` to the most recent 10 entries; older entries are reflected in `SPEC.md` checkboxes and `git log` already.
 
-## 6. Commit + push
+## 6. Commit + push (single commit, no extras)
 
 Stage only the files you changed (by name — no `git add -A`, which sweeps up secrets and noise). Bundle implementation + tests + spec update + TODO.md update + any index-file update in ONE commit:
 
@@ -119,13 +120,13 @@ git commit -m "$(cat <<'EOF'
 decisions. Reference the failing-test evidence or the issue it closes.>
 
 Test count: <old> → <new>.
-
 EOF
 )"
+
 git push origin <branch>
 ```
 
-(If you pre-wrote a placeholder SHA in `TODO.md`, run a `git commit --amend --no-edit` after editing the SHA in, then push.)
+**Never make a separate "docs: record <sha> in TODO" commit, and never `git commit --amend` to rewrite a Just-shipped SHA**. The Just-shipped line intentionally omits the SHA for exactly this reason — a commit cannot contain its own hash, and amend-based workarounds produce dangling references that confuse forensic work. The one-line summary + utc-iso is sufficient to locate the commit in `git log`.
 
 Never append "Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>", or similar, to commit messages!
 Scope tags match the project's convention (examples: `Auth:`, `UI:`, `Docs:`, `Tests:`, `Deploy:`, `Infra:`, or a feature area like `Leads:`).

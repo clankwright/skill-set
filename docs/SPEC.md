@@ -86,7 +86,7 @@ Every project keeps two canonical files (`docs/SPEC.md`, `docs/TODO.md`) read by
 - [<skill> @ <utc>] <one-line>
 
 ## Just shipped (last cycle)
-- <sha> <one-line> — by <skill> at <utc>
+- <one-line> — by <skill> at <utc>
 
 ## Next up (queued for next cycle)
 - <one-line> — reason / source
@@ -96,7 +96,7 @@ Skill contract (codified in transferable preambles):
 1. Read both docs end-to-end before any other action.
 2. Pick from `TODO.md` "Next up" if non-empty, else next unchecked item in `SPEC.md`.
 3. Write a single "In flight" line at start; rewrite (don't append) as work narrows.
-4. On close: move "In flight" → "Just shipped" with commit SHA; append any new work to "Next up"; trim "Just shipped" to last 10.
+4. On close: move "In flight" → "Just shipped" (no commit SHA — a commit cannot contain its own hash; correlate via `git log --oneline --grep`); append any new work to "Next up"; trim "Just shipped" to last 10.
 5. Both docs commit in the same commit as the code change.
 
 ### Run log

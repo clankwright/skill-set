@@ -14,8 +14,11 @@
 
 <!--
   Append-on-close, newest first. Format:
-  - <sha-short> <one-line summary> — by <skill-name> at <utc-iso>
-  Trim to the most recent 10 entries; older history lives in the SPEC.md phase blocks and `git log`.
+  - <one-line summary> — by <skill-name> at <utc-iso>
+  No commit SHA: a commit cannot contain its own hash, and the amend-based
+  workarounds produce stale/dangling references. Correlate entries to commits
+  via `git log --oneline --grep '<keyword-from-summary>'`. Trim to the most
+  recent 10 entries; older history lives in the SPEC.md phase blocks and `git log`.
 -->
 
 ## Next up (queued for next cycle)

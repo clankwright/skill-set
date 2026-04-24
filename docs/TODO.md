@@ -14,10 +14,16 @@
 
 <!--
   Append-on-close, newest first. Format:
-  - <sha-short> <one-line summary> — by <skill-name> at <utc-iso>
-  Trim to the most recent 10 entries; older history lives in docs/SPEC.md phase blocks and `git log`.
+  - <one-line summary> — by <skill-name> at <utc-iso>
+  No commit SHA: a commit cannot contain its own hash, and amend-based
+  workarounds produce stale references. Correlate entries to commits via
+  `git log --oneline --grep '<keyword>'`. Older entries below retain their
+  SHAs from the prior two-commit pattern; leave them alone, they're valid.
+  Trim to the most recent 10 entries; older history lives in docs/SPEC.md
+  phase blocks and `git log`.
 -->
 
+- sst-dev-cycle v1.0.2 + framework handoff contract: Just-shipped format drops commit SHA (a commit can't contain its own hash; amend-based workarounds leave dangling references); skill, templates, CLAUDE.md, SPEC.md, sst-dev-review aligned to the new format — by claude-code at 2026-04-24T04:45:00Z
 - 93bf49b Phase 11: auto-promote field on chain schema (off | proprietary | all, default proprietary); sst-supervisor rewritten to route direct-overwrite vs SKILL.patch.md sidecar by scope + mode; sst-promote-skill-proposal rewritten to scan sidecars across project/harness/master-repo and promote via atomic rename — by claude-code at 2026-04-24T04:00:00Z
 - 2e9e1d3 Phase 10 correction: trimmed the 17 sst-* skills that were installed in adc9ea8 but had no prior bare-name presence. Harness now holds only the 6 sst-* replacements (sst-dev-cycle, sst-dev-review, sst-lead-generation, sst-domain-seo-research, sst-linkedin-networking, sst-sanitize-transferable) + ssp-linkedin-easy-apply + vps-email-setup — by claude-code at 2026-04-24T01:10:00Z
 - adc9ea8 Phase 10 final: installed all 23 sst-* skills into ~/.claude/skills/ and removed 6 stale bare-name dirs (dev-cycle, dev-review, lead-generation, domain-seo-research, linkedin-networking, sanitize-transferable) after diff-audit confirmed no user edits. Harness now shows sst-*/ssp- only — by claude-code at 2026-04-24T01:00:00Z

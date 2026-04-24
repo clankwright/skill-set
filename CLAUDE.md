@@ -18,7 +18,7 @@ Pick work this way:
 On close of every substantive change:
 
 - Write one `- [<what-you're-doing> @ <utc-iso>]` line under `In flight` when you start. Rewrite (don't append) as focus narrows. Clear it when done.
-- Move the finished item to `Just shipped (last cycle)` as `- <sha-short> <one-line> — by <agent-or-skill> at <utc-iso>`. Trim that section to the most recent 10.
+- Move the finished item to `Just shipped (last cycle)` as `- <one-line> — by <agent-or-skill> at <utc-iso>`. No commit SHA: a commit cannot contain its own hash; find the matching commit via `git log --oneline --grep '<keyword>'`. Trim that section to the most recent 10.
 - If you close a SPEC phase item, flip its `- [ ]` → `- [x]` in the same commit.
 - Any follow-up work discovered during the cycle goes to `Next up`, not the SPEC directly.
 - `SPEC.md`, `TODO.md`, and the code change ship in a **single commit**. Do not split them.

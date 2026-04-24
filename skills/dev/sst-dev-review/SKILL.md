@@ -36,7 +36,7 @@ This skill reads `docs/SPEC.md` and `docs/TODO.md` end-to-end on open and may wr
 
 1. Working directory is the project root (same repo as the commit you're reviewing). Activate any language environment the project uses.
 2. Clean git state: `git status` should be clean. If dirty, **stop** — a review on top of uncommitted work is meaningless.
-3. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported state and SHA.
+3. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported summary (no SHA in that format — a commit cannot contain its own hash; correlate the top Just-shipped line to HEAD, or to the matching commit via `git log --oneline --grep`).
 4. Identify the commit under review:
    ```bash
    git log -1 --format='%H %s'
