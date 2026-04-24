@@ -18,6 +18,7 @@
   Trim to the most recent 10 entries; older history lives in docs/SPEC.md phase blocks and `git log`.
 -->
 
+- XXXXXXX Phase 10 final: installed all 23 sst-* skills into ~/.claude/skills/ and removed 6 stale bare-name dirs (dev-cycle, dev-review, lead-generation, domain-seo-research, linkedin-networking, sanitize-transferable) after diff-audit confirmed no user edits. Harness now shows sst-*/ssp- only — by claude-code at 2026-04-24T01:00:00Z
 - 8a32abd Phase 10 install safety net: bin/install-skills.sh now detects DIVERGED targets (body differs beyond frontmatter), skips them in -y mode, prompts interactively, and overrides via --force — by claude-code at 2026-04-24T00:45:00Z
 - 5fc1223 Phase 10 rename: all 23 transferables to sst- prefix; cross-refs, chain YAMLs, docs, templates updated; sst- prefix enforced by validator — by claude-code at 2026-04-24T00:30:00Z
 - 55e6693 Phase 10 start: distinct-name validator rule + sst-/ssp- prefix convention in SPEC — by claude-code at 2026-04-24T00:15:00Z
@@ -38,7 +39,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [Phase 10 cleanup] Under `~/.claude/skills/`, remove (or `ssp-`-rename after audit) the 7 stale bare-name skills that were installed before the Phase 10 rename: `dev-cycle`, `dev-review`, `lead-generation`, `domain-seo-research`, `linkedin-networking`, `sanitize-transferable` (plus one-off cleanup of `linkedin-easy-apply` already done as `ssp-linkedin-easy-apply`). The safety net protects the transferables going forward; existing stale copies are leftover from pre-sst- installs and need a one-time manual pass. Diff each against the new source `sst-` version first to spot any user edits worth preserving.
 - Phase 9 `Document the loop flag + YAML field in README.md` — reason: spec Phase 9 tail item; the runner/schema support ships this cycle but the user-facing README still only describes one-shot chains.
 - Phase 9 `Add at least one transferable chain that uses loop: N by default` — reason: spec Phase 9 tail item; validates the YAML field against a real consuming flow (likely candidate: an sst-iterative-writer or dev-cycle-with-review loop).
 - Phase 8.6 end-to-end smoke: chain `sst-web-research → sst-editorial-pass → sst-social-promoter` against a real consuming project with clean supervisor verdict — reason: spec Phase 8 tail item, Phase 8.1-8.5 lifts already complete.
