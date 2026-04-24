@@ -38,7 +38,7 @@
   Order: blockers/highest-impact first.
 -->
 
-- [Phase 10] Rename user's diverged `~/.claude/skills/linkedin-easy-apply/` to `ssp-linkedin-easy-apply`, update frontmatter (`name: ssp-linkedin-easy-apply` + `transferable: sst-linkedin-easy-apply`), back up canonical copy outside `~/.claude/` — reason: spec Phase 10; first application of the new convention.
+- [Phase 10 cleanup] Under `~/.claude/skills/`, remove (or `ssp-`-rename after audit) the 7 stale bare-name skills that were installed before the Phase 10 rename: `dev-cycle`, `dev-review`, `lead-generation`, `domain-seo-research`, `linkedin-networking`, `sanitize-transferable` (plus one-off cleanup of `linkedin-easy-apply` already done as `ssp-linkedin-easy-apply`). The safety net protects the transferables going forward; existing stale copies are leftover from pre-sst- installs and need a one-time manual pass. Diff each against the new source `sst-` version first to spot any user edits worth preserving.
 - Phase 9 `Document the loop flag + YAML field in README.md` — reason: spec Phase 9 tail item; the runner/schema support ships this cycle but the user-facing README still only describes one-shot chains.
 - Phase 9 `Add at least one transferable chain that uses loop: N by default` — reason: spec Phase 9 tail item; validates the YAML field against a real consuming flow (likely candidate: an sst-iterative-writer or dev-cycle-with-review loop).
 - Phase 8.6 end-to-end smoke: chain `sst-web-research → sst-editorial-pass → sst-social-promoter` against a real consuming project with clean supervisor verdict — reason: spec Phase 8 tail item, Phase 8.1-8.5 lifts already complete.
