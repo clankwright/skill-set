@@ -192,5 +192,5 @@ Formalize the distinct-name rule and the `sst-<base>` / `ssp-<base>` prefix conv
 - [x] Validator rule in `bin/validate-frontmatter.py`: rejects proprietary skills where `name == transferable`.
 - [x] SPEC section documenting the distinct-name rule, `sst-`/`ssp-` prefix convention, and the two proprietary scopes.
 - [x] Rename all transferables in `skills/` from bare names to `sst-<base>`; update every cross-reference in SKILL.md bodies, chain YAMLs, docs, and templates. Strengthened the validator to require `sst-` prefix on transferables inside this repo's `skills/` tree.
-- [ ] Install-time safety net in `bin/install-skills.sh`: when a target skill exists and diverges from source beyond frontmatter, show diff and require per-skill confirmation; in `-y` mode, skip unless `--force` is passed.
+- [x] Install-time safety net in `bin/install-skills.sh`: a target is DIVERGED when its SKILL.md body differs from source beyond the YAML frontmatter. Interactive runs show a per-skill diff and prompt before overwrite; `-y` mode skips DIVERGED targets (count reported at the end); `--force` overrides and overwrites.
 - [ ] Audit `~/.claude/skills/` for user-diverged copies; rename `linkedin-easy-apply` (bare, pre-sst-) → `ssp-linkedin-easy-apply` + link via `transferable: sst-linkedin-easy-apply`; back up canonical copy outside `~/.claude/`.

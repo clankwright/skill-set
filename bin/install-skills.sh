@@ -12,17 +12,30 @@
 #   bin/install-skills.sh <name> [<name> ...]      # only the named skills
 #   bin/install-skills.sh -y                       # skip confirmation
 #   bin/install-skills.sh --dry-run                # show what would change, copy nothing
+#   bin/install-skills.sh --force                  # overwrite even DIVERGED targets (see below)
 #   bin/install-skills.sh --target DIR             # custom target (default: ~/.claude/skills)
 #   bin/install-skills.sh --source DIR             # custom source (default: <repo>/skills)
 #
 # Examples:
-#   bin/install-skills.sh sanitize-transferable    # one skill
-#   bin/install-skills.sh -y supervisor manager    # two, no prompt
-#   bin/install-skills.sh --dry-run dev-cycle      # preview one
+#   bin/install-skills.sh sst-sanitize-transferable       # one skill
+#   bin/install-skills.sh -y sst-supervisor sst-manager   # two, no prompt
+#   bin/install-skills.sh --dry-run sst-dev-cycle         # preview one
 #
 # Output groups skills by their source-repo category (e.g. framework/, dev/,
 # framework/coms/). Categories are a source-side organization; the harness
 # target layout stays flat ($TARGET/<name>/).
+#
+# Divergence safety net:
+#   A target skill is DIVERGED when its SKILL.md body (everything after the
+#   YAML frontmatter) differs from the source. Frontmatter-only differences
+#   are treated as a regular UPDATE; divergent bodies indicate the target
+#   was hand-edited since install and overwriting would clobber that work.
+#   Behavior:
+#     * -y mode (no --force): DIVERGED targets are SKIPPED with a warning.
+#       Regular NEW / UPDATE / unchanged targets proceed normally.
+#     * Interactive mode (no --force): a per-skill diff is shown and the
+#       user is prompted individually before each DIVERGED overwrite.
+#     * --force: DIVERGED targets are overwritten unconditionally.
 #
 # Exit: 0 on success, 1 on error or user cancel.
 
@@ -35,14 +48,16 @@ TARGET="${HOME}/.claude/skills"
 SOURCE="${REPO_ROOT}/skills"
 DRY_RUN=0
 ASSUME_YES=0
+FORCE=0
 FILTERS=()
 
-usage() { sed -n '2,25p' "$0"; }
+usage() { sed -n '2,40p' "$0"; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         -y|--yes)      ASSUME_YES=1; shift ;;
         --dry-run)     DRY_RUN=1; shift ;;
+        --force)       FORCE=1; shift ;;
         --target)      TARGET="$2"; shift 2 ;;
         --source)      SOURCE="$2"; shift 2 ;;
         -h|--help)     usage; exit 0 ;;
@@ -119,6 +134,28 @@ category_of() {
     printf "%s" "$cat"
 }
 
+# body_of <file>: print everything after the first YAML frontmatter block.
+# If the file has no frontmatter, print the whole file.
+body_of() {
+    awk '
+        BEGIN { in_fm = 0; past_fm = 0 }
+        NR == 1 && /^---[[:space:]]*$/ { in_fm = 1; next }
+        in_fm && /^---[[:space:]]*$/ { in_fm = 0; past_fm = 1; next }
+        in_fm { next }
+        { print }
+    ' "$1"
+}
+
+# is_diverged <source-SKILL.md> <target-SKILL.md>:
+#   0 (true)  if target body differs from source body (beyond frontmatter).
+#   1 (false) if bodies match, or target doesn't exist.
+is_diverged() {
+    local src="$1" tgt="$2"
+    [ -f "$tgt" ] || return 1
+    cmp -s <(body_of "$src") <(body_of "$tgt") && return 1
+    return 0
+}
+
 status_of() {
     local dir="$1"
     local name="$2"
@@ -127,14 +164,16 @@ status_of() {
         printf "skipped: no SKILL.md"
         return
     fi
-    if [ -f "$TARGET/$name/SKILL.md" ]; then
-        if cmp -s "$sm" "$TARGET/$name/SKILL.md"; then
-            printf "unchanged"
-        else
-            printf "UPDATE"
-        fi
-    else
+    if [ ! -f "$TARGET/$name/SKILL.md" ]; then
         printf "NEW"
+        return
+    fi
+    if cmp -s "$sm" "$TARGET/$name/SKILL.md"; then
+        printf "unchanged"
+    elif is_diverged "$sm" "$TARGET/$name/SKILL.md"; then
+        printf "DIVERGED"
+    else
+        printf "UPDATE"
     fi
 }
 
@@ -182,13 +221,44 @@ fi
 
 mkdir -p "$TARGET"
 
+copied=0
+skipped_diverged=()
 for dir in "${skill_dirs[@]}"; do
     name="$(basename "$dir")"
     [ -f "$dir/SKILL.md" ] || continue
+
+    tgt_sm="$TARGET/$name/SKILL.md"
+    if [ -f "$tgt_sm" ] && is_diverged "$dir/SKILL.md" "$tgt_sm"; then
+        if [ "$FORCE" -eq 1 ]; then
+            echo "  DIVERGED: $name (overwriting due to --force)"
+        elif [ "$ASSUME_YES" -eq 1 ]; then
+            echo "  DIVERGED: $name (skipped; re-run with --force to overwrite)"
+            skipped_diverged+=("$name")
+            continue
+        else
+            echo
+            echo "=== DIVERGED: $name ==="
+            diff -u "$tgt_sm" "$dir/SKILL.md" | sed 's/^/    /' | head -60 || true
+            echo
+            printf "Overwrite %s? [y/N] " "$name"
+            read -r reply
+            case "$reply" in
+                y|Y|yes|YES) ;;
+                *) echo "  skipped $name"; skipped_diverged+=("$name"); continue ;;
+            esac
+        fi
+    fi
+
     mkdir -p "$TARGET/$name"
     # Copy the whole skill dir (SKILL.md + any optional assets/, scripts/, references/).
     # -a preserves perms+timestamps; we don't pass --delete so target-only files survive.
     cp -a "$dir/." "$TARGET/$name/"
+    copied=$((copied + 1))
 done
 
-echo "Done."
+echo
+echo "Done. Copied $copied skill(s)."
+if [ "${#skipped_diverged[@]}" -gt 0 ]; then
+    echo "Skipped ${#skipped_diverged[@]} DIVERGED target(s): ${skipped_diverged[*]}"
+    echo "  (use --force to overwrite, or hand-merge the target first)"
+fi
