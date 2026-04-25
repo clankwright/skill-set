@@ -579,8 +579,20 @@ def run_iteration(
     iteration: int,
     total_iterations: int | None,
     cwd: str,
+    chain_meta: dict | None = None,
 ) -> tuple[int, dict]:
-    """Run one pass of the chain. Returns (exit_code, iteration_manifest)."""
+    """Run one pass of the chain. Returns (exit_code, iteration_manifest).
+
+    `chain_meta` carries chain-level fields (chain_name, chain_definition,
+    harness, etc.) that the iteration manifest doesn't own. After every skill
+    completes, this function writes a snapshot of (chain_meta + iter_manifest)
+    to iter_log_dir/MANIFEST.json so downstream skills — notably the auto-
+    supervisor, which is the last entry in skills_to_run and reads
+    MANIFEST.json at start — can see who ran before them. Without the
+    snapshot, the supervisor sees no manifest at all (the final write happens
+    in main() AFTER the iteration loop completes, which is AFTER the
+    supervisor itself has finished).
+    """
     if total_iterations != 1:
         if total_iterations is None:
             label = f"iteration {iteration} (looping until failure)"
@@ -598,12 +610,27 @@ def run_iteration(
         "skills": [],
     }
 
+    def _snapshot_manifest() -> None:
+        if iter_log_dir is None:
+            return
+        snap = {**(chain_meta or {}), **iter_manifest}
+        snap["in_progress"] = True
+        (iter_log_dir / "MANIFEST.json").write_text(
+            json.dumps(snap, indent=2) + "\n", encoding="utf-8"
+        )
+
+    # Empty snapshot up front so the very first skill (or anything that scans
+    # for MANIFEST.json before any skill has finished) at least sees the
+    # chain metadata + an empty skills list.
+    _snapshot_manifest()
+
     rc = 0
     for i, skill in enumerate(skills_to_run):
         skill_rc, record = run_skill(harness, skill, i, iter_log_dir)
         if skill == auto_supervisor:
             record["role"] = "supervisor"
         iter_manifest["skills"].append(record)
+        _snapshot_manifest()
         if skill_rc != 0:
             # Supervisor failure should NOT abort downstream work or surface as the
             # chain's exit code, since the cycle's real work already shipped.
@@ -735,6 +762,7 @@ def main() -> int:
                 iteration,
                 None if infinite else loop_count,
                 cwd,
+                chain_meta=manifest,
             )
             iterations_collected.append(iter_manifest)
 

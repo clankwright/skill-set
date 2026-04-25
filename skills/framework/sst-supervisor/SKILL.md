@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.4.0
+version: 1.4.1
 ---
 
 # Supervisor
@@ -30,7 +30,7 @@ The supervisor never fixes code or files spec items. Those belong to the skills 
 
 Read these in order, all from the run log directory passed to you (the chain runner reports its location on every invocation as `[log-dir] <path>`):
 
-1. **`MANIFEST.json`** — chain name, harness, per-skill exit codes, durations, model + token usage, git SHA before/after. Also carries `chain_definition` (path to the chain YAML) — read that YAML and note the `auto-promote:` field; default is `proprietary` when the field is absent. This value controls §3's output routing.
+1. **`MANIFEST.json`** — chain name, harness, per-skill exit codes, durations, model + token usage, git SHA before/after. Also carries `chain_definition` (path to the chain YAML) — read that YAML and note the `auto-promote:` field; default is `proprietary` when the field is absent. This value controls §3's output routing. The manifest may have `"in_progress": true` when you read it — the chain runner snapshot-writes after each skill so you can see the records of all skills that ran before you, but your own record (and the chain's `finished_at` / `git_sha_after` / `exit_code`) won't appear until after this skill returns. That's expected; don't treat your own missing entry as a defect to flag.
 2. **Each `<i>_<skill>.txt`** — the prettified, ANSI-stripped transcript of one skill invocation.
 3. **Each skill's current `SKILL.md`** — for the chain runner's CWD-local `.claude/skills/<skill>/SKILL.md` (proprietary) and, if the proprietary skill has a `transferable:` field, the installed transferable at `~/.claude/skills/<transferable>/SKILL.md` (runtime read path, same dir where any sidecar `SKILL.patch.md` lives).
 4. **`~/.claude/state/manager-guidance.md`** if it exists — guiding principles the manager has nudged into your input on prior runs.
