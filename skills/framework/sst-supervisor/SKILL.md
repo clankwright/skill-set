@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.4.1
+version: 1.5.0
 ---
 
 # Supervisor
@@ -25,6 +25,7 @@ The supervisor never fixes code or files spec items. Those belong to the skills 
 - **Sanitize before crossing the proprietary→transferable boundary.** The transferable layer is open-source. A leak there can never be retracted from clones. Use the leak rules; refuse to write a transferable update (direct OR sidecar) that fails any rule.
 - **The proprietary skill is allowed to know everything.** Proprietary updates can include any project nouns, paths, secrets-as-references-not-values. Don't water them down; they exist precisely to hold proprietary detail.
 - **One sidecar per skill, always overwriting.** `SKILL.patch.md` is not a per-run artifact: if a prior cycle left one and this cycle has a fresh finding for the same skill, overwrite it. If this cycle has nothing to say about a skill that has a stale sidecar, leave the sidecar alone (the user may be mid-review).
+- **A session that wrote drafts but no verdict file is a contract violation, not a clean exit.** §8's exit gate enforces this: before returning, every file in `<run-dir>/drafts/` MUST either have a matching `apply-skill-patch.py` invocation in this session's transcript, OR be explicitly named in the verdict file's `[deferred]` block with the reason it was not applied. The verdict file (§6) MUST exist before returning, even on a clean run. Iter_N+1's §0.6 sweep can recover orphaned drafts, but only if iter_N's verdict either applied them or named them deferred. Silently exiting with `drafts/` non-empty AND no verdict is the failure mode Phase 14 closes.
 
 ## Inputs
 
@@ -37,6 +38,24 @@ Read these in order, all from the run log directory passed to you (the chain run
 5. **`docs/SPEC.md` and `docs/TODO.md`** — for context on what the chain was working toward.
 
 ## Process
+
+### 0.6. Iter-boundary drafts sweep (multi-iter chains only)
+
+When the supervisor runs in iteration 2 or later of a `--loop N` chain, scan the prior iteration's drafts directory for orphaned files BEFORE walking the current iteration's skills. Detection: read `MANIFEST.iteration` from the snapshot manifest (§Inputs step 1). If `iteration > 1`, derive the prior iter's drafts path from the run-dir layout: for a log-dir at `<base>/iter_NN/`, the prior iter's drafts live at `<base>/iter_<NN-1 zero-padded>/drafts/`. For single-iter runs (`iteration == 1` or field absent), skip this step entirely; there is no prior iter in the same parent.
+
+For each file present in the prior iter's `drafts/`:
+
+1. **Treat it as a manager-injected finding.** The motivating citation comes from the prior iter's supervisor transcript: cite the line in `<base>/iter_<NN-1>/<i>_<supervisor>.txt` where the draft was written but not applied (look for the matching `Write` to that draft path, or the `[deferred]` block in the prior iter's `supervisor_verdict.md`). This satisfies the §3 anti-scope-creep gate without inventing a citation: a real transcript line describes the intended write; the prior session just didn't complete it.
+
+2. **Route per the current chain's `auto-promote` mode.** Apply the same routing table from §3: a draft originally destined for direct overwrite (proprietary in `proprietary` mode, anything in `all` mode with clean sanitize) gets applied via `bin/apply-skill-patch.py` to the proprietary `SKILL.md` or transferable `SKILL.md` target. A draft destined for a sidecar gets written via the same helper to `SKILL.patch.md`. If the auto-promote mode flipped between iters (rare; the chain YAML is fixed at run start, but a manual `--auto-promote` CLI override would do it), honor the current iter's mode.
+
+3. **Re-sanitize transferable drafts before applying.** A prior-iter sanitize pass does not bind this iter; the banned-terms list or guidance may have shifted between iterations within a long-running loop. Run `sst-sanitize-transferable` on the orphaned draft per §4 before any transferable write. A `must-fix` finding aborts the apply for that draft; record it as `[deferred]` in this iter's verdict instead.
+
+4. **Drop the consumed draft.** After successful apply (or after recording it as `[deferred]`), delete the prior iter's draft file. Post-condition: `drafts/` in the prior iter is empty (or every remaining file is referenced as `[deferred]` in this iter's verdict).
+
+The sweep self-heals partial-completion failures across iter boundaries: when iter_N's supervisor writes drafts but exits before applying them, iter_N+1 picks them up as its first action and the loop self-corrects without manual intervention. Sweep ONLY consumes drafts from `iter_<NN-1>/`; if older iterations also have orphaned drafts, that indicates a multi-iter outage and the supervisor flags it in `## Notes for the manager` rather than chain-recursing through the run-dir's history (a human should be involved at that point).
+
+Findings discovered during the sweep go through §1–7 alongside this iter's normal findings, with the sweep's drafts counted in §3's change-intent table (one row per applied draft, citation = the prior-iter transcript line). The exit gate (§8) then verifies the sweep's post-condition along with this iter's own draft handling.
 
 ### 1. Walk every skill in MANIFEST.skills
 
@@ -91,11 +110,10 @@ Target paths:
 ```bash
 /home/rob/Dev/skill-set/bin/apply-skill-patch.py \
     --source <RUN_DIR>/drafts/<skill-name>.md \
-    --target <absolute-path-to-target> \
-    --backup
+    --target <absolute-path-to-target>
 ```
 
-The `--target` is the path from the routing table above (`SKILL.md` for direct overwrite, `SKILL.patch.md` for sidecar). The helper is pre-allow-listed as `Bash(/home/rob/Dev/skill-set/bin/apply-skill-patch.py:*)`, so the Bash call does not prompt. See §Permissions contract for the full rationale.
+The `--target` is the path from the routing table above (`SKILL.md` for direct overwrite, `SKILL.patch.md` for sidecar). The helper is pre-allow-listed as `Bash(/home/rob/Dev/skill-set/bin/apply-skill-patch.py:*)`, so the Bash call does not prompt. `--backup` is intentionally omitted from the supervisor's automated path: git history covers rollback, and the `.bak` files otherwise surface as persistent untracked cruft in `git status` after every cycle. The flag still exists on the helper for ad-hoc human use, just don't pass it from the supervisor. See §Permissions contract for the full rationale.
 
 If the helper exits non-zero (e.g. target path rejected), that's a bug to report in the verdict, not an excuse to switch modes. Never "fall back" from direct overwrite to sidecar because one tool call failed.
 
@@ -184,6 +202,26 @@ Set the verdict outcome to `escalate` (and write a note to the manager) when:
 
 Escalation does NOT change what the supervisor writes; it just sets a flag the manager will pick up and surface to the user.
 
+### 8. Exit gate — completion invariant before returning
+
+This is the LAST step of every supervisor session. Do not return until both invariants hold; the chain runner has no way to detect a partial-completion exit, so the discipline is enforced here.
+
+1. **Drafts directory accounted for.** List `<run-dir>/drafts/` (or for multi-iter runs, `<iter-dir>/drafts/`). For each file present, confirm one of:
+   - A matching `apply-skill-patch.py` invocation appears in this session's transcript AND the target file exists at the expected path; OR
+   - The verdict file (§6) carries a `[deferred]` block naming this draft and the reason it was not applied (e.g. `sst-sanitize-transferable` returned `must-fix`, the helper exited non-zero on path validation, the draft was rendered moot by a parallel finding).
+
+2. **Verdict file exists.** `<run-dir>/supervisor_verdict.md` MUST be written before returning, even when the outcome is `clean`. A clean run produces a one-line verdict (no findings, no updates) so the manager skill, the user, and the next iteration's §0.6 sweep can confirm the prior session completed cleanly. A clean run with no verdict file is indistinguishable from a partial-completion failure.
+
+If either invariant fails, do not return. Either complete the missing apply step + verdict write, or write a `[deferred]` block per orphaned draft. The contract is simple: "drafts written → drafts applied OR explicitly deferred in verdict"; nothing falls through the cracks.
+
+`[deferred]` block format (extends the §6 "Updates written" section):
+
+```
+- [deferred]: <abs-path-to-draft-in-run-dir> — would have written <direct|sidecar> to <abs-path-to-target>; not applied because <reason>. Picked up next iter via §0.6 sweep.
+```
+
+The next iter's §0.6 sweep treats a `[deferred]` draft as a manager-injected finding (the reason field is the citation-equivalent: a real prior-iter transcript artifact describes the intended write). A run that exits with a non-empty `drafts/` AND no `[deferred]` blocks AND no matching apply invocations is a contract violation; the next iter's sweep will still pick up the orphans, but the gap should be flagged in `## Notes for the manager`.
+
 ## Permissions contract — write SKILL.md via the helper script, NOT via Edit/Write
 
 Claude Code's Edit/Write tools prompt for user approval on every write under `.claude/skills/**` — both `--dangerously-skip-permissions` and `--permission-mode bypassPermissions` have been empirically confirmed to still fire the prompt there, despite docs suggesting otherwise. That blocks every supervisor run whose only job is to rewrite a peer SKILL.md.
@@ -201,12 +239,14 @@ Invoke like this (draft the full replacement body to a temp file first, then app
 #    temp location the Edit/Write tools ARE allowed to write to (the run-dir):
 <RUN_DIR>/drafts/<skill-name>.md
 
-# 2. Apply it via the helper. --backup saves the prior contents to
-#    <target>.bak for one-step rollback if a post-hoc check flags a problem.
+# 2. Apply it via the helper. --backup is intentionally omitted from the
+#    supervisor's automated path: git history covers rollback, and the
+#    .bak files surface as persistent untracked cruft otherwise. The flag
+#    still exists on the helper for ad-hoc human use; just don't pass it
+#    from the supervisor.
 /home/rob/Dev/skill-set/bin/apply-skill-patch.py \
     --source <RUN_DIR>/drafts/<skill-name>.md \
-    --target <absolute-path-to-target-SKILL.md-or-SKILL.patch.md> \
-    --backup
+    --target <absolute-path-to-target-SKILL.md-or-SKILL.patch.md>
 ```
 
 The script refuses any target that isn't `SKILL.md` / `SKILL.patch.md` under an approved skills root (`~/.claude/skills/`, `<project>/.claude/skills/`, `~/Dev/skill-set/skills/`, `~/Dev/skill-set-personal/skills/`, or `~/.claude/commands/`, `~/.claude/agents/`). Anything outside exits with a clear `refusing:` message and non-zero status — don't try to work around it.
