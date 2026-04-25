@@ -874,7 +874,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=float,
         default=None,
         help="Seconds to sleep between iterations when --loop != 1. "
-             "Overrides the chain YAML's `loop-delay:` field when both are set.",
+             "Overrides the chain YAML's `loop-delay:` field when both are set. "
+             "Mutually exclusive with --loop-delay-random.",
+    )
+    p.add_argument(
+        "--loop-delay-random",
+        type=str,
+        default=None,
+        metavar="MIN,MAX",
+        help="Per-iteration randomized delay; sampled uniformly from [MIN, MAX] "
+             "seconds (inclusive) after each iteration boundary. Format: "
+             "'<min>,<max>' (e.g. '60,3600' for 1-60min jitter). Overrides the "
+             "chain YAML's `loop-delay-random:` field. Mutually exclusive with "
+             "--loop-delay; setting both is an error. Makes a multi-iter run's "
+             "cadence look human-driven instead of clockwork-automated.",
     )
     p.add_argument(
         "--on-rate-limit",
@@ -1044,7 +1057,46 @@ def main() -> int:
     if loop_count < 0:
         raise SystemExit("--loop must be >= 0 (0 = until failure / Ctrl-C)")
 
-    if args.loop_delay is not None:
+    # loop-delay-random takes precedence over loop-delay when set.
+    # Mutual-exclusion: setting both via the same source (CLI or YAML) is an
+    # error; a CLI random override of a YAML fixed delay (or vice versa) is
+    # explicitly allowed (CLI is the override layer).
+    loop_delay_random: tuple[float, float] | None = None
+    if args.loop_delay_random is not None:
+        if args.loop_delay is not None:
+            raise SystemExit("--loop-delay and --loop-delay-random are mutually exclusive")
+        try:
+            parts = [float(x.strip()) for x in args.loop_delay_random.split(",")]
+        except ValueError:
+            raise SystemExit(f"--loop-delay-random must be 'MIN,MAX' numeric "
+                             f"(got {args.loop_delay_random!r})")
+        if len(parts) != 2:
+            raise SystemExit(f"--loop-delay-random must be 'MIN,MAX' (got "
+                             f"{args.loop_delay_random!r})")
+        if parts[0] < 0 or parts[1] < 0:
+            raise SystemExit("--loop-delay-random values must be >= 0")
+        if parts[0] > parts[1]:
+            raise SystemExit(f"--loop-delay-random MIN ({parts[0]}) must be "
+                             f"<= MAX ({parts[1]})")
+        loop_delay_random = (parts[0], parts[1])
+    elif chain_def is not None and "loop-delay-random" in chain_def:
+        if "loop-delay" in chain_def:
+            raise SystemExit(f"chain {chain_def.get('name','?')!r}: loop-delay "
+                             f"and loop-delay-random are mutually exclusive")
+        rng = chain_def["loop-delay-random"]
+        if not (isinstance(rng, list) and len(rng) == 2):
+            raise SystemExit(f"chain {chain_def.get('name','?')!r}: "
+                             f"loop-delay-random must be [min, max]")
+        lo, hi = float(rng[0]), float(rng[1])
+        if lo < 0 or hi < 0:
+            raise SystemExit("loop-delay-random values must be >= 0")
+        if lo > hi:
+            raise SystemExit(f"loop-delay-random min ({lo}) must be <= max ({hi})")
+        loop_delay_random = (lo, hi)
+
+    if loop_delay_random is not None:
+        loop_delay = 0.0  # unused when random is active; recorded as the floor for clarity
+    elif args.loop_delay is not None:
         loop_delay = args.loop_delay
     elif chain_def is not None and "loop-delay" in chain_def:
         loop_delay = float(chain_def["loop-delay"])
@@ -1102,7 +1154,12 @@ def main() -> int:
                 f"(from {chain_def.get('_source', '?')})", DIM), flush=True)
     if looping:
         loop_desc = "until failure / Ctrl-C" if infinite else f"{loop_count} iterations"
-        delay_desc = f", {loop_delay}s delay between" if loop_delay > 0 else ""
+        if loop_delay_random is not None:
+            delay_desc = f", random delay [{loop_delay_random[0]:g}-{loop_delay_random[1]:g}]s between"
+        elif loop_delay > 0:
+            delay_desc = f", {loop_delay}s delay between"
+        else:
+            delay_desc = ""
         print(c(f"[loop]    {loop_desc}{delay_desc}", DIM), flush=True)
     if on_rate_limit != "fail":
         cap_desc = f", cap {max_pause_seconds}s" if on_rate_limit == "pause-with-cap" else ""
@@ -1139,6 +1196,8 @@ def main() -> int:
         manifest["loop"] = {
             "requested": loop_count,      # 0 means infinite
             "delay_seconds": loop_delay,
+            "delay_random_range": list(loop_delay_random) if loop_delay_random else None,
+            "delay_samples": [],          # actual sampled delays per iteration boundary
             "completed": 0,
         }
         manifest["iterations"] = []
@@ -1181,9 +1240,20 @@ def main() -> int:
                 break
             if not infinite and iteration >= loop_count:
                 break
-            if loop_delay > 0:
-                print(c(f"[loop] sleeping {loop_delay}s before iteration {iteration + 1}", DIM), flush=True)
-                time.sleep(loop_delay)
+            sleep_seconds = 0.0
+            if loop_delay_random is not None:
+                sleep_seconds = random.uniform(loop_delay_random[0], loop_delay_random[1])
+            elif loop_delay > 0:
+                sleep_seconds = loop_delay
+            if sleep_seconds > 0:
+                if loop_delay_random is not None:
+                    print(c(f"[loop] sleeping {sleep_seconds:.1f}s "
+                            f"(sampled from [{loop_delay_random[0]:g}, {loop_delay_random[1]:g}]) "
+                            f"before iteration {iteration + 1}", DIM), flush=True)
+                else:
+                    print(c(f"[loop] sleeping {sleep_seconds}s before iteration {iteration + 1}", DIM), flush=True)
+                manifest["loop"]["delay_samples"].append(round(sleep_seconds, 2))
+                time.sleep(sleep_seconds)
     except KeyboardInterrupt:
         print(c(f"\n[loop] interrupted after {iteration} iteration(s)", ORANGE), flush=True)
         if final_rc == 0:

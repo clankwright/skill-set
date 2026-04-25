@@ -59,7 +59,14 @@
       "type": "number",
       "minimum": 0,
       "default": 0,
-      "description": "Seconds to sleep between iterations when loop != 1. Ignored for single-iteration runs. CLI flag --loop-delay overrides this field."
+      "description": "Seconds to sleep between iterations when loop != 1. Ignored for single-iteration runs. CLI flag --loop-delay overrides this field. Mutually exclusive with loop-delay-random."
+    },
+    "loop-delay-random": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Per-iteration randomized delay [min_seconds, max_seconds]. When set, the runner samples a uniform-random duration in [min, max] inclusive after each iteration boundary (instead of the fixed loop-delay value). Mutually exclusive with loop-delay; setting both is a YAML validation error. CLI flag --loop-delay-random overrides this field. Rationale: a fixed cadence on a multi-iter run is detectable as automation; jittering between e.g. [60, 3600] makes the trace indistinguishable from human-driven workflow."
     },
     "auto-promote": {
       "type": "string",
@@ -90,6 +97,9 @@
     {
       "if": { "required": ["transferable-version"] },
       "then": { "required": ["transferable"] }
+    },
+    {
+      "not": { "required": ["loop-delay", "loop-delay-random"] }
     }
   ]
 }
