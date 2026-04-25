@@ -294,6 +294,12 @@ def main() -> int:
     telegram = TelegramSink(enabled=not args.no_telegram, env=tg_env)
     label = args.label or args.chain
 
+    # Provisional `looping` from the CLI override; the chain runner may still
+    # resolve loop_count != 1 from the chain YAML's `loop:` field even when
+    # --loop wasn't passed. We promote `looping` to True on the first iter
+    # banner we observe (the chain runner only prints that banner when its
+    # resolved loop_count != 1), so YAML-defined loops are detected
+    # transparently without re-resolving the chain definition here.
     looping = (args.loop is not None and args.loop != 1)
     loop_desc = (
         f"--loop {args.loop}" if args.loop is not None
@@ -429,6 +435,12 @@ def main() -> int:
             m = ITER_BANNER_RE.search(stripped)
             if m:
                 n = int(m.group(1))
+                # Banner presence is authoritative: the chain runner only
+                # prints `===== iteration N =====` when its resolved
+                # loop_count != 1. Set BEFORE _finalize_iteration so the
+                # iter_NN/MANIFEST.json path + per-iter verdict path are
+                # used instead of the flat top-level layout.
+                looping = True
                 if n > 1:
                     # The PRIOR iteration completed before this banner printed.
                     _finalize_iteration(n - 1)
