@@ -242,4 +242,40 @@ A 9-cycle / $73.59 / 4-hour empirical pass on `sdrai-cycle` (2026-04-23 → 2026
 
 - [ ] **`sst-orchestrator` (new top-level skill).** Distinct from `sst-manager` (which is cadence-based, cross-project, reactive). The orchestrator is invoked once per multi-iteration session, drives `bin/skill-chain.py --chain <name> --loop N` as a subprocess, watches the live event stream, and posts Telegram updates at: (1) session start (chain name + iteration count + estimated budget), (2) each iteration boundary (commit SHA + one-line summary + cumulative spend), (3) supervisor escalation or non-zero exit (immediate alert with run-dir path), (4) session end (commits-shipped count + total spend + per-iteration breakdown). Uses `bin/notify-telegram.sh` for outbound and respects a `--max-budget-usd` halt + a `--max-cycles` halt. Separate proprietary counterpart (`<persona>-orchestrator`) supplies the watched-chain name, Telegram chat ID, and budget defaults — same split convention as `sst-manager` / `<persona>-manager`. Implementation: most of the orchestration is mechanical (parse jsonl, send Telegram on threshold events), so `bin/orchestrate-chain.py` does the heavy lifting; the SKILL is a thin natural-language wrapper that lets the user say *"run sdrai-cycle until budget hits $30 or 5 iterations finish, whichever first"*.
 
-- [ ] **Phase 12 acceptance check.** Re-run a real `sdrai-cycle` with all four wins live (same-root bundling triggered on a multi-surface follow-up, supervisor fast-path on a clean cycle, `loop: 3`, orchestrator driving + Telegram'ing). Compare cost-per-shipped-feature against the Phase-11 baseline ($73.59 / 9 cycles). Target: ≥25% reduction on multi-iteration runs.
+- [ ] **Phase 12 acceptance check.** Re-run a real `sdrai-cycle` with all four wins live (same-root bundling triggered on a multi-surface follow-ups, supervisor fast-path on a clean cycle, `loop: 3`, orchestrator driving + Telegram'ing). Compare cost-per-shipped-feature against the Phase-11 baseline ($73.59 / 9 cycles). Target: ≥25% reduction on multi-iteration runs.
+
+### Phase 13: rate-limit pause-and-resume
+
+A multi-iteration `--loop N` chain can run for hours and crosses the rolling 5-hour Anthropic quota window mid-run. When that happens today the chain runner's subprocess exits non-zero, the iteration is marked failed, the loop aborts, and any cycle's worth of work-in-flight (TDD that hadn't reached commit, a partially-deployed change) is left in an indeterminate state. Phase 13 lets the runner detect the rate-limit signal, sleep until the reset time, and resume the killed skill in place — so a 3-iteration `sdrai-cycle` that crosses a quota boundary just stretches in wall-clock time rather than aborting.
+
+Three error categories the runner needs to recognize, from highest-frequency to lowest:
+
+1. **Five-hour rolling quota** — the standard rate limit. `claude` emits `rate_limit_event` with `rate_limit_info: {rateLimitType: "five_hour", status: "exceeded", reset_time: "<UTC>"}` (the runner already prints these as warnings; it does not yet act on `status: exceeded`). When the active model run hits the wall the subprocess exits with a recognizable error message in stderr (`"You've hit your <limit> rate limit"` or similar). Both signals must be handled.
+
+2. **Out-of-usage** (primary plan quota exhausted) — distinct from the five-hour bucket; this is the monthly / weekly cap. Same `rate_limit_event` shape with `rateLimitType: "weekly"` or `"primary"` (exact field name TBD; capture from a real exhausted-quota event during implementation).
+
+3. **Out-of-extra-usage** (overflow / burst quota also exhausted) — Pro/Team plans have a secondary pool. Same shape with `rateLimitType: "extra"` or `"burst"`.
+
+For all three, the resolution is the same: parse the reset timestamp from the event payload, sleep until reset + a short jitter (15–60s), then re-invoke the killed skill from scratch. Each skill invocation is a fresh subprocess, so restarting is safe — there is no in-process state to preserve across the pause.
+
+- [ ] **Detection in `bin/skill-chain.py`.** Extend `handle_event` to flag any `rate_limit_event` with `status` matching `exceeded`/`blocked`/`reset_required`. Parse `reset_time` (ISO 8601), `retry_after_seconds`, or whatever the actual payload field is — capture the real shape from a live triggered event, not a guess. Also add a stderr/exit-code detector for the case where the subprocess died from a rate-limit error before emitting a clean event (a regex against the prettified transcript's tail, or a check on the `result` event's `subtype` and error message).
+
+- [ ] **Pause loop in `run_skill` (or wrapping it).** When a rate-limit signal fires:
+  - If `reset_time` parsed: sleep until `reset_time + jitter(15–60s)`. Print a single ORANGE banner `[rate-limit] <type> exceeded; sleeping <Ns> until <UTC-iso>` and (if the orchestrator is wired) emit a Telegram notification.
+  - If only `retry_after_seconds`: sleep that long.
+  - If neither: exponential backoff starting at 5min, capped at the configured max-pause.
+  - Honor Ctrl-C cleanly during the sleep (interrupt the loop, finalize the manifest, exit 130).
+  - On wake: re-invoke `run_skill(harness, skill_name, index, log_dir)` for the same skill. The retry overwrites the previous attempt's transcript files (or appends with a `.retry-N` suffix — TBD).
+
+- [ ] **Configurability.**
+  - Chain YAML: `on-rate-limit: fail | pause | pause-with-cap` (default `pause`). `pause-with-cap` honors `max-rate-limit-pause-seconds` (default 28800 = 8h) and falls back to `fail` if a single pause would exceed it.
+  - CLI: `--on-rate-limit <fail|pause|pause-with-cap>` and `--max-rate-limit-pause-seconds <N>`. CLI overrides YAML.
+  - Schema additions to `schema/skill-chain.schema.json`.
+
+- [ ] **Manifest record.** `MANIFEST.json` (top-level + per-iteration) gains `rate_limit_pauses: [{at, type, sleep_seconds, reset_time, resumed_at, skill, retry_count}]`. The supervisor's §1 walk recognizes `retry_count > 0` records and does not mistake the pause for a skill defect.
+
+- [ ] **Repeat-pause safeguard.** If the same skill triggers a rate-limit pause more than `max-pauses-per-session` times (default 3), abort the chain — repeated pauses on the same skill suggest a quota-burning loop, not a genuine hourly-window crossing. Log the abort reason.
+
+- [ ] **Orchestrator hook (Phase 12 #5).** `sst-orchestrator` / `bin/orchestrate-chain.py` recognizes `rate_limit_pauses` events and Telegrams: "Chain paused at <UTC>, resuming at <UTC>; reason: <type>; iteration <N>/<total>." A second Telegram fires on resume.
+
+- [ ] **Acceptance check.** Trigger a real five-hour rate-limit during a `loop: 3` run (likely by deliberately bursting a heavy skill run before the chain). Confirm: (a) detection fired, (b) sleep duration matched the reset time within ±60s, (c) the killed skill re-ran cleanly on resume, (d) the chain finished all three iterations, (e) MANIFEST records the pause with accurate timestamps, (f) Telegram fired both pause and resume notifications.
