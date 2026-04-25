@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Autonomous Dev-Cycle Review
@@ -35,7 +35,7 @@ This skill reads `docs/SPEC.md` and `docs/TODO.md` end-to-end on open and may wr
 ## 0. Pre-flight
 
 1. Working directory is the project root (same repo as the commit you're reviewing). Activate any language environment the project uses.
-2. Clean git state: `git status` should be clean. If dirty, **stop** — a review on top of uncommitted work is meaningless.
+2. Clean git state: `git status` should be clean **of project source**. If dirty, **stop** — a review on top of uncommitted work is meaningless. **Exception:** the project's supervisor (when the project runs `sst-supervisor` or a `<project>-supervisor` proprietary counterpart) routinely leaves direct-overwritten edits to peer SKILL.md files uncommitted in `<cwd>/.claude/skills/*/`. Those files are NOT part of any dev cycle and must NOT trigger a stop. Concretely: if `git status --porcelain` shows ONLY paths under `.claude/skills/`, proceed without stashing or checking out. Any other modified or untracked files (project code, tests, docs, configs) — apply the original rule.
 3. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported summary (no SHA in that format — a commit cannot contain its own hash; correlate the top Just-shipped line to HEAD, or to the matching commit via `git log --oneline --grep`).
 4. Identify the commit under review:
    ```bash
@@ -96,7 +96,7 @@ For each new test file or modified test file:
 - **Ordering / idempotency:** if order or idempotency is claimed, a test asserts it.
 - **Cross-user / cross-tenant isolation:** if the endpoint reads scoped data, a test proves user A cannot see user B's rows.
 - **Branch coverage of the endpoint itself, not just its helpers.** A very common gap: the cycle adds a helper + helper tests, but every test that hits the endpoint lands in an early error path (e.g. the auth 401/402) and never exercises the happy branch — meaning regressions inside the handler (balance accounting, cache-header writing, id formatting) won't trip any test.
-- **Test count:** the commit message claims `old → new`. Run the project's collect-only equivalent (`pytest --collect-only -q | tail -3`, `jest --listTests`, `go test -list '.*'`) and confirm the current total matches the `new` number. If the absolute is off but the delta is right, it's cosmetic — don't file unless it's misleading.
+- **Test count:** the commit message claims `old → new`. Run the project's collect-only equivalent (`pytest --collect-only -q | tail -3`, `jest --listTests`, `go test -list '.*'`) and confirm the current total matches the `new` number. If the absolute is off but the delta is right, it's cosmetic — don't file unless it's misleading. **Do not** try to compare against HEAD~1's count by checking out the prior commit (`git checkout HEAD~1 -- .`, `git stash && git checkout HEAD~1 -- .`, or any variant that mutates the working tree). That pattern has previously destroyed working-tree state — including a freshly-popped stash — and required `git fsck --lost-found` to recover. The commit message's claimed `old` is the source of truth; if you don't trust the claim, read the prior commit's diff with `git show HEAD~1 -- <test-dir>/ | grep -c '^+def test_'` (or the project's language-equivalent) instead of touching the tree. If you genuinely need a true HEAD~1 collection (rare), use `git worktree add /tmp/review-prev HEAD~1` against an isolated path, run the collect command there, then `git worktree remove /tmp/review-prev` — never the live working tree.
 
 ### 2.4 Discovery / documentation surfaces
 
@@ -221,3 +221,4 @@ Two forms — pick one, no follow-up question, no offer to fix.
 - **Don't escalate style to blocker.** A magic number in test-only code is not worth flagging at all under the severity bar — skip it.
 - **Don't pad the review.** If after honest examination you have zero blocker/should-fix items, report clean and stop. A zero-item or one-item review is a success signal. Nitpicks, stylistic preferences, cosmetic doc polish, minor duplication, and comment wording never go in the follow-ups.
 - **Don't review the review.** When you're done with the findings list, stop.
+- **Don't touch the working tree to "compare against HEAD~1."** Never `git checkout HEAD~1 -- .`, never chain `git stash` with `git checkout` of the prior commit. Either pattern can clobber the working tree (including a freshly popped stash) and require `git fsck --lost-found` to recover. Any prior-state inspection should use `git show HEAD~1 -- <path>` (read-only, doesn't touch the tree) or a separate worktree (`git worktree add /tmp/review-prev HEAD~1`, then remove when done).
