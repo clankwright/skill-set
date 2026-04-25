@@ -5,6 +5,9 @@ Run one or more agent skills in sequence, streaming prettified output.
 Usage:
     skill-chain.py [--log-dir <dir>] [--chain-name <name>] [--harness <name>]
                    [--loop <N>] [--loop-delay <seconds>]
+                   [--on-rate-limit <fail|pause|pause-with-cap>]
+                   [--max-rate-limit-pause-seconds <N>]
+                   [--max-pauses-per-session <N>]
                    <skill> [<skill> ...]
 
 Each skill runs as its own subprocess of the configured agent harness.
@@ -21,6 +24,18 @@ user interrupts with Ctrl-C. --loop-delay inserts a sleep between iterations.
 When looping, each iteration's logs land in its own <log-dir>/iter_NN/
 subdir with its own MANIFEST.json; the top-level MANIFEST.json records the
 iteration summaries.
+
+Rate-limit pause-and-resume: a multi-iteration run can cross the rolling
+5h Anthropic quota window mid-flight. When the harness emits a
+`rate_limit_event` with `status=exceeded` (or the subprocess dies with a
+recognizable rate-limit error), --on-rate-limit (default `pause`) sleeps
+until the parsed reset_time + jitter and re-invokes the killed skill from
+scratch. Each retry archives the prior attempt's .txt/.jsonl with a
+`.retry-N` suffix so the audit trail is preserved. `pause-with-cap` falls
+back to `fail` when a single pause would exceed
+--max-rate-limit-pause-seconds. --max-pauses-per-session aborts the chain
+after N pauses on the same skill (repeated pauses suggest a quota-burning
+loop, not a genuine window crossing).
 
 When --log-dir is set (or omitted, in which case the script auto-creates
 ./.skill-runs/<UTC>_<chain-name>/), the chain also writes:
@@ -50,6 +65,7 @@ import argparse
 import datetime as _dt
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -90,6 +106,112 @@ TOOL_COLORS = {
 }
 
 INPUT_MAX = 500  # per-tool-call input truncation
+
+
+# ---- Rate-limit pause-and-resume -------------------------------------------
+# Phase 13: when the harness emits a `rate_limit_event` with one of these
+# statuses, the run_skill_with_retry wrapper pauses until the parsed reset
+# time and re-invokes the killed skill from scratch. The text-based fallback
+# regex catches the case where the subprocess died from a rate-limit error
+# before emitting a clean event (the patterns appear in the merged stderr
+# stream, which the runner already tees through stdout).
+
+RATE_LIMIT_FATAL_STATUSES = frozenset({"exceeded", "blocked", "reset_required", "throttled"})
+
+RATE_LIMIT_TEXT_RE = re.compile(
+    r"\b(?:rate[\s-]*limit(?:ed|s|ing)?\b.{0,40}\b(?:exceeded|reached|reset)\b"
+    r"|you'?ve hit your\s+\w+\s+rate limit"
+    r"|hit your.{0,20}usage limit)",
+    re.IGNORECASE,
+)
+
+DEFAULT_ON_RATE_LIMIT = "pause"
+DEFAULT_MAX_RATE_LIMIT_PAUSE_SECONDS = 28800   # 8h, covers 5h rolling + headroom
+DEFAULT_MAX_PAUSES_PER_SESSION = 3
+RATE_LIMIT_JITTER_RANGE = (15, 60)              # extra seconds after parsed reset
+RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_time
+
+
+def _parse_reset_time(value: Any) -> float | None:
+    """Parse a rate-limit reset time into epoch seconds. Returns None on failure.
+
+    Accepts ISO 8601 strings (with or without trailing Z), unix timestamps as
+    int/float, or numeric strings. The harness's `rate_limit_info` payload uses
+    different field names across schema versions (`resetsAt`, `reset_time`,
+    `resetTime`, `resets_at`); the caller is responsible for plucking the
+    candidate value before handing it here.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    # ISO 8601 with optional trailing Z
+    iso = s[:-1] if s.endswith("Z") else s
+    try:
+        dt = _dt.datetime.fromisoformat(iso)
+    except ValueError:
+        dt = None
+    if dt is not None:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_dt.timezone.utc)
+        return dt.timestamp()
+    # Numeric string fallback (unix epoch)
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _compute_rate_limit_sleep(signal: dict, *, max_pause: int | None) -> tuple[float | None, str | None]:
+    """Decide how long to sleep on a rate-limit signal. Returns (seconds, wake_iso).
+
+    Priority: parsed reset_time > retry_after_seconds > exponential backoff.
+    Adds a random jitter (15-60s) on top of the parsed reset to spread retries.
+    Returns (None, None) when the computed pause exceeds max_pause; the caller
+    treats that as a `fail` outcome under the `pause-with-cap` policy.
+    """
+    now = time.time()
+    sleep_seconds: float | None = None
+    if signal.get("reset_time") is not None:
+        reset_epoch = _parse_reset_time(signal.get("reset_time"))
+        if reset_epoch is not None:
+            sleep_seconds = max(0.0, reset_epoch - now) + random.randint(*RATE_LIMIT_JITTER_RANGE)
+    if sleep_seconds is None and signal.get("retry_after_seconds") is not None:
+        try:
+            sleep_seconds = float(signal["retry_after_seconds"]) + random.randint(*RATE_LIMIT_JITTER_RANGE)
+        except (TypeError, ValueError):
+            sleep_seconds = None
+    if sleep_seconds is None:
+        # Exponential-ish: caller sets the prior wait via `signal['_attempt']`.
+        attempt = int(signal.get("_attempt", 0))
+        sleep_seconds = float(RATE_LIMIT_FALLBACK_BACKOFF_SECONDS * (2 ** min(attempt, 4)))
+    if max_pause is not None and sleep_seconds > max_pause:
+        return None, None
+    wake_dt = _dt.datetime.fromtimestamp(now + sleep_seconds, _dt.timezone.utc)
+    return sleep_seconds, wake_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _archive_attempt(log_dir: Path | None, index: int, skill_name: str, retry_count: int) -> None:
+    """Rename the prior attempt's transcript files to `.retry-N.{txt,jsonl}` so
+    the canonical names are clear for the upcoming retry. Idempotent: if the
+    source files don't exist (no log_dir or first attempt), this is a no-op.
+    """
+    if log_dir is None:
+        return
+    stem = f"{index:02d}_{skill_name}"
+    for ext in (".txt", ".jsonl"):
+        src = log_dir / f"{stem}{ext}"
+        if src.exists():
+            dst = log_dir / f"{stem}.retry-{retry_count}{ext}"
+            try:
+                src.rename(dst)
+            except OSError:
+                pass
 
 
 # ---- Harness abstraction ---------------------------------------------------
@@ -334,8 +456,34 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
         info = event.get("rate_limit_info", {})
         util = info.get("utilization", 0) * 100
         rtype = info.get("rateLimitType", "?")
-        stat = info.get("status", "?")
-        sink.write(f"     {c(f'! rate-limit {rtype}: {util:.0f}% ({stat})', ORANGE)}")
+        stat_raw = info.get("status", "?")
+        stat = (stat_raw or "").lower()
+        sink.write(f"     {c(f'! rate-limit {rtype}: {util:.0f}% ({stat_raw})', ORANGE)}")
+        if stat in RATE_LIMIT_FATAL_STATUSES:
+            # Capture the fatal signal so the run_skill_with_retry wrapper can
+            # decide whether to pause-and-resume. Field names for the reset
+            # timestamp vary across harness/schema versions; try the common ones.
+            reset_raw = (
+                info.get("resetsAt")
+                or info.get("reset_time")
+                or info.get("resetTime")
+                or info.get("resets_at")
+            )
+            retry_after = (
+                info.get("retryAfterSeconds")
+                or info.get("retry_after_seconds")
+                or info.get("retryAfter")
+            )
+            # First fatal wins: a later overlapping signal of a different tier
+            # shouldn't overwrite the one that actually killed the skill.
+            if "rate_limit_signal" not in skill_record:
+                skill_record["rate_limit_signal"] = {
+                    "type": rtype,
+                    "status": stat,
+                    "reset_time": reset_raw,
+                    "retry_after_seconds": retry_after,
+                    "observed_at": _utc_iso(),
+                }
         return
 
     if t == "result":
@@ -399,6 +547,13 @@ def run_skill(harness: Harness, skill_name: str, index: int, log_dir: Path | Non
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                # Non-JSON lines (typically stderr merged into stdout). Scan for
+                # a rate-limit pattern so the wrapper can pause-and-resume even
+                # when the subprocess died before emitting a clean
+                # rate_limit_event. Captured as a fallback only — the structured
+                # signal from handle_event takes precedence.
+                if RATE_LIMIT_TEXT_RE.search(line):
+                    skill_record.setdefault("rate_limit_text_match", line[:300])
                 sink.write(c(line, GRAY))
                 continue
             try:
@@ -424,6 +579,103 @@ def run_skill(harness: Harness, skill_name: str, index: int, log_dir: Path | Non
         jsonl_fh.close()
 
     return rc, skill_record
+
+
+def run_skill_with_retry(
+    harness: Harness,
+    skill_name: str,
+    index: int,
+    log_dir: Path | None,
+    *,
+    on_rate_limit: str,
+    max_pause_seconds: int,
+    max_pauses: int,
+    pause_records: list[dict],
+) -> tuple[int, dict]:
+    """Run a skill with rate-limit pause-and-resume.
+
+    On non-zero exit, inspect the skill_record for a structured rate-limit
+    signal (preferred) or a text-fallback match (subprocess died before clean
+    event). Under `pause` / `pause-with-cap`, sleep until the parsed reset
+    + jitter, archive the failed attempt, and re-invoke the skill. Each
+    invocation is its own subprocess; there is no in-process state to
+    preserve across the pause. Aborts after `max_pauses` retries on the same
+    skill or when `pause-with-cap` exceeds `max_pause_seconds`.
+
+    pause_records is mutated in place with one entry per executed pause so
+    run_iteration can fold them into the iteration manifest.
+    """
+    retry_count = 0
+    while True:
+        rc, record = run_skill(harness, skill_name, index, log_dir)
+        if retry_count > 0:
+            record["retry_count"] = retry_count
+
+        if rc == 0:
+            return rc, record
+        if on_rate_limit == "fail":
+            return rc, record
+
+        signal = record.get("rate_limit_signal")
+        text_fallback = record.get("rate_limit_text_match")
+        if signal is None and text_fallback is None:
+            # Ordinary failure, not a rate-limit. Pass through.
+            return rc, record
+
+        if retry_count >= max_pauses:
+            print(c(
+                f"[rate-limit] {skill_name} hit max-pauses-per-session ({max_pauses}); "
+                f"aborting chain instead of retrying further (likely a quota-burning loop)",
+                RED,
+            ), flush=True)
+            record["rate_limit_aborted"] = "max_pauses_reached"
+            return rc, record
+
+        # Construct the signal for sleep computation. Use the structured
+        # signal when available; fall back to a synthetic one with attempt
+        # count so the exponential backoff in _compute_rate_limit_sleep applies.
+        eff_signal = dict(signal) if signal else {"type": "unknown", "status": "fallback"}
+        eff_signal["_attempt"] = retry_count
+        cap = max_pause_seconds if on_rate_limit == "pause-with-cap" else None
+        sleep_seconds, wake_iso = _compute_rate_limit_sleep(eff_signal, max_pause=cap)
+        if sleep_seconds is None:
+            print(c(
+                f"[rate-limit] computed pause exceeds --max-rate-limit-pause-seconds "
+                f"({max_pause_seconds}s) under pause-with-cap; falling back to fail",
+                RED,
+            ), flush=True)
+            record["rate_limit_aborted"] = "max_pause_seconds_exceeded"
+            return rc, record
+
+        kind = eff_signal.get("type", "?")
+        banner = (f"[rate-limit] {kind} exceeded; sleeping {sleep_seconds:.0f}s "
+                  f"until {wake_iso} before retrying /{skill_name}")
+        print(c(banner, ORANGE), flush=True)
+
+        pause_record = {
+            "at": _utc_iso(),
+            "type": kind,
+            "status": eff_signal.get("status"),
+            "sleep_seconds": round(sleep_seconds, 1),
+            "reset_time": eff_signal.get("reset_time"),
+            "wake_at": wake_iso,
+            "skill": skill_name,
+            "retry_count": retry_count + 1,
+            "source": "rate_limit_event" if signal else "text_fallback",
+        }
+        pause_records.append(pause_record)
+
+        # KeyboardInterrupt during the sleep propagates up to run_iteration's
+        # caller, which finalizes the manifest cleanly via main()'s outer
+        # try/except. No special handling needed here.
+        time.sleep(sleep_seconds)
+
+        pause_record["resumed_at"] = _utc_iso()
+        retry_count += 1
+        # Archive the failed attempt's transcript files before the retry
+        # overwrites the canonical names. Uses retry_count - 1 so the first
+        # failure becomes .retry-0, the second .retry-1, etc.
+        _archive_attempt(log_dir, index, skill_name, retry_count - 1)
 
 
 def _utc_iso() -> str:
@@ -564,6 +816,38 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              "Overrides the chain YAML's `loop-delay:` field when both are set.",
     )
     p.add_argument(
+        "--on-rate-limit",
+        choices=["fail", "pause", "pause-with-cap"],
+        default=None,
+        help=f"How to handle rate-limit signals from the harness. 'fail' (legacy) "
+             f"aborts the chain on a rate-limit like any other non-zero exit. "
+             f"'pause' (default {DEFAULT_ON_RATE_LIMIT}) sleeps until the parsed "
+             f"reset_time + jitter and re-invokes the killed skill. "
+             f"'pause-with-cap' falls back to 'fail' if a single pause would "
+             f"exceed --max-rate-limit-pause-seconds. Overrides the chain YAML's "
+             f"`on-rate-limit:` field when both are set.",
+    )
+    p.add_argument(
+        "--max-rate-limit-pause-seconds",
+        type=int,
+        default=None,
+        help=f"Upper bound on a single rate-limit pause when --on-rate-limit is "
+             f"pause-with-cap. Default {DEFAULT_MAX_RATE_LIMIT_PAUSE_SECONDS}s "
+             f"(8h). Overrides the chain YAML's `max-rate-limit-pause-seconds:` "
+             f"field when both are set.",
+    )
+    p.add_argument(
+        "--max-pauses-per-session",
+        type=int,
+        default=None,
+        help=f"Hard cap on rate-limit pauses per skill within one chain "
+             f"invocation. Default {DEFAULT_MAX_PAUSES_PER_SESSION}. Repeated "
+             f"pauses on the same skill suggest a quota-burning loop, not a "
+             f"genuine window crossing — abort the chain after this many. "
+             f"Overrides the chain YAML's `max-pauses-per-session:` field when "
+             f"both are set.",
+    )
+    p.add_argument(
         "skills",
         nargs="*",
         help="One or more skill names to run in sequence. Omit when --chain is set.",
@@ -580,6 +864,10 @@ def run_iteration(
     total_iterations: int | None,
     cwd: str,
     chain_meta: dict | None = None,
+    *,
+    on_rate_limit: str = DEFAULT_ON_RATE_LIMIT,
+    max_pause_seconds: int = DEFAULT_MAX_RATE_LIMIT_PAUSE_SECONDS,
+    max_pauses: int = DEFAULT_MAX_PAUSES_PER_SESSION,
 ) -> tuple[int, dict]:
     """Run one pass of the chain. Returns (exit_code, iteration_manifest).
 
@@ -608,6 +896,7 @@ def run_iteration(
         "started_at": _utc_iso(),
         "git_sha_before": _git_sha(cwd),
         "skills": [],
+        "rate_limit_pauses": [],
     }
 
     def _snapshot_manifest() -> None:
@@ -630,7 +919,16 @@ def run_iteration(
 
     rc = 0
     for i, skill in enumerate(skills_to_run):
-        skill_rc, record = run_skill(harness, skill, i, iter_log_dir)
+        skill_rc, record = run_skill_with_retry(
+            harness,
+            skill,
+            i,
+            iter_log_dir,
+            on_rate_limit=on_rate_limit,
+            max_pause_seconds=max_pause_seconds,
+            max_pauses=max_pauses,
+            pause_records=iter_manifest["rate_limit_pauses"],
+        )
         if skill == auto_supervisor:
             record["role"] = "supervisor"
         iter_manifest["skills"].append(record)
@@ -694,6 +992,35 @@ def main() -> int:
     if loop_delay < 0:
         raise SystemExit("--loop-delay must be >= 0")
 
+    # Rate-limit config: CLI > YAML > defaults.
+    if args.on_rate_limit is not None:
+        on_rate_limit = args.on_rate_limit
+    elif chain_def is not None and "on-rate-limit" in chain_def:
+        on_rate_limit = chain_def["on-rate-limit"]
+    else:
+        on_rate_limit = DEFAULT_ON_RATE_LIMIT
+    if on_rate_limit not in {"fail", "pause", "pause-with-cap"}:
+        raise SystemExit(f"invalid on-rate-limit {on_rate_limit!r}; "
+                         f"must be one of fail|pause|pause-with-cap")
+
+    if args.max_rate_limit_pause_seconds is not None:
+        max_pause_seconds = args.max_rate_limit_pause_seconds
+    elif chain_def is not None and "max-rate-limit-pause-seconds" in chain_def:
+        max_pause_seconds = int(chain_def["max-rate-limit-pause-seconds"])
+    else:
+        max_pause_seconds = DEFAULT_MAX_RATE_LIMIT_PAUSE_SECONDS
+    if max_pause_seconds < 0:
+        raise SystemExit("--max-rate-limit-pause-seconds must be >= 0")
+
+    if args.max_pauses_per_session is not None:
+        max_pauses = args.max_pauses_per_session
+    elif chain_def is not None and "max-pauses-per-session" in chain_def:
+        max_pauses = int(chain_def["max-pauses-per-session"])
+    else:
+        max_pauses = DEFAULT_MAX_PAUSES_PER_SESSION
+    if max_pauses < 1:
+        raise SystemExit("--max-pauses-per-session must be >= 1")
+
     looping = (loop_count != 1)
     infinite = (loop_count == 0)
 
@@ -716,6 +1043,9 @@ def main() -> int:
         loop_desc = "until failure / Ctrl-C" if infinite else f"{loop_count} iterations"
         delay_desc = f", {loop_delay}s delay between" if loop_delay > 0 else ""
         print(c(f"[loop]    {loop_desc}{delay_desc}", DIM), flush=True)
+    if on_rate_limit != "fail":
+        cap_desc = f", cap {max_pause_seconds}s" if on_rate_limit == "pause-with-cap" else ""
+        print(c(f"[on-rate-limit] {on_rate_limit}{cap_desc}, max-pauses-per-session={max_pauses}", DIM), flush=True)
 
     # Auto-append a project-local supervisor (e.g. <cwd>/.claude/skills/<project>-supervisor/)
     # if one exists and the user didn't already include it in the chain.
@@ -738,6 +1068,11 @@ def main() -> int:
         "auto_supervisor": auto_supervisor,
         "started_at": _utc_iso(),
         "cwd": cwd,
+        "rate_limit_policy": {
+            "on_rate_limit": on_rate_limit,
+            "max_rate_limit_pause_seconds": max_pause_seconds,
+            "max_pauses_per_session": max_pauses,
+        },
     }
     if looping:
         manifest["loop"] = {
@@ -767,6 +1102,9 @@ def main() -> int:
                 None if infinite else loop_count,
                 cwd,
                 chain_meta=manifest,
+                on_rate_limit=on_rate_limit,
+                max_pause_seconds=max_pause_seconds,
+                max_pauses=max_pauses,
             )
             iterations_collected.append(iter_manifest)
 

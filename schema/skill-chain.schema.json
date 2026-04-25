@@ -66,6 +66,24 @@
       "enum": ["off", "proprietary", "all"],
       "default": "proprietary",
       "description": "Controls where the supervisor writes proposed SKILL.md rewrites. 'off': writes to <skill-dir>/SKILL.patch.md (one per skill, overwritten each run); user promotes manually via /sst-promote-skill-proposal. 'proprietary' (default): supervisor overwrites proprietary SKILL.md files in <cwd>/.claude/skills/ directly so the next iteration sees the improved prose; transferables still go to SKILL.patch.md for human review. 'all': also overwrites transferable SKILL.md files under ~/.claude/skills/, but only after sst-sanitize-transferable reports must-fix=0; otherwise that skill falls back to SKILL.patch.md with a warning. Rollback of an unwanted auto-applied change is `git checkout <path>/SKILL.md`."
+    },
+    "on-rate-limit": {
+      "type": "string",
+      "enum": ["fail", "pause", "pause-with-cap"],
+      "default": "pause",
+      "description": "How to handle Anthropic rate-limit signals (rate_limit_event with status=exceeded/blocked/reset_required, or stderr/exit-code fallback). 'fail' (legacy): a rate-limit kills the chain like any other non-zero exit. 'pause' (default): sleep until the reset_time + jitter, then re-invoke the killed skill from scratch (each invocation is its own subprocess; no in-process state to preserve). 'pause-with-cap': same as 'pause' but if a single pause would exceed `max-rate-limit-pause-seconds`, fall back to fail. CLI flag --on-rate-limit overrides this field."
+    },
+    "max-rate-limit-pause-seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 28800,
+      "description": "Upper bound (seconds) on a single rate-limit pause when on-rate-limit is 'pause-with-cap'. Default 28800 = 8h covers the standard 5h rolling window plus headroom. Ignored for 'fail' / 'pause'. CLI flag --max-rate-limit-pause-seconds overrides this field."
+    },
+    "max-pauses-per-session": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3,
+      "description": "Hard cap on rate-limit pauses per skill within one chain invocation. Repeated pauses on the same skill suggest a quota-burning loop, not a genuine quota crossing — abort the chain after this many. Default 3. CLI flag --max-pauses-per-session overrides this field."
     }
   },
   "allOf": [
