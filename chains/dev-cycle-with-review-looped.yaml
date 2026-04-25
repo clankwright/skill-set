@@ -1,0 +1,9 @@
+name: dev-cycle-with-review-looped
+description: Multi-iteration variant of dev-cycle-with-review. Runs sst-dev-cycle then sst-dev-review three times in a row so a single invocation knocks out three queued items from `TODO.md > Next up` without a human re-invoking between them. Auto-promote is `all` so the supervisor's transferable improvements land within the same run (after sst-sanitize-transferable clears them) and later iterations can pick them up.
+version: 1.0.0
+user-invocable: true
+loop: 3
+auto-promote: all
+skills:
+  - sst-dev-cycle
+  - sst-dev-review

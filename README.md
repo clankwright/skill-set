@@ -35,6 +35,56 @@ The pairing is the unit of reuse. The transferable holds the *method* (TDD cycle
 
 Each loop reads the project's handoff docs (`docs/SPEC.md`, `docs/TODO.md`) and writes back to them. Cross-cycle state lives in those files, not in any agent's context window.
 
+## Chain YAML fields
+
+A chain definition is a small YAML file under `chains/<name>.yaml` (transferable, lives in this repo) or `<project>/.claude/chains/<name>.yaml` (proprietary, lives in a consuming project). Beyond the four required fields (`name`, `description`, `version`, `skills`) the runner accepts a handful of optional fields that change scheduling, supervisor routing, and rate-limit handling:
+
+```yaml
+name: my-cycle                  # required, kebab-case, must match filename without .yaml
+description: ...                # required, ≥20 chars
+version: 1.0.0                  # required, semver
+skills:                         # required, ordered; runner invokes each in sequence
+  - skill-a
+  - skill-b
+
+loop: 3                         # default 1; N>1 runs the sequence N times; 0 = until failure / Ctrl-C
+loop-delay: 0                   # seconds to sleep between iterations (default 0)
+loop-delay-random: [60, 3600]   # OR sample uniform-random delay per boundary; mutually exclusive with loop-delay
+
+auto-promote: proprietary       # "off" | proprietary (default) | all  # NOTE: "off" must be quoted (YAML 1.1 parses bare `off` as boolean false)
+
+on-rate-limit: pause            # fail | pause (default) | pause-with-cap
+max-rate-limit-pause-seconds: 28800   # cap on a single pause when on-rate-limit is pause-with-cap
+max-pauses-per-session: 3             # hard cap on rate-limit pauses per skill per chain run
+
+user-invocable: true            # default true; false = chain-only, not picked by /<chain-name>
+auto-supervisor: true           # default true; false = don't auto-append the project's supervisor
+```
+
+CLI flags (`--loop`, `--loop-delay`, `--auto-promote`, `--on-rate-limit`, etc.) override the corresponding YAML field per invocation. Schema reference: `schema/skill-chain.schema.json`.
+
+### Loop mode
+
+`loop: N` makes the chain runner repeat its full skill sequence N times. A non-supervisor failure aborts the loop; Ctrl-C cleanly breaks after the current skill finishes. Each iteration's logs land in `<run-dir>/iter_NN/` with their own `MANIFEST.json`; the top-level `MANIFEST.json` carries an `iterations: [...]` array summarizing each pass. For `loop: 1` (the default) the single-run flat layout is preserved unchanged.
+
+Loop mode pairs naturally with skills that pick the next item from `TODO.md > Next up` each iteration: dev cycles, content cycles, lead-gen runs. The supervisor still runs once per iteration, so the handoff-doc contract stays intact between cycles. `chains/dev-cycle-with-review-looped.yaml` ships a 3-iteration variant of `dev-cycle-with-review` for exactly this use.
+
+### Auto-promote
+
+The supervisor (auto-appended to every chain unless `auto-supervisor: false`) writes proposed `SKILL.md` rewrites by routing on this field:
+
+| `auto-promote` | Proprietary skill            | Transferable skill                                                                                |
+| :---           | :---                         | :---                                                                                              |
+| `off`          | sidecar `SKILL.patch.md`     | sidecar `SKILL.patch.md`                                                                          |
+| `proprietary`  | direct overwrite `SKILL.md`  | sidecar `SKILL.patch.md`                                                                          |
+| `all`          | direct overwrite `SKILL.md`  | direct overwrite iff `sst-sanitize-transferable` reports `must-fix: 0`; else sidecar `SKILL.patch.md` |
+
+Default is `proprietary`: the supervisor's lessons land immediately on proprietary skills (so a multi-iteration loop converges within the run), but transferable changes still go to a sidecar for human review via `/sst-promote-skill-proposal`. Pick `off` for content / research / evaluation chains where skill self-modification is unwanted; pick `all` on dev loops where you want transferable improvements to land within the same run as well (the sanitize gate blocks proprietary leakage). Rolling back an unwanted direct overwrite is `git checkout <skill-dir>/SKILL.md`.
+
+### Rate-limit handling
+
+When the active model run hits the rolling 5h Anthropic quota (or weekly / extra usage cap), `on-rate-limit: pause` (default) makes the runner sleep until the reset timestamp + jitter and re-invoke the killed skill from scratch. Each retry archives the prior attempt's `.txt`/`.jsonl` to `<stem>.retry-N.{ext}` so the audit trail is preserved. `pause-with-cap` falls back to `fail` when a single computed pause would exceed `max-rate-limit-pause-seconds`. `fail` (legacy) treats a rate-limit hit like any other non-zero exit. `max-pauses-per-session` aborts the chain when the same skill needs more than N pauses in one invocation, on the assumption that repeated pauses signal a quota-burning loop, not a genuine quota crossing.
+
 ## Selecting a harness
 
 ```bash

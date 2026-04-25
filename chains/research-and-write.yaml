@@ -1,7 +1,8 @@
 name: research-and-write
 description: Research a topic from scratch, draft long-form content, critique the draft, and produce a publish-ready editorial pass. Stops short of publication so the human can review before anything ships.
-version: 1.0.0
+version: 1.1.0
 user-invocable: true
+auto-promote: "off"
 skills:
   - sst-web-research
   - sst-iterative-writer
