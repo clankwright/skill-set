@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one amended commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.0.3
+version: 1.1.0
 ---
 
 # Autonomous TDD Cycle
@@ -49,6 +49,8 @@ Selection priority:
 2. If "Next up" is empty: items in the spec explicitly flagged as open gaps / blockers (labels vary: "V1 Status", "Known Issues", "TODO", "Open", `- [ ]`).
 3. The next unchecked `- [ ]` in the spec's newest active section.
 4. If everything checkable is checked, look at any "Deferred / Out of scope" list for items whose blocking reason no longer applies.
+
+**Same-root bundling (when applicable).** If two or more `## Next up` entries carry a `(group with <root-keyword>)` tag (added by `sst-dev-review` §4 when the reviewer files multiple findings that share a root cause) AND the combined diff is plausibly under ~300 LoC AND they touch disjoint files (no merge-conflict risk between them), bundle the tagged set into one cycle. Rationale: a multi-surface follow-up that the reviewer correctly observed as one logical change should not pay the per-cycle review+supervisor overhead twice (the fixed cost dominates short cycles). Bundling does NOT relax the small-scope discipline: the work must be cohesive (same root cause), not just adjacent. If the combined diff would breach ~300 LoC, the test surfaces would conflict, the items have independent acceptance criteria, or the tag groupings disagree across the queued entries (e.g. one tagged item shares no root with the others), take only the top item and leave the rest in the queue. Untagged items are picked individually per the priority list above.
 
 Tie-break by: smallest surface area → most independent → highest user impact. If the user gave a specific request, that overrides everything above (also: append the request to "Next up" first, so the audit trail is intact).
 

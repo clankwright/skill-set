@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Autonomous Dev-Cycle Review
@@ -179,7 +179,9 @@ Rules:
 - [should-fix] <one-line restating the spec entry, with file:line> — review of <commit-sha-short>
 ```
 
-Order: blockers first, then should-fix, then any pre-existing entries (push pre-existing entries down — review-spawned items get priority). Don't touch `## In flight` or `## Just shipped`; those belong to `sst-dev-cycle`.
+**Same-root tagging.** If two or more findings share a single root cause (the same constant needs propagating to multiple surfaces; the same missing guard appears across sibling modules; the same discovery surface is stale in both a manifest AND a README), append `(group with <root-keyword>)` to each TODO.md line, where `<root-keyword>` is a short token that names the shared cause. Pick a token that's specific enough to disambiguate from unrelated work (e.g. `(group with input-bound-propagation)`, `(group with manifest-readme-sync)`, `(group with auth-helper-migration)`) and reuse the exact same token across every entry in the group — `sst-dev-cycle` §1's same-root bundling rule keys on string-equality of the tag. Tag only when the bundling is real: disjoint files, cohesive change, plausibly under ~300 LoC combined. Spec entries do NOT get the tag — the spec is a longer-lived record and bundling is a TODO-level scheduling concern; the spec's filing rule of "one checkbox per finding, do not bundle" is unchanged. If only one finding is on the shared root, do not tag (a `(group with X)` of size 1 is just noise).
+
+Order: blockers first, then should-fix, then any pre-existing entries (push pre-existing entries down — review-spawned items get priority). When a group share is involved, keep the tagged entries adjacent within their severity band so the next cycle sees them as a contiguous run. Don't touch `## In flight` or `## Just shipped`; those belong to `sst-dev-cycle`.
 
 ## 5. Commit + push (only if step 4 actually added items)
 
