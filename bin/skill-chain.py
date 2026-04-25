@@ -116,12 +116,20 @@ INPUT_MAX = 500  # per-tool-call input truncation
 # before emitting a clean event (the patterns appear in the merged stderr
 # stream, which the runner already tees through stdout).
 
-RATE_LIMIT_FATAL_STATUSES = frozenset({"exceeded", "blocked", "reset_required", "throttled"})
+RATE_LIMIT_FATAL_STATUSES = frozenset({
+    "exceeded", "blocked", "reset_required", "throttled", "rejected",
+})
 
 RATE_LIMIT_TEXT_RE = re.compile(
     r"\b(?:rate[\s-]*limit(?:ed|s|ing)?\b.{0,40}\b(?:exceeded|reached|reset)\b"
     r"|you'?ve hit your\s+\w+\s+rate limit"
-    r"|hit your.{0,20}usage limit)",
+    r"|hit your.{0,20}usage limit"
+    r"|you'?re out of (?:extra )?usage)",
+    re.IGNORECASE,
+)
+
+RATE_LIMIT_RESET_RE = re.compile(
+    r"(\d{1,2}:\d{2}\s*(?:am|pm)\s*\([^)]+\))",
     re.IGNORECASE,
 )
 
@@ -136,8 +144,12 @@ def _parse_reset_time(value: Any) -> float | None:
     """Parse a rate-limit reset time into epoch seconds. Returns None on failure.
 
     Accepts ISO 8601 strings (with or without trailing Z), unix timestamps as
-    int/float, or numeric strings. The harness's `rate_limit_info` payload uses
-    different field names across schema versions (`resetsAt`, `reset_time`,
+    int/float, numeric strings, or localized 12-hour wall-clock strings of the
+    form `HH:MMam/pm (TZ-name)` (e.g. `7:50pm (Asia/Tokyo)`) — the latter is
+    what the live "out of extra usage" stderr banner emits. For the wall-clock
+    branch, the next occurrence of that local time is returned (today if still
+    in the future, tomorrow otherwise). The harness's `rate_limit_info` payload
+    uses different field names across schema versions (`resetsAt`, `reset_time`,
     `resetTime`, `resets_at`); the caller is responsible for plucking the
     candidate value before handing it here.
     """
@@ -160,6 +172,24 @@ def _parse_reset_time(value: Any) -> float | None:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=_dt.timezone.utc)
         return dt.timestamp()
+    # Localized 12-hour clock with TZ name in parens, e.g. `7:50pm (Asia/Tokyo)`.
+    m = re.match(r"^(\d{1,2}):(\d{2})\s*([ap]m)\s*\(([^)]+)\)$", s, re.IGNORECASE)
+    if m:
+        hour = int(m.group(1)) % 12
+        if m.group(3).lower() == "pm":
+            hour += 12
+        minute = int(m.group(2))
+        tz_name = m.group(4).strip()
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            return None
+        now_local = _dt.datetime.now(tz)
+        candidate = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= now_local:
+            candidate += _dt.timedelta(days=1)
+        return candidate.timestamp()
     # Numeric string fallback (unix epoch)
     try:
         return float(s)
@@ -183,7 +213,7 @@ def _compute_rate_limit_sleep(signal: dict, *, max_pause: int | None) -> tuple[f
             sleep_seconds = max(0.0, reset_epoch - now) + random.randint(*RATE_LIMIT_JITTER_RANGE)
     if sleep_seconds is None and signal.get("retry_after_seconds") is not None:
         try:
-            sleep_seconds = float(signal["retry_after_seconds"]) + random.randint(*RATE_LIMIT_JITTER_RANGE)
+            sleep_seconds = max(0.0, float(signal["retry_after_seconds"])) + random.randint(*RATE_LIMIT_JITTER_RANGE)
         except (TypeError, ValueError):
             sleep_seconds = None
     if sleep_seconds is None:
@@ -401,7 +431,12 @@ def print_result_summary(sink: _Sink, event: dict) -> None:
     usage  = event.get("modelUsage", {}) or {}
 
     status = c("[FAIL]", RED) if err else c("[ok]", GREEN)
-    meta = c(f"{dur_ms/1000:.1f}s * {turns} turns * ${cost:.4f}  ({sub})", DIM)
+    # The harness sometimes emits subtype="success" alongside is_error=True
+    # (e.g. when the subprocess died with a rate-limit but the result frame
+    # still claimed lifecycle success). Tag the parenthetical so the label and
+    # the subtype don't visibly contradict each other.
+    sub_label = sub if (not err or sub.lower().startswith("error")) else f"error: {sub}"
+    meta = c(f"{dur_ms/1000:.1f}s * {turns} turns * ${cost:.4f}  ({sub_label})", DIM)
     sink.write("")
     sink.write(f"{status}  {meta}")
     for model, u in usage.items():
@@ -554,6 +589,10 @@ def run_skill(harness: Harness, skill_name: str, index: int, log_dir: Path | Non
                 # signal from handle_event takes precedence.
                 if RATE_LIMIT_TEXT_RE.search(line):
                     skill_record.setdefault("rate_limit_text_match", line[:300])
+                    if "rate_limit_text_reset" not in skill_record:
+                        reset_match = RATE_LIMIT_RESET_RE.search(line)
+                        if reset_match:
+                            skill_record["rate_limit_text_reset"] = reset_match.group(1).strip()
                 sink.write(c(line, GRAY))
                 continue
             try:
@@ -634,7 +673,15 @@ def run_skill_with_retry(
         # Construct the signal for sleep computation. Use the structured
         # signal when available; fall back to a synthetic one with attempt
         # count so the exponential backoff in _compute_rate_limit_sleep applies.
+        # If the text-fallback extracted a wall-clock reset stamp from the
+        # stderr line (e.g. `7:50pm (Asia/Tokyo)`), thread it through as the
+        # synthetic reset_time so _parse_reset_time's localized branch turns
+        # it into a real wake epoch instead of falling to exponential backoff.
         eff_signal = dict(signal) if signal else {"type": "unknown", "status": "fallback"}
+        if signal is None:
+            text_reset = record.get("rate_limit_text_reset")
+            if text_reset:
+                eff_signal["reset_time"] = text_reset
         eff_signal["_attempt"] = retry_count
         cap = max_pause_seconds if on_rate_limit == "pause-with-cap" else None
         sleep_seconds, wake_iso = _compute_rate_limit_sleep(eff_signal, max_pause=cap)
