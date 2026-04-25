@@ -675,13 +675,21 @@ def run_skill_with_retry(
         # count so the exponential backoff in _compute_rate_limit_sleep applies.
         # If the text-fallback extracted a wall-clock reset stamp from the
         # stderr line (e.g. `7:50pm (Asia/Tokyo)`), thread it through as the
-        # synthetic reset_time so _parse_reset_time's localized branch turns
-        # it into a real wake epoch instead of falling to exponential backoff.
+        # signal's reset_time whenever the structured signal lacks one, so
+        # _parse_reset_time's localized branch turns it into a real wake
+        # epoch instead of falling to exponential backoff. Joint-fire case
+        # (structured `rejected` + stderr "out of extra usage … resets …")
+        # is the live failure mode Phase 13's BUG fix exists to cover; the
+        # condition keys on `eff_signal.get("reset_time")` rather than `signal
+        # is None` so the wall-clock fills in whenever the structured payload
+        # carries no reset under any of the four aliased field names.
         eff_signal = dict(signal) if signal else {"type": "unknown", "status": "fallback"}
-        if signal is None:
+        text_reset_used = False
+        if not eff_signal.get("reset_time"):
             text_reset = record.get("rate_limit_text_reset")
             if text_reset:
                 eff_signal["reset_time"] = text_reset
+                text_reset_used = True
         eff_signal["_attempt"] = retry_count
         cap = max_pause_seconds if on_rate_limit == "pause-with-cap" else None
         sleep_seconds, wake_iso = _compute_rate_limit_sleep(eff_signal, max_pause=cap)
@@ -699,6 +707,12 @@ def run_skill_with_retry(
                   f"until {wake_iso} before retrying /{skill_name}")
         print(c(banner, ORANGE), flush=True)
 
+        if signal and text_reset_used:
+            source = "rate_limit_event+text_reset"
+        elif signal:
+            source = "rate_limit_event"
+        else:
+            source = "text_fallback"
         pause_record = {
             "at": _utc_iso(),
             "type": kind,
@@ -708,7 +722,7 @@ def run_skill_with_retry(
             "wake_at": wake_iso,
             "skill": skill_name,
             "retry_count": retry_count + 1,
-            "source": "rate_limit_event" if signal else "text_fallback",
+            "source": source,
         }
         pause_records.append(pause_record)
 
