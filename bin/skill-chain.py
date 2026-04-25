@@ -613,6 +613,10 @@ def run_iteration(
     def _snapshot_manifest() -> None:
         if iter_log_dir is None:
             return
+        # Pre-iteration snapshot can fire before run_skill has created the
+        # per-iteration dir (loop>1 puts each iteration under iter_NN/).
+        # Ensure the parent exists ourselves.
+        iter_log_dir.mkdir(parents=True, exist_ok=True)
         snap = {**(chain_meta or {}), **iter_manifest}
         snap["in_progress"] = True
         (iter_log_dir / "MANIFEST.json").write_text(
