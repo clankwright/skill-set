@@ -5,6 +5,7 @@ drive-chain.py — drive a multi-iteration skill-chain run with budget gates
 
 Usage:
     drive-chain.py --chain <name> [--loop <N>]
+                   [--profile <persona>]
                    [--max-budget-usd <X>] [--max-cycles <N>]
                    [--telegram-env <path>]
                    [--no-telegram]
@@ -12,6 +13,14 @@ Usage:
                    [--log-dir <path>]
                    [--no-log]
                    [-- <extra-args-forwarded-to-skill-chain.py>]
+
+`--profile <persona>` reads `<cwd>/.claude/skills/<persona>-chain-driver/SKILL.md`
+(then `~/.claude/skills/...` as fallback) for a `## Configured defaults` yaml
+block exposing `watched-chain`, `default-loop`, `default-max-budget-usd`,
+`default-max-cycles`, `telegram-env`, `label`. Each maps to the corresponding
+CLI arg as a layer below it (CLI wins). Mirrors the slash-command agent's
+own resolution of the same block, so `python3 bin/drive-chain.py --profile X`
+behaves the same as `/<X>-chain-driver` would.
 
 Spawns `bin/skill-chain.py --chain <name> --loop N --log-dir <auto>` as a
 subprocess. Streams its stdout to the terminal verbatim; in parallel, watches
@@ -68,6 +77,20 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_CHAIN = REPO_ROOT / "bin" / "skill-chain.py"
 NOTIFY_TELEGRAM = REPO_ROOT / "bin" / "notify-telegram.sh"
 MANAGER_BOT = REPO_ROOT / "bin" / "manager-bot.py"
+TRANSFERABLE_CHAINS_DIR = REPO_ROOT / "chains"
+
+# Persona profile keys consumed from a `<persona>-chain-driver/SKILL.md`
+# "Configured defaults" yaml block. Mirrored against the proprietary layer the
+# slash-command agent applies on its own; --profile gives the bare CLI helper
+# the same resolution path so terminal users see identical behavior.
+PROFILE_KEYS = (
+    "watched-chain",
+    "default-loop",
+    "default-max-budget-usd",
+    "default-max-cycles",
+    "telegram-env",
+    "label",
+)
 
 # Phase 18 chain-bound worker lifecycle paths.
 WORKER_STATE_DIR = Path.home() / ".claude" / "state"
@@ -383,14 +406,102 @@ def _stop_worker(descriptor: dict) -> None:
             pass
 
 
+def _find_profile_skill(persona: str, cwd: str) -> Path | None:
+    """Resolve a `<persona>-chain-driver/SKILL.md` in the same priority order
+    the harness uses for proprietary skills: project-scoped first, then
+    personal-global. Returns None on miss."""
+    candidates = [
+        Path(cwd) / ".claude" / "skills" / f"{persona}-chain-driver" / "SKILL.md",
+        Path.home() / ".claude" / "skills" / f"{persona}-chain-driver" / "SKILL.md",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _load_profile_defaults(persona: str, cwd: str) -> dict | None:
+    """Parse the first ```yaml fenced block under the `## Configured defaults`
+    header of a `<persona>-chain-driver/SKILL.md`. Returns the parsed dict or
+    None if no skill / no block found. Unknown keys are ignored; PROFILE_KEYS
+    is the contract surface the chain driver consumes.
+    """
+    path = _find_profile_skill(persona, cwd)
+    if path is None:
+        return None
+    try:
+        body = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    # Find `## Configured defaults` then the first ```yaml ... ``` block after it.
+    m = re.search(
+        r"^##\s+Configured defaults\s*\n(.*?)(?=^##\s+|\Z)",
+        body, re.MULTILINE | re.DOTALL,
+    )
+    if not m:
+        return None
+    section = m.group(1)
+    code = re.search(r"```yaml\s*\n(.*?)\n```", section, re.DOTALL)
+    if not code:
+        return None
+    try:
+        import yaml
+    except ImportError:
+        return None
+    try:
+        data = yaml.safe_load(code.group(1)) or {}
+    except yaml.YAMLError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return {k: v for k, v in data.items() if k in PROFILE_KEYS}
+
+
+def _resolve_chain_yaml_loop(chain_name: str, cwd: str) -> int | None:
+    """Mirror skill-chain.py's chain lookup, return the YAML's `loop:` field
+    (default 1 when present-but-unspecified). Returns None if the chain isn't
+    found or PyYAML isn't available — the no-op-cap note is a UX nicety, not
+    correctness, so any failure is a silent no-op (the chain runner will
+    produce its own clearer error if --chain itself is bogus)."""
+    candidates = [
+        Path(cwd) / ".claude" / "chains" / f"{chain_name}.yaml",
+        TRANSFERABLE_CHAINS_DIR / f"{chain_name}.yaml",
+    ]
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        return None
+    try:
+        import yaml
+    except ImportError:
+        return None
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    loop = data.get("loop", 1)
+    try:
+        return int(loop)
+    except (TypeError, ValueError):
+        return None
+
+
 def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     p = argparse.ArgumentParser(
         prog="drive-chain.py",
         description="Drive a multi-iteration skill-chain run with budget gates "
                     "and Telegram event notifications. Wraps bin/skill-chain.py.",
     )
-    p.add_argument("--chain", required=True,
-                   help="Chain name to run (resolves the same way bin/skill-chain.py does).")
+    p.add_argument("--chain", default=None,
+                   help="Chain name to run (resolves the same way bin/skill-chain.py "
+                        "does). Required unless --profile resolves a `watched-chain:`.")
+    p.add_argument("--profile", default=None,
+                   help="Persona name; loads `<persona>-chain-driver/SKILL.md`'s "
+                        "`## Configured defaults` yaml block (project-scoped first, "
+                        "then ~/.claude/skills/) as a layer below CLI args. Mirrors "
+                        "what /<persona>-chain-driver does for its slash-command "
+                        "agent, so terminal users get identical defaults.")
     p.add_argument("--loop", type=int, default=None,
                    help="Iteration count (forwarded to skill-chain.py --loop). "
                         "0 means until failure / Ctrl-C; the chain driver's --max-cycles "
@@ -402,7 +513,10 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     p.add_argument("--max-cycles", type=int, default=None,
                    help="Send SIGINT to the chain runner between iterations once "
                         "this many iterations have completed. Independent of "
-                        "--loop (whichever fires first wins).")
+                        "--loop (whichever fires first wins). Only meaningful when "
+                        "the resolved chain loop count is greater than --max-cycles "
+                        "(or 0/unlimited); single-iter chains finish naturally before "
+                        "the cap can fire and a no-op note is printed at startup.")
     p.add_argument("--telegram-env", type=Path, default=None,
                    help="Path to a shell-style env file exporting TELEGRAM_BOT_TOKEN "
                         "and TELEGRAM_CHAT_ID. Sourced into the chain driver's "
@@ -436,6 +550,53 @@ def main() -> int:
 
     cwd = os.getcwd()
 
+    # Resolve profile defaults as a layer BELOW CLI args. Each CLI arg keeps
+    # its current "explicit > profile > None/builtin" semantics; we only fill
+    # in fields the user didn't pass. Unknown profile keys are dropped by
+    # _load_profile_defaults; missing profile is a silent no-op so users who
+    # don't pass --profile see no behavior change.
+    if args.profile:
+        profile = _load_profile_defaults(args.profile, cwd)
+        if profile is None:
+            print(
+                f"[chain-driver] --profile {args.profile!r}: no "
+                f"'<persona>-chain-driver/SKILL.md' found under "
+                f"<cwd>/.claude/skills/ or ~/.claude/skills/, or its "
+                f"'## Configured defaults' yaml block is missing/malformed; "
+                f"continuing with CLI args + builtin defaults only.",
+                file=sys.stderr, flush=True,
+            )
+        else:
+            if args.chain is None and profile.get("watched-chain"):
+                args.chain = str(profile["watched-chain"])
+            if args.loop is None and profile.get("default-loop") is not None:
+                try:
+                    args.loop = int(profile["default-loop"])
+                except (TypeError, ValueError):
+                    pass
+            if args.max_budget_usd is None and profile.get("default-max-budget-usd") is not None:
+                try:
+                    args.max_budget_usd = float(profile["default-max-budget-usd"])
+                except (TypeError, ValueError):
+                    pass
+            if args.max_cycles is None and profile.get("default-max-cycles") is not None:
+                try:
+                    args.max_cycles = int(profile["default-max-cycles"])
+                except (TypeError, ValueError):
+                    pass
+            if args.telegram_env is None and profile.get("telegram-env"):
+                args.telegram_env = Path(
+                    os.path.expanduser(str(profile["telegram-env"]))
+                )
+            if args.label is None and profile.get("label"):
+                args.label = str(profile["label"])
+
+    if args.chain is None:
+        raise SystemExit(
+            "--chain is required (or pass --profile <persona> resolving to a "
+            "'<persona>-chain-driver/SKILL.md' with `watched-chain:` set)."
+        )
+
     if args.log_dir is not None:
         log_dir = args.log_dir.resolve()
     elif args.no_log:
@@ -445,6 +606,25 @@ def main() -> int:
 
     if log_dir is not None:
         log_dir.mkdir(parents=True, exist_ok=True)
+
+    # --max-cycles no-op note: when the resolved chain loop count is finite and
+    # <= the cap, the cap can never fire (the chain finishes naturally first).
+    # Surface this at startup so terminal users don't read a silent no-op as
+    # "the cap silently worked." `loop: 0` (until-failure) keeps the cap
+    # meaningful, so we don't warn there.
+    if args.max_cycles is not None:
+        effective_loop = (
+            args.loop if args.loop is not None
+            else _resolve_chain_yaml_loop(args.chain, cwd)
+        )
+        if effective_loop is not None and 0 < effective_loop <= args.max_cycles:
+            print(
+                f"[chain-driver] note: --max-cycles {args.max_cycles} is a no-op; "
+                f"chain '{args.chain}' will run {effective_loop} iter(s) naturally "
+                f"and exit before the cap can fire. The cap is the safety net for "
+                f"multi-iter runs (--loop N>{args.max_cycles}, or chain `loop: 0`).",
+                file=sys.stderr, flush=True,
+            )
 
     # Build the skill-chain.py command.
     cmd: list[str] = [sys.executable, str(SKILL_CHAIN), "--chain", args.chain]
