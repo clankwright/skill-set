@@ -326,6 +326,15 @@ class ClaudeCodeHarness(Harness):
             # github.com/anthropics/claude-code/issues/16963.
             "--max-turns", "100",
             "--model", "opus",
+            # --effort pinned explicitly. Opus 4.7's CLI default is xhigh (one
+            # tier above the API-standard default of high); pinning high here
+            # downshifts to the API default, recovering Max-quota on routine
+            # cycles without noticeably degrading quality. Per-item difficulty-
+            # aware override (Phase 19) layers on top: `[easy]` -> low,
+            # `[medium]` -> medium, `[hard]` -> high (or up to xhigh/max via
+            # per-skill effort-floor). Neutral on Opus 4.6 / Sonnet 4.6 where
+            # high is already the implicit default.
+            "--effort", "high",
             "-p",
             "--verbose",
             "--output-format", "stream-json",
