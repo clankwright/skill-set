@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.5.0
+version: 1.6.0
 ---
 
 # Supervisor
@@ -38,6 +38,54 @@ Read these in order, all from the run log directory passed to you (the chain run
 5. **`docs/SPEC.md` and `docs/TODO.md`** — for context on what the chain was working toward.
 
 ## Process
+
+### 0.5. Fast-path on clean (skip §1-7 when all signals say clean)
+
+When all four signals below say "clean," skip the deep walk through §1-7 and write a one-line verdict instead. This saves the analysis cost on cycles that produce zero findings (commonly about half of all runs once a chain is mature, since "the skills behaved correctly" is the default state of a healthy framework).
+
+Eligibility — all four conditions must hold:
+
+1. **No prior escalation flag.** Locate the immediately-preceding `supervisor_verdict.md`: for multi-iter runs (`MANIFEST.iteration > 1`), look at `<base>/iter_<NN-1>/supervisor_verdict.md`; for single-iter runs or iter_01, look at the most recent `<cwd>/.skill-runs/*/supervisor_verdict.md` other than this run's (sort by directory name, which is timestamp-prefixed). If the `## Outcome` line contains `escalate`, abort the fast-path: the prior session asked for human attention and skipping the deep walk would lose that continuity. If no prior verdict exists (first run on this project), treat as no-escalation.
+
+2. **All non-supervisor skill exit codes == 0.** Read `MANIFEST.skills[i].exit_code` for every record except the supervisor's own (the supervisor's own record is not yet present in the snapshot manifest per §Inputs step 1). Any non-zero exit code aborts the fast-path: a failure needs a finding.
+
+3. **Transcript keyword scan returns clean.** Search every `<i>_<skill>.txt` (case-insensitive, anywhere on the line) for any of:
+   - `ERROR`, `FAIL`, `Traceback`, `Exception` — generic problem signals from tool output.
+   - `[blocker]`, `[escalate]` — explicit skill-emitted escalation tags.
+
+   Plus one line-anchored sentinel that does NOT abort but flags the outcome label differently:
+   - `^\s*\[no-work\]` — empty-queue bail; the dev skill ran but shipped no commit, so there is nothing to review at all. Outcome label becomes `clean (no-work bail)` instead of `clean (fast-path)`.
+
+   Any non-`[no-work]` match aborts the fast-path. The keyword list is intentionally noisy: false positives just route to the deep walk, which is the safe direction.
+
+4. **§0.6 drafts sweep returns zero orphans.** Run §0.6 to completion first — it is a cheap directory listing and the self-heal step must run regardless of fast-path eligibility. Any orphaned draft to consume becomes a finding under §1 and aborts the fast-path.
+
+When all four conditions hold, write the minimal verdict file and return:
+
+```markdown
+# Supervisor verdict — <run-dir-name>
+
+**Chain:** <chain-name>  ·  **auto-promote:** <mode>  ·  **Commit:** <sha-after>  ·  **Generated:** <utc-iso>
+
+## Outcome
+
+clean (fast-path)
+<!-- or `clean (no-work bail)` if §0.5.3's no-work sentinel matched -->
+
+## Per-skill summary
+
+(All skills exited 0; transcripts clean; prior verdict not escalated; no orphan drafts to consume.)
+
+## Updates written
+
+(none)
+```
+
+The §8 exit gate is satisfied because §0.6 confirmed `drafts/` is empty AND the verdict file exists.
+
+When any condition fails, fall through to §1 with no annotation in the eventual verdict. The fast-path is an optimization, not a user-facing contract surface.
+
+**Anti-fork constraint.** Do not extend the keyword list with soft matches like `warning`, `caveat`, or `should`: those appear routinely in clean prose. Do not add a fifth eligibility condition without spec'ing it first. The bar is intentionally tuned to favor running the deep walk when uncertain: a missed-finding from an over-eager fast-path is a real defect, while a deep-walk-on-clean is just spent compute.
 
 ### 0.6. Iter-boundary drafts sweep (multi-iter chains only)
 
