@@ -466,6 +466,13 @@ def main() -> int:
     for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_PARSE_MODE"):
         if k not in tg_env and k in os.environ:
             tg_env[k] = os.environ[k]
+    # Default to plain text. Chain-driver bodies (session-start / iter-close /
+    # rate-limit / supervisor / session-end) interpolate raw run-dir paths,
+    # ISO timestamps, and commit subjects that frequently contain `_` `*` `[`;
+    # under notify-telegram.sh's `Markdown` fallback those parse as
+    # unterminated entities and the API returns 400. Explicit user config
+    # (env file or shell) still wins via setdefault.
+    tg_env.setdefault("TELEGRAM_PARSE_MODE", "")
 
     telegram = TelegramSink(enabled=not args.no_telegram, env=tg_env)
     label = args.label or args.chain
