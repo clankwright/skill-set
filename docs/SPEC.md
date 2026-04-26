@@ -154,7 +154,7 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 
 ### Phase 6: open-source
 
-- [ ] Push to public GitHub repo.
+- [x] Push to public GitHub repo. `git@github.com:toadlyBroodle/skill-set.git`, `main` tracks `origin/main`.
 - [x] CI: frontmatter validator + sanitization-footer-on-PR enforcement (leak/grep enforcement removed — replaced by sanitize-transferable skill run pre-PR by contributors).
 - [x] CONTRIBUTING.md.
 
