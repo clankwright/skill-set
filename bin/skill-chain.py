@@ -154,6 +154,177 @@ RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_
 NO_WORK_SENTINEL_RE = re.compile(r"^\s*\[no-work\](?:\s+(.*\S))?\s*$", re.MULTILINE)
 
 
+# ---- Per-skill model + effort routing (Phase 19) ---------------------------
+# Each iter pre-parses the picked item's difficulty bracket from
+# docs/TODO.md > Next up (or docs/SPEC.md first open `[ ]` if Next up is empty),
+# mapping `[easy]` -> (haiku, low), `[medium]` -> (sonnet, medium),
+# `[hard]` -> (opus, high). Each skill's frontmatter declares a model-floor
+# and effort-floor; effective tier = max(item_tier, skill_floor) over the
+# orderings below. After the FIRST skill of an iter (typically the dev) exits,
+# the runner scans its assistant text for `[picked-difficulty: <tier>]`; a
+# match overrides the iter difficulty for any subsequent skill in the same
+# iter, so review/supervisor route on what the dev actually picked rather
+# than the queue head.
+
+MODEL_TIERS  = ["haiku", "sonnet", "opus"]
+EFFORT_TIERS = ["low", "medium", "high", "xhigh", "max"]
+
+DIFFICULTY_TO_MODEL  = {"easy": "haiku",  "medium": "sonnet", "hard": "opus"}
+DIFFICULTY_TO_EFFORT = {"easy": "low",    "medium": "medium", "hard": "high"}
+
+DEFAULT_MODEL_FLOOR  = "opus"
+DEFAULT_EFFORT_FLOOR = "high"
+DEFAULT_DIFFICULTY   = "medium"
+
+PICKED_DIFFICULTY_SENTINEL_RE = re.compile(
+    r"^\s*\[picked-difficulty:\s*(easy|medium|hard)\]\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+_NEXT_UP_HEADER_RE = re.compile(r"^##\s+Next up\b", re.MULTILINE)
+_HEADING_RE        = re.compile(r"^##\s+", re.MULTILINE)
+_HTML_COMMENT_RE   = re.compile(r"<!--.*?-->", re.DOTALL)
+_DIFFICULTY_BRACKET_RE = re.compile(r"\[(easy|medium|hard)\]", re.IGNORECASE)
+
+
+def _max_tier(item_tier: str, floor_tier: str, ordering: list[str]) -> str:
+    """Return whichever of item_tier / floor_tier has the higher index in ordering.
+
+    Unknown tiers (typo, future value) sort as -1 so a known floor still wins.
+    Falls back to the floor when both are unknown so the framework defaults
+    apply rather than passing junk to the harness.
+    """
+    a = ordering.index(item_tier)  if item_tier  in ordering else -1
+    b = ordering.index(floor_tier) if floor_tier in ordering else -1
+    if a < 0 and b < 0:
+        return ordering[-1]  # safest: highest tier
+    return ordering[max(a, b)]
+
+
+def _find_skill_md(skill_name: str, cwd: str) -> Path | None:
+    """Locate the SKILL.md the harness will load for this skill.
+
+    Mirrors Claude Code's resolution order: project-scoped first
+    (<cwd>/.claude/skills/<name>/SKILL.md), then personal-global
+    (~/.claude/skills/<name>/SKILL.md). Returns None when neither exists; the
+    caller treats that as "no frontmatter" and falls back to defaults rather
+    than failing — a missing SKILL.md will surface as a harness error on the
+    actual skill invocation a moment later.
+    """
+    candidates = [
+        Path(cwd) / ".claude" / "skills" / skill_name / "SKILL.md",
+        Path.home() / ".claude" / "skills" / skill_name / "SKILL.md",
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
+
+
+def _read_skill_frontmatter(path: Path | None) -> dict:
+    """Parse the YAML frontmatter block at the top of a SKILL.md. Returns {}
+    when the file is missing, lacks a `---\\n…\\n---\\n` block, or YAML can't
+    be loaded. Best-effort by design: routing falls back to defaults rather
+    than failing the chain on a malformed skill file.
+    """
+    if path is None:
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
+    if not m:
+        return {}
+    try:
+        import yaml
+        data = yaml.safe_load(m.group(1)) or {}
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _resolve_iter_difficulty(cwd: str) -> tuple[str, str]:
+    """Pre-parse the next item's difficulty for routing. Returns (tier, source).
+
+    Source codes (for stderr reporting + manifest forensics):
+      - 'todo-next-up'             — first item in `## Next up` carried a label
+      - 'todo-next-up-unlabeled'   — first item lacked a label; defaulted
+      - 'spec-first-open'          — Next up empty; first SPEC `[ ]` had a label
+      - 'spec-first-open-unlabeled'— first open SPEC item lacked a label; defaulted
+      - 'no-source'                — neither file resolvable; defaulted
+
+    The `*-unlabeled` and `no-source` cases return DEFAULT_DIFFICULTY ('medium')
+    so the chain proceeds rather than failing on missing labels — same
+    graceful-degradation rollout window the dev skill's `[bad-label]` warn
+    operates in.
+    """
+    todo = Path(cwd) / "docs" / "TODO.md"
+    if todo.exists():
+        try:
+            text = todo.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        m = _NEXT_UP_HEADER_RE.search(text)
+        if m:
+            section = text[m.end():]
+            end_m = _HEADING_RE.search(section)
+            if end_m:
+                section = section[:end_m.start()]
+            section = _HTML_COMMENT_RE.sub("", section)
+            for line in section.splitlines():
+                s = line.strip()
+                if not s.startswith("- "):
+                    continue
+                lm = _DIFFICULTY_BRACKET_RE.search(s)
+                if lm:
+                    return lm.group(1).lower(), "todo-next-up"
+                return DEFAULT_DIFFICULTY, "todo-next-up-unlabeled"
+    spec = Path(cwd) / "docs" / "SPEC.md"
+    if spec.exists():
+        try:
+            text = spec.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        for line in text.splitlines():
+            m = re.match(r"^\s*-\s+\[ \]\s+\[(easy|medium|hard)\]", line, re.IGNORECASE)
+            if m:
+                return m.group(1).lower(), "spec-first-open"
+            if re.match(r"^\s*-\s+\[ \]", line):
+                return DEFAULT_DIFFICULTY, "spec-first-open-unlabeled"
+    return DEFAULT_DIFFICULTY, "no-source"
+
+
+def _resolve_skill_route(
+    skill_name: str,
+    iter_difficulty: str,
+    cwd: str,
+) -> tuple[str, str, dict]:
+    """Compute (effective_model, effective_effort, route_record) for a skill.
+
+    route_record is a small dict suitable for stashing on the skill_record /
+    iter_manifest so post-hoc analysis (supervisor, chain driver) can see how
+    the routing decision was made for each skill in the iter.
+    """
+    fm = _read_skill_frontmatter(_find_skill_md(skill_name, cwd))
+    model_floor  = fm.get("model-floor")  or DEFAULT_MODEL_FLOOR
+    effort_floor = fm.get("effort-floor") or DEFAULT_EFFORT_FLOOR
+    item_model   = DIFFICULTY_TO_MODEL.get(iter_difficulty,  DIFFICULTY_TO_MODEL[DEFAULT_DIFFICULTY])
+    item_effort  = DIFFICULTY_TO_EFFORT.get(iter_difficulty, DIFFICULTY_TO_EFFORT[DEFAULT_DIFFICULTY])
+    eff_model    = _max_tier(item_model,  model_floor,  MODEL_TIERS)
+    eff_effort   = _max_tier(item_effort, effort_floor, EFFORT_TIERS)
+    record = {
+        "difficulty":     iter_difficulty,
+        "model_floor":    model_floor,
+        "effort_floor":   effort_floor,
+        "item_model":     item_model,
+        "item_effort":    item_effort,
+        "effective_model":  eff_model,
+        "effective_effort": eff_effort,
+    }
+    return eff_model, eff_effort, record
+
+
 def _no_work_bail_should_fire(
     record: dict,
     sha_before: str | None,
@@ -286,12 +457,20 @@ def _archive_attempt(log_dir: Path | None, index: int, skill_name: str, retry_co
 class Harness:
     """Spawns one skill invocation as a subprocess that emits one event per stdout line.
 
-    Subclasses must set `name` and implement `build_command(skill_name)`.
+    Subclasses must set `name` and implement `build_command(skill_name, *,
+    model, effort)`. `model` and `effort` are the per-skill resolved tiers
+    from Phase 19 routing; harnesses that don't honor either may ignore them.
     """
 
     name: str = "abstract"
 
-    def build_command(self, skill_name: str) -> list[str]:
+    def build_command(
+        self,
+        skill_name: str,
+        *,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> list[str]:
         raise NotImplementedError
 
 
@@ -300,12 +479,23 @@ class ClaudeCodeHarness(Harness):
 
     name = "claude-code"
 
-    def build_command(self, skill_name: str) -> list[str]:
+    def build_command(
+        self,
+        skill_name: str,
+        *,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> list[str]:
         prompt = (
             f"Use the Skill tool to invoke the '{skill_name}' skill and run it "
             f"to completion. Do not respond with anything else first; invoke the "
             f"skill immediately."
         )
+        # Phase 19 (4): model and effort are resolved by the runner from
+        # max(item_difficulty_tier, skill_floor) and passed in. Fall back to
+        # the conservative framework defaults (opus / high) when either is
+        # absent so direct callers (`bin/skill-chain.py <skill>` ad-hoc form)
+        # still produce a working command without the routing context.
         return [
             "claude",
             # bypassPermissions, not --dangerously-skip-permissions. The latter
@@ -325,16 +515,8 @@ class ClaudeCodeHarness(Harness):
             # cycles without burning cache on runaway agents. See
             # github.com/anthropics/claude-code/issues/16963.
             "--max-turns", "100",
-            "--model", "opus",
-            # --effort pinned explicitly. Opus 4.7's CLI default is xhigh (one
-            # tier above the API-standard default of high); pinning high here
-            # downshifts to the API default, recovering Max-quota on routine
-            # cycles without noticeably degrading quality. Per-item difficulty-
-            # aware override (Phase 19) layers on top: `[easy]` -> low,
-            # `[medium]` -> medium, `[hard]` -> high (or up to xhigh/max via
-            # per-skill effort-floor). Neutral on Opus 4.6 / Sonnet 4.6 where
-            # high is already the implicit default.
-            "--effort", "high",
+            "--model",  model  or DEFAULT_MODEL_FLOOR,
+            "--effort", effort or DEFAULT_EFFORT_FLOOR,
             "-p",
             "--verbose",
             "--output-format", "stream-json",
@@ -533,6 +715,17 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
                     if m:
                         reason = (m.group(1) or "").strip() or "no reason given"
                         skill_record["no_work_bail"] = reason
+                # Phase 19 (5): capture the dev skill's `[picked-difficulty:
+                # <tier>]` sentinel so run_iteration can override the iter's
+                # pre-parsed difficulty for any skill that runs after the dev.
+                # First match wins; later text within the same skill doesn't
+                # overwrite it. Tool inputs / results are not scanned (only
+                # `block.type == "text"` reaches here), mirroring the
+                # no-work sentinel's discipline.
+                if "picked_difficulty" not in skill_record:
+                    pm = PICKED_DIFFICULTY_SENTINEL_RE.search(text)
+                    if pm:
+                        skill_record["picked_difficulty"] = pm.group(1).lower()
             elif bt == "tool_use":
                 print_tool_use(sink, block.get("name", "?"), block.get("input", {}))
         return
@@ -588,9 +781,22 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
         return
 
 
-def run_skill(harness: Harness, skill_name: str, index: int, log_dir: Path | None) -> tuple[int, dict]:
-    """Run one skill via the configured harness. Returns (exit_code, manifest_record)."""
-    cmd = harness.build_command(skill_name)
+def run_skill(
+    harness: Harness,
+    skill_name: str,
+    index: int,
+    log_dir: Path | None,
+    *,
+    model: str | None = None,
+    effort: str | None = None,
+) -> tuple[int, dict]:
+    """Run one skill via the configured harness. Returns (exit_code, manifest_record).
+
+    `model` and `effort` are the per-skill resolved tiers (Phase 19 routing);
+    when omitted the harness applies its conservative defaults so direct
+    `bin/skill-chain.py <skill>` invocations remain harness-shaped.
+    """
+    cmd = harness.build_command(skill_name, model=model, effort=effort)
 
     txt_path: Path | None = None
     jsonl_path: Path | None = None
@@ -686,6 +892,8 @@ def run_skill_with_retry(
     max_pause_seconds: int,
     max_pauses: int,
     pause_records: list[dict],
+    model: str | None = None,
+    effort: str | None = None,
 ) -> tuple[int, dict]:
     """Run a skill with rate-limit pause-and-resume.
 
@@ -702,7 +910,9 @@ def run_skill_with_retry(
     """
     retry_count = 0
     while True:
-        rc, record = run_skill(harness, skill_name, index, log_dir)
+        rc, record = run_skill(
+            harness, skill_name, index, log_dir, model=model, effort=effort,
+        )
         if retry_count > 0:
             record["retry_count"] = retry_count
 
@@ -1020,11 +1230,30 @@ def run_iteration(
         print(c(f"===== {label} =====", BOLD + BLUE), flush=True)
         print("", flush=True)
 
+    # Phase 19 (5): pre-parse the iter's difficulty from docs/TODO.md > Next up
+    # (or docs/SPEC.md first open `[ ]` if Next up is empty), with default
+    # 'medium' on a missing label. The dev skill (first in the iter) inherits
+    # this for its OWN routing; if it later picks a different item and emits
+    # `[picked-difficulty: <tier>]`, that overrides the iter difficulty for
+    # any skill that runs AFTER the dev (review, supervisor, etc.). The dev's
+    # own model/effort is decided BEFORE it runs, so a mismatch can only
+    # affect downstream skills — same one-way contract Phase 17's no-work
+    # sentinel established.
+    iter_difficulty, difficulty_source = _resolve_iter_difficulty(cwd)
+    if difficulty_source.endswith("-unlabeled") or difficulty_source == "no-source":
+        print(c(f"[difficulty] {difficulty_source}; defaulting to "
+                f"{iter_difficulty} for iter routing", ORANGE), flush=True)
+    else:
+        print(c(f"[difficulty] iter pre-parsed as {iter_difficulty} "
+                f"(source: {difficulty_source})", DIM), flush=True)
+
     iter_manifest: dict = {
         "iteration": iteration,
         "log_subdir": iter_log_dir.name if iter_log_dir else None,
         "started_at": _utc_iso(),
         "git_sha_before": _git_sha(cwd),
+        "difficulty": iter_difficulty,
+        "difficulty_source": difficulty_source,
         "skills": [],
         "rate_limit_pauses": [],
     }
@@ -1050,6 +1279,18 @@ def run_iteration(
     rc = 0
     for i, skill in enumerate(skills_to_run):
         sha_before_skill = _git_sha(cwd)
+        # Phase 19 (4): resolve per-skill effective model + effort from the
+        # current iter difficulty (which may have been overridden post-dev by
+        # the previous iteration of this loop) and the skill's frontmatter
+        # floors. Logged before the skill banner so the routing decision is
+        # visible alongside the [supervisor] / [chain-driver] markers in the
+        # transcript.
+        eff_model, eff_effort, route_record = _resolve_skill_route(
+            skill, iter_manifest["difficulty"], cwd,
+        )
+        print(c(f"[route] /{skill}: difficulty={route_record['difficulty']} "
+                f"floors=({route_record['model_floor']},{route_record['effort_floor']}) "
+                f"-> model={eff_model} effort={eff_effort}", DIM), flush=True)
         skill_rc, record = run_skill_with_retry(
             harness,
             skill,
@@ -1059,10 +1300,29 @@ def run_iteration(
             max_pause_seconds=max_pause_seconds,
             max_pauses=max_pauses,
             pause_records=iter_manifest["rate_limit_pauses"],
+            model=eff_model,
+            effort=eff_effort,
         )
+        record["route"] = route_record
         if skill == auto_supervisor:
             record["role"] = "supervisor"
         iter_manifest["skills"].append(record)
+
+        # Phase 19 (5): if the dev skill emitted [picked-difficulty: <tier>]
+        # and it differs from the pre-parsed iter difficulty, override for
+        # subsequent skills. Only the FIRST skill of the iter is treated as
+        # the authoritative dev (i == 0); later skills' picked-difficulty
+        # captures are recorded but do not re-override (review/supervisor
+        # echoing the bracket in their own prose mustn't shift routing for
+        # the same iter's downstream pass — there is no downstream after
+        # supervisor anyway).
+        picked = record.get("picked_difficulty")
+        if i == 0 and picked and picked != iter_manifest["difficulty"]:
+            print(c(f"[difficulty] dev /{skill} picked '{picked}' "
+                    f"(was '{iter_manifest['difficulty']}'); "
+                    f"overriding for downstream skills", DIM), flush=True)
+            iter_manifest["difficulty_dev_picked"] = picked
+            iter_manifest["difficulty"] = picked
         _snapshot_manifest()
         if skill_rc != 0:
             # Supervisor failure should NOT abort downstream work or surface as the
