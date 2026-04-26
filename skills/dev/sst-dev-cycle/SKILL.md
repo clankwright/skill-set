@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one amended commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Autonomous TDD Cycle
@@ -39,6 +39,21 @@ Contract for every cycle:
 3. Confirm `git status` is clean. If there are staged or modified files from a prior aborted run, inspect them and either commit them (if they represent finished work) or stash/discard them before starting — do not silently include them in this cycle's commit. **Exception:** the project's supervisor (when the project runs `sst-supervisor` or a `<project>-supervisor` proprietary counterpart) routinely leaves direct-overwritten edits to peer SKILL.md files uncommitted in `<cwd>/.claude/skills/*/`. Per the supervisor's contract, those files are NOT part of any dev cycle and must NOT trigger a stop. Concretely: if `git status --porcelain` shows ONLY paths under `.claude/skills/`, proceed without stashing or checking out. Any other modified or untracked files (project code, tests, docs, configs) — apply the original rule.
 4. Read `docs/SPEC.md` (or the project's primary spec — see §1) end-to-end.
 5. Read `docs/TODO.md` end-to-end. If missing, create it from `~/Dev/skill-set/templates/TODO.md` and stage it for inclusion in this cycle's single commit; do NOT make a separate "create TODO" commit.
+
+6. **Empty-queue bail.** If ALL three conditions hold, exit 0 immediately without picking any item, writing any test, or making any commit:
+   - `TODO.md`'s `## Next up (queued for next cycle)` section contains no `- ` entries (only the `<!-- ... -->` template comment, or empty); AND
+   - `docs/SPEC.md` (or the project's primary spec) contains no remaining `- [ ]` checkboxes (every checkable item is `[x]`); AND
+   - The user's prompt to this skill carries no specific task or item to work on (no override).
+
+   Print exactly one line on stdout BEFORE exiting:
+
+   ```
+   [no-work] queue empty and spec fully checked; nothing to do
+   ```
+
+   The chain runner recognizes this `[no-work] <one-line reason>` sentinel and aborts the loop entirely (no review, no supervisor, no further iterations), saving the per-iter overhead of running downstream skills against an empty commit. The bail is the correct response in steady state, not a defect. **Do NOT** pick a just-shipped item, invent speculative work, scope-creep on existing skills, or fabricate a `Next up` entry to consume. A user-provided override (a specific item or task in the prompt) suppresses the bail; queue-empty + spec-clean alone, with no override, fires it.
+
+   Inherits to proprietary `<project>-dev-cycle` skills automatically via `transferable:`; no per-project change needed to opt in.
 
 ## 1. Decide what to work on
 

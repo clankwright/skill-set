@@ -41,6 +41,8 @@ The proprietary chains under `.claude/chains/` are skill-set's own dogfooding su
 
 Both proprietary chains exist locally only (`.claude/` is gitignored as Claude Code runtime state). The transferable parents are `dev-cycle-with-review-looped` and `dev-cycle-overnight` under `chains/`; consuming projects build their own `<persona>-cycle` / `<persona>-overnight` proprietary chains the same way.
 
+It is safe to invoke any of these even when `TODO.md > Next up` is empty AND every SPEC `[ ]` is `[x]`: the dev skill's pre-flight emits `[no-work]` and the chain runner aborts the loop cleanly without picking speculative work, running review/supervisor, or burning further iterations. The bail surfaces a single short iteration log + a "no-work bail" session-end Telegram body, no commit.
+
 ## Never bypass the sanitization path
 
 Any change that promotes a proprietary skill into a transferable one (or drafts a transferable proposal) must go through `skills/framework/sst-sanitize-transferable/` and include the sanitization-checklist footer. CI rejects PRs that skip this.

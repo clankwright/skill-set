@@ -140,6 +140,20 @@ RATE_LIMIT_JITTER_RANGE = (15, 60)              # extra seconds after parsed res
 RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_time
 
 
+# ---- No-work sentinel (Phase 17) -------------------------------------------
+# When a skill (typically a dev cycle in steady state) finds nothing to do and
+# prints `[no-work] <one-line reason>` as its own assistant-text line before
+# exiting 0, the chain runner aborts the loop entirely (skipping the remaining
+# skills in the iteration AND any further iterations). Saves the per-iter
+# overhead of running review/supervisor against an empty commit, and stops an
+# unattended overnight `loop: 0` run from burning the budget cap on
+# speculative work in steady state. The bail is correct framework behavior,
+# not a defect; sentinel format is documented in templates/SPEC.md so any
+# consuming project's dev skill can opt into the contract by emitting it.
+
+NO_WORK_SENTINEL_RE = re.compile(r"^\s*\[no-work\](?:\s+(.*\S))?\s*$", re.MULTILINE)
+
+
 def _parse_reset_time(value: Any) -> float | None:
     """Parse a rate-limit reset time into epoch seconds. Returns None on failure.
 
@@ -476,7 +490,17 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
         for block in event.get("message", {}).get("content", []):
             bt = block.get("type")
             if bt == "text":
-                print_assistant_text(sink, block.get("text", ""))
+                text = block.get("text", "")
+                print_assistant_text(sink, text)
+                # Phase 17: scan for the [no-work] sentinel. Stash on the
+                # skill_record so run_iteration can abort the chain after
+                # the skill exits cleanly. First match wins; later text
+                # within the same skill doesn't overwrite it.
+                if "no_work_bail" not in skill_record:
+                    m = NO_WORK_SENTINEL_RE.search(text)
+                    if m:
+                        reason = (m.group(1) or "").strip() or "no reason given"
+                        skill_record["no_work_bail"] = reason
             elif bt == "tool_use":
                 print_tool_use(sink, block.get("name", "?"), block.get("input", {}))
         return
@@ -1017,6 +1041,20 @@ def run_iteration(
             print(f"\n{c(f'/{skill} exited with {skill_rc}; aborting chain', RED)}", flush=True)
             rc = skill_rc
             break
+        # Phase 17 empty-queue bail: a skill that prints `[no-work] <reason>`
+        # and exits clean signals steady state. Skip the remaining skills in
+        # this iteration (review, supervisor) since there's no commit for them
+        # to work against, and let main() abort the loop. Recorded on the iter
+        # manifest so a chain driver / supervisor / reader can distinguish a
+        # bail from a clean run with real work.
+        if record.get("no_work_bail"):
+            iter_manifest["no_work_bail"] = {
+                "skill": skill,
+                "reason": record["no_work_bail"],
+            }
+            print(c(f"\n[no-work] /{skill}: {record['no_work_bail']}: "
+                    f"skipping remaining skills + aborting loop", BLUE), flush=True)
+            break
 
     iter_manifest["finished_at"] = _utc_iso()
     iter_manifest["git_sha_after"] = _git_sha(cwd)
@@ -1237,6 +1275,14 @@ def main() -> int:
 
             if rc != 0:
                 final_rc = rc
+                break
+            # Phase 17: empty-queue bail aborts the loop entirely (no further
+            # iterations). Recorded on the top-level loop manifest so a chain
+            # driver's session-end summary can distinguish "no-work bail" from
+            # "max-cycles reached" / "failure".
+            if iter_manifest.get("no_work_bail"):
+                if "loop" in manifest:
+                    manifest["loop"]["terminated_by"] = "no_work_bail"
                 break
             if not infinite and iteration >= loop_count:
                 break

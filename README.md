@@ -69,13 +69,15 @@ CLI flags (`--loop`, `--loop-delay`, `--auto-promote`, `--on-rate-limit`, etc.) 
 
 Loop mode pairs naturally with skills that pick the next item from `TODO.md > Next up` each iteration: dev cycles, content cycles, lead-gen runs. The supervisor still runs once per iteration, so the handoff-doc contract stays intact between cycles.
 
+**Empty-queue bail (steady-state stop).** When the project reaches steady state (`TODO.md > Next up` empty AND every `- [ ]` in `docs/SPEC.md` flipped `[x]`), the dev-cycle skill exits cleanly with the line `[no-work] <reason>` on stdout instead of inventing speculative work. The chain runner recognizes the `[no-work]` sentinel, skips the remaining skills in the iteration (review, supervisor), since there's no commit for them to work against, and aborts the loop entirely. The iter manifest records `no_work_bail: {skill, reason}`; the top-level `manifest["loop"]["terminated_by"] = "no_work_bail"` so a chain driver's session-end summary can label the stop "no-work bail" rather than "max-cycles reached." This is the canonical clean stop, not an error condition: an unattended `dev-cycle-overnight` run terminates as soon as the queue is exhausted instead of looping on speculative work to the budget cap. Sentinel format documented in `templates/SPEC.md`; any consuming project's dev skill opts in simply by emitting it.
+
 ### Chains shipped here
 
 | Chain                            | Loop      | Auto-promote   | Use case                                                                                  |
 | :---                             | :---      | :---           | :---                                                                                      |
 | `dev-cycle-with-review`          | 1         | `proprietary`  | Single-item dev work. Conservative supervisor routing (proprietary edits land; transferable improvements wait for human promotion). |
 | `dev-cycle-with-review-looped`   | 3         | `all`          | Three-item dev batch. Aggressive routing so the supervisor's transferable improvements land within the run and later iterations consume them. |
-| `dev-cycle-overnight`            | 0         | `all`          | Unattended overnight drain of `TODO.md > Next up`. Pair with `sst-chain-driver --max-budget-usd $X` as the safety net. Randomized [5min, 2h] inter-iter delay keeps commit cadence human-shaped. |
+| `dev-cycle-overnight`            | 0         | `all`          | Unattended overnight drain of `TODO.md > Next up`. Auto-stops when the queue is exhausted (dev skill emits `[no-work]`, runner aborts the loop); `sst-chain-driver --max-budget-usd $X` is the secondary safety net. Randomized [5min, 2h] inter-iter delay keeps commit cadence human-shaped. |
 | `editorial-with-fact-check`      | 1         | `off`          | Run a draft through an editorial pass with citation verification. No supervisor self-modification. |
 | `multi-output-evaluation`        | 1         | `off`          | Compare N candidate outputs on a rubric and pick the best. |
 | `research-and-write`             | 1         | `off`          | Research a topic and produce a synthesized written deliverable. |

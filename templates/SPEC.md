@@ -43,3 +43,15 @@
 - A skill closes an item by flipping `- [ ]` → `- [x]` in the same commit as the code change.
 - When all items in a phase are checked, append a "completed" block to that phase: 1-paragraph result + bulleted file citations + test-count delta. Don't delete the phase's checklist; it's the historical record.
 - New work surfaced mid-cycle goes to `TODO.md`'s "Next up", not directly here. The next cycle decides whether it merits a new spec phase or was actually a follow-up to the current one.
+
+### Empty-queue bail (steady state)
+
+When `TODO.md`'s "Next up" is empty AND every `- [ ]` in this spec has been flipped to `[x]` AND the user gave no specific task, a dev-cycle skill (`sst-dev-cycle` or any `<project>-dev-cycle` proprietary counterpart) MUST exit 0 cleanly without picking an item, writing tests, or committing. Before exiting it prints exactly one line on stdout:
+
+```
+[no-work] <one-line reason>
+```
+
+The chain runner (`bin/skill-chain.py`) recognizes this sentinel and aborts the loop entirely (no review skill, no supervisor, no further iterations). The iteration's manifest records `iter_manifest["no_work_bail"] = {"skill": "<name>", "reason": "<sentinel-line>"}`; the top-level `manifest["loop"]["terminated_by"] = "no_work_bail"` distinguishes a bail from natural max-cycles completion or a real failure. A chain driver's session-end report should label the stop "no-work bail," not "max-cycles reached."
+
+Any consuming project's dev skill can opt into the contract simply by emitting the sentinel in the same situation; no chain-runner change is required per project.
