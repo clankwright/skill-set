@@ -1,28 +1,28 @@
 ---
-name: sst-agent-orchestrator
+name: sst-skill-router
 description: |
-  Per-task orchestrator that picks which sub-skills to invoke for a complex multi-step request, sequences them, passes outputs between them, and synthesizes a final result. Discovers available skills via the harness's skill registry; chooses by description, not by hardcoded names. Always ends with an editorial pass on the synthesized output. Distinct from the framework's manager skill (which is the periodic ops-loop with Telegram digests); this one runs INSIDE a single user request.
+  Per-task router that picks which sub-skills to invoke for a complex multi-step request, sequences them, passes outputs between them, and synthesizes a final result. Discovers available skills via the harness's skill registry; chooses by description, not by hardcoded names. Always ends with an editorial pass on the synthesized output. Distinct from sst-manager (cron-based, multi-project, periodic ops loop) and from sst-chain-driver (single-session driver of one multi-iter chain run); this one runs INSIDE a single user request.
 user-invocable: true
-version: 1.0.0
+version: 1.1.0
 argument-hint: [high-level task or objective]
 ---
 
-# Agent orchestrator
+# Skill router
 
 Given a complex task, this skill plans the sub-tasks, picks skills to handle each, runs them in sequence, and synthesizes the results. The user calls this once; the skill drives everything to completion.
 
 ## Project contract
 
-- **Output dir**: `<project>/data/sst-agent-orchestrator/` for the synthesized final result. Files as `<utc>_<task-slug>.md`.
-- **Required skills**: discovered dynamically from the harness's skill registry. The orchestrator picks based on each skill's `description` field. The chain ALWAYS ends with `sst-editorial-pass` (or the project's proprietary editorial counterpart) for the final synthesis pass.
+- **Output dir**: `<project>/data/sst-skill-router/` for the synthesized final result. Files as `<utc>_<task-slug>.md`.
+- **Required skills**: discovered dynamically from the harness's skill registry. The router picks based on each skill's `description` field. The chain ALWAYS ends with `sst-editorial-pass` (or the project's proprietary editorial counterpart) for the final synthesis pass.
 - **Tools required**: harness's `Skill` tool (to invoke sub-skills); `Read` (to load intermediate outputs); `Write` (to save the final synthesis).
 
 ## Operating principles
 
 - **Plan before invoking.** Before calling any sub-skill, write a plan: what's the task, what sub-tasks does it decompose into, which skill handles each, in what order, with what inputs/outputs. The plan is your contract with yourself; deviations from it require a re-plan, not a quiet ad-hoc detour.
-- **Pick by description, not by name.** Don't hardcode skill names. Walk the harness's available skills, read each description, choose by fit. This keeps the orchestrator portable across projects with different proprietary skill sets.
+- **Pick by description, not by name.** Don't hardcode skill names. Walk the harness's available skills, read each description, choose by fit. This keeps the router portable across projects with different proprietary skill sets.
 - **Pass concrete inputs.** When you call a sub-skill, give it the actual data it needs (text, file paths, structured inputs), not "the previous result." Keep the contract explicit.
-- **Always close with sst-editorial-pass.** The final user-facing output goes through `sst-editorial-pass` (or its proprietary counterpart). No exceptions — even short answers benefit from the scope/clarity check.
+- **Always close with sst-editorial-pass.** The final user-facing output goes through `sst-editorial-pass` (or its proprietary counterpart). No exceptions: even short answers benefit from the scope/clarity check.
 - **Iterate when results are weak.** If a sub-skill returned a thin or off-target result, revise your instructions and re-invoke. Don't accept "close enough" on the first pass and let it propagate downstream.
 
 ## Process
@@ -39,7 +39,7 @@ If anything is genuinely ambiguous and would produce wildly different plans, ask
 
 ### 2. Plan the chain
 
-Write a plan in this shape (in your scratchpad; save to `<project>/data/sst-agent-orchestrator/<utc>_<slug>.plan.md`):
+Write a plan in this shape (in your scratchpad; save to `<project>/data/sst-skill-router/<utc>_<slug>.plan.md`):
 
 ```markdown
 # Plan — <task slug>
@@ -82,7 +82,7 @@ After all sub-skills have completed:
 
 1. Synthesize the outputs into the final deliverable's shape (report, draft, list, etc.). This is your direct work, not a sub-skill call.
 2. Invoke `sst-editorial-pass` (or the proprietary editorial counterpart) on the synthesis.
-3. Save the sst-editorial-pass result to `<project>/data/sst-agent-orchestrator/<utc>_<slug>.md`.
+3. Save the sst-editorial-pass result to `<project>/data/sst-skill-router/<utc>_<slug>.md`.
 
 ### 6. Report
 
@@ -95,8 +95,12 @@ Total sub-skill invocations: <N>
 
 ## Hard rules
 
-- **Never invoke yourself recursively.** This skill is the orchestrator; it doesn't call other sst-agent-orchestrator instances.
-- **Never invoke `sst-manager` (the ops-loop skill).** Different concept; the ops manager runs on a cron, not inside a user request.
+- **Never invoke yourself recursively.** This skill is the router; it doesn't call other sst-skill-router instances.
+- **Never invoke `sst-manager` (the ops-loop skill) or `sst-chain-driver` (the multi-iter session driver).** Different concepts; both run outside a single user request.
 - **Never skip the sst-editorial-pass at the end.** Even when the synthesis feels solid, the pass catches scope drift and unverified claims.
 - **Never pad the final deliverable to look thorough.** Match the user's request, not your sense of completeness.
-- **If a sub-skill is missing for a sub-task, ask the user how to proceed.** Don't fake it by inlining the work — that defeats the orchestration pattern.
+- **If a sub-skill is missing for a sub-task, ask the user how to proceed.** Don't fake it by inlining the work: that defeats the routing pattern.
+
+## Naming history
+
+This skill was originally shipped as `sst-agent-orchestrator` and renamed to `sst-skill-router` in framework Phase 15 to remove the three-way collision between this skill, `sst-chain-driver` (formerly `sst-orchestrator`), and the looser everyday "orchestrator" usage. Behavior is unchanged. Output dir name updated from `data/sst-agent-orchestrator/` to `data/sst-skill-router/`.

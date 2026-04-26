@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-orchestrate-chain.py — drive a multi-iteration skill-chain run with budget gates
-                       and Telegram event notifications.
+drive-chain.py — drive a multi-iteration skill-chain run with budget gates
+                 and Telegram event notifications.
 
 Usage:
-    orchestrate-chain.py --chain <name> [--loop <N>]
-                         [--max-budget-usd <X>] [--max-cycles <N>]
-                         [--telegram-env <path>]
-                         [--no-telegram]
-                         [--harness <name>]
-                         [--log-dir <path>]
-                         [--no-log]
-                         [-- <extra-args-forwarded-to-skill-chain.py>]
+    drive-chain.py --chain <name> [--loop <N>]
+                   [--max-budget-usd <X>] [--max-cycles <N>]
+                   [--telegram-env <path>]
+                   [--no-telegram]
+                   [--harness <name>]
+                   [--log-dir <path>]
+                   [--no-log]
+                   [-- <extra-args-forwarded-to-skill-chain.py>]
 
 Spawns `bin/skill-chain.py --chain <name> --loop N --log-dir <auto>` as a
 subprocess. Streams its stdout to the terminal verbatim; in parallel, watches
@@ -19,12 +19,12 @@ for iteration-boundary markers, reads the per-iteration MANIFEST.json the
 chain runner writes when one completes, and posts Telegram updates at four
 event classes:
 
-  1. session start     — chain name, requested iterations, optional caps
-  2. iteration close   — commit SHA + subject + per-iter spend + cumulative
-  3. rate-limit pause  — forwarded immediately when the chain runner emits
+  1. session start     - chain name, requested iterations, optional caps
+  2. iteration close   - commit SHA + subject + per-iter spend + cumulative
+  3. rate-limit pause  - forwarded immediately when the chain runner emits
                          a `[rate-limit] ... sleeping ... before retrying`
                          banner; same on the matching resume line
-  4. session end       — completed iteration count + total spend +
+  4. session end       - completed iteration count + total spend +
                          non-zero exit reason if any + supervisor verdict
                          path (latest iter's verdict file)
 
@@ -33,7 +33,7 @@ skill-chain.py's loop) when:
   - cumulative spend exceeds --max-budget-usd, OR
   - completed iterations reach --max-cycles, OR
   - a non-supervisor skill exits non-zero (the chain runner already aborts;
-    the orchestrator just observes and notifies).
+    the chain driver just observes and notifies).
 
 Telegram outbound goes through bin/notify-telegram.sh, which requires
 TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in env. --telegram-env points at a
@@ -41,10 +41,14 @@ file (sourced into the subprocess env) that exports both. --no-telegram
 suppresses outbound entirely (useful for local debugging or a dry-run).
 
 Distinct from sst-manager: the manager runs on a cron and surveys MULTIPLE
-projects passively. The orchestrator runs ONCE per multi-iteration chain
+projects passively. The chain driver runs ONCE per multi-iteration chain
 session and is active the entire time. Output streams to stdout the same
 way bin/skill-chain.py does, so an interactive terminal looks identical
 whether the chain is invoked directly or via this wrapper.
+
+Originally shipped as orchestrate-chain.py; renamed to drive-chain.py in
+framework Phase 15 alongside the sst-orchestrator -> sst-chain-driver
+skill rename.
 """
 
 import argparse
@@ -108,7 +112,7 @@ def _git_subject(cwd: str, sha: str) -> str:
 
 def _read_telegram_env(path: Path) -> dict[str, str]:
     """Parse a shell-style env file (KEY=VALUE per line, # comments, optional `export `).
-    Returns the dict to merge into the orchestrator's env. Quoted values are
+    Returns the dict to merge into the chain driver's env. Quoted values are
     stripped of one matching pair of single or double quotes.
     """
     out: dict[str, str] = {}
@@ -141,12 +145,12 @@ class TelegramSink:
 
     def send(self, message: str, *, label: str = "telegram") -> None:
         if not self.enabled:
-            print(f"[orchestrator] {label} (suppressed): {message.splitlines()[0][:200]}",
+            print(f"[chain-driver] {label} (suppressed): {message.splitlines()[0][:200]}",
                   file=sys.stderr, flush=True)
             return
         if "TELEGRAM_BOT_TOKEN" not in self.env or "TELEGRAM_CHAT_ID" not in self.env:
             if not self._warned_missing:
-                print("[orchestrator] TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not in env; "
+                print("[chain-driver] TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not in env; "
                       "skipping outbound. Pass --telegram-env <file> or set them, "
                       "or use --no-telegram to suppress this warning.",
                       file=sys.stderr, flush=True)
@@ -160,10 +164,10 @@ class TelegramSink:
                 capture_output=True, text=True, timeout=20,
             )
             if r.returncode != 0:
-                print(f"[orchestrator] {label}: notify-telegram exited {r.returncode}: "
+                print(f"[chain-driver] {label}: notify-telegram exited {r.returncode}: "
                       f"{r.stderr.strip()[:300]}", file=sys.stderr, flush=True)
         except subprocess.TimeoutExpired:
-            print(f"[orchestrator] {label}: notify-telegram timed out", file=sys.stderr, flush=True)
+            print(f"[chain-driver] {label}: notify-telegram timed out", file=sys.stderr, flush=True)
 
 
 def _read_manifest(path: Path) -> dict | None:
@@ -209,7 +213,7 @@ def _verdict_outcome(verdict_path: Path) -> str:
 
 def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     p = argparse.ArgumentParser(
-        prog="orchestrate-chain.py",
+        prog="drive-chain.py",
         description="Drive a multi-iteration skill-chain run with budget gates "
                     "and Telegram event notifications. Wraps bin/skill-chain.py.",
     )
@@ -217,7 +221,7 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
                    help="Chain name to run (resolves the same way bin/skill-chain.py does).")
     p.add_argument("--loop", type=int, default=None,
                    help="Iteration count (forwarded to skill-chain.py --loop). "
-                        "0 means until failure / Ctrl-C; the orchestrator's --max-cycles "
+                        "0 means until failure / Ctrl-C; the chain driver's --max-cycles "
                         "still applies independently.")
     p.add_argument("--max-budget-usd", type=float, default=None,
                    help="Send SIGINT to the chain runner between iterations once "
@@ -229,7 +233,7 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
                         "--loop (whichever fires first wins).")
     p.add_argument("--telegram-env", type=Path, default=None,
                    help="Path to a shell-style env file exporting TELEGRAM_BOT_TOKEN "
-                        "and TELEGRAM_CHAT_ID. Sourced into the orchestrator's "
+                        "and TELEGRAM_CHAT_ID. Sourced into the chain driver's "
                         "subprocess env when invoking bin/notify-telegram.sh.")
     p.add_argument("--no-telegram", action="store_true",
                    help="Suppress all Telegram outbound (events are still printed to "
@@ -238,10 +242,10 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
                    help="Forwarded to skill-chain.py --harness if set.")
     p.add_argument("--log-dir", type=Path, default=None,
                    help="Forwarded to skill-chain.py --log-dir if set; otherwise the "
-                        "orchestrator computes the same default path skill-chain.py "
+                        "chain driver computes the same default path skill-chain.py "
                         "would so it knows where to read iter_NN/MANIFEST.json.")
     p.add_argument("--no-log", action="store_true",
-                   help="Forwarded to skill-chain.py --no-log. Implies the orchestrator "
+                   help="Forwarded to skill-chain.py --no-log. Implies the chain driver "
                         "cannot read per-iteration manifests, so iteration-boundary "
                         "Telegrams will report only the cycle index (no commit/cost).")
     p.add_argument("--label", default=None,
@@ -314,7 +318,7 @@ def main() -> int:
     cap_text = " | ".join(cap_lines) if cap_lines else "no caps"
 
     start_msg = (
-        f"orchestrator: session START — {label}\n"
+        f"chain-driver: session START — {label}\n"
         f"chain: {args.chain} {loop_desc}\n"
         f"cwd: {cwd}\n"
         f"caps: {cap_text}\n"
@@ -349,7 +353,7 @@ def main() -> int:
         if log_dir is None:
             iters_finalized = n
             telegram.send(
-                f"orchestrator [{label}]: iteration {n} closed "
+                f"chain-driver [{label}]: iteration {n} closed "
                 f"(no log dir; cost/commit unavailable)",
                 label="iter-close-nolog",
             )
@@ -364,7 +368,7 @@ def main() -> int:
         if iter_manifest is None:
             iters_finalized = n
             telegram.send(
-                f"orchestrator [{label}]: iteration {n} closed but MANIFEST.json "
+                f"chain-driver [{label}]: iteration {n} closed but MANIFEST.json "
                 f"not found at {iter_manifest_path}",
                 label="iter-close-missing",
             )
@@ -386,7 +390,7 @@ def main() -> int:
         pause_note = f" | {len(rl_pauses)} rate-limit pause(s)" if rl_pauses else ""
 
         msg = (
-            f"orchestrator [{label}]: iter {n} CLOSE\n"
+            f"chain-driver [{label}]: iter {n} CLOSE\n"
             f"commit: {commit_line}\n"
             f"cost: ${cost:.4f} (cumulative ${cumulative_cost_usd:.4f})\n"
             f"verdict: {verdict}{pause_note}\n"
@@ -414,7 +418,7 @@ def main() -> int:
 
             if halt_requested:
                 telegram.send(
-                    f"orchestrator [{label}]: HALT requested — {halt_reason}\n"
+                    f"chain-driver [{label}]: HALT requested — {halt_reason}\n"
                     f"sending SIGINT to chain runner (will exit at next "
                     f"between-iter boundary or end of current skill).",
                     label="halt-request",
@@ -455,7 +459,7 @@ def main() -> int:
                     "started_at": _utc_iso(),
                 }
                 telegram.send(
-                    f"orchestrator [{label}]: RATE-LIMIT pause\n"
+                    f"chain-driver [{label}]: RATE-LIMIT pause\n"
                     f"type: {rtype} | skill: /{skill}\n"
                     f"sleeping {secs}s until {wake_iso}\n"
                     f"iter: {last_iter_seen} | at: {_utc_iso()}",
@@ -470,7 +474,7 @@ def main() -> int:
                 am = RATE_LIMIT_ABORT_RE.search(stripped)
                 if am:
                     telegram.send(
-                        f"orchestrator [{label}]: RATE-LIMIT abort\n"
+                        f"chain-driver [{label}]: RATE-LIMIT abort\n"
                         f"reason: {am.group(2)}\n"
                         f"detail: {stripped[:300]}",
                         label="rate-limit-abort",
@@ -486,7 +490,7 @@ def main() -> int:
             # carries the pause count at iteration boundary.
             if pause_active and ">>" in stripped and "session" in stripped:
                 resume_msg = (
-                    f"orchestrator [{label}]: rate-limit RESUME\n"
+                    f"chain-driver [{label}]: rate-limit RESUME\n"
                     f"skill resumed: /{pause_active.get('skill')}\n"
                     f"at: {_utc_iso()}"
                 )
@@ -494,8 +498,8 @@ def main() -> int:
                 pause_active = None
                 continue
     except KeyboardInterrupt:
-        # User Ctrl-C on the orchestrator — propagate cleanly to the child.
-        halt_reason = halt_reason or "orchestrator received SIGINT"
+        # User Ctrl-C on the chain driver - propagate cleanly to the child.
+        halt_reason = halt_reason or "chain driver received SIGINT"
         try:
             proc.send_signal(signal.SIGINT)
         except ProcessLookupError:
@@ -519,7 +523,7 @@ def main() -> int:
         completed = iters_finalized
 
     final_lines = [
-        f"orchestrator: session END — {label}",
+        f"chain-driver: session END - {label}",
         f"exit_code: {rc}{' (HALT: ' + halt_reason + ')' if halt_reason else ''}",
         f"iterations completed: {completed}",
         f"cumulative cost: ${cumulative_cost_usd:.4f}",

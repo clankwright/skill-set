@@ -1,7 +1,7 @@
 ---
 name: sst-email-control-loop
 description: |
-  Long-running pattern for letting a user steer a multi-cycle agent process via email. Each invocation checks the user-control mailbox for new commands, parses them, applies state changes (pause/resume, change frequency, narrow focus, ad-hoc feedback), and sends a concise progress report to the user. Designed to be called once per cycle of an outer loop (e.g. by sst-agent-orchestrator or a chained skill); each invocation is self-contained.
+  Long-running pattern for letting a user steer a multi-cycle agent process via email. Each invocation checks the user-control mailbox for new commands, parses them, applies state changes (pause/resume, change frequency, narrow focus, ad-hoc feedback), and sends a concise progress report to the user. Designed to be called once per cycle of an outer loop (e.g. by sst-skill-router or a chained skill); each invocation is self-contained.
 user-invocable: true
 version: 1.0.0
 argument-hint: [path to current cycle state file]
