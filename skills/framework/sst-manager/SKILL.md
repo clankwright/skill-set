@@ -2,7 +2,7 @@
 name: sst-manager
 description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user, and writes a short guiding-principles preamble to ~/.claude/state/manager-guidance.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Manager
@@ -186,3 +186,8 @@ Stdout: a one-line summary (`manager: 2 watched projects, 1 escalation, sent dig
 - **No `claude -p` / harness invocation.** The manager runs INSIDE a single skill invocation (one `claude -p`), which the cron / `/loop` triggers. It does not spawn more.
 - **Telegram messages capped at 4000 chars.** Truncate with `... [truncated; run /status for full digest]` if needed; the full digest is always in `manager-digests/<utc>.txt`.
 - **Never write a token, preimage, or chat ID into the digest body.** The CHAT_ID allowlist is enforced by the bot, not by message content.
+- **Never re-notify on persistent paused-job state.** A rate-limited or otherwise paused job is reported ONCE at the pause edge (via the chain driver) and ONCE at resume. The manager's periodic digest may MENTION currently-paused jobs in the consolidated status block, but MUST NOT fire a separate Telegram body per tick for the same paused job. If a job stays paused across multiple manager ticks, treat that as steady state, not a new event.
+
+## Worker-lifecycle expectation
+
+The `bin/manager-bot.py` long-poll worker is NOT meant to run persistently in this framework. Per the Phase 18 lifecycle policy, the chain driver (`sst-chain-driver`) starts the worker at chain-session start and stops it at chain-session end, so inbound bot commands are only collected while a chain is actually running. The manager's own invocation is independent (the cron / `/loop` trigger does not require the bot worker to be running); manager runs that fire while the worker is down simply find no new queued commands in `~/.claude/state/manager-bot-queue/` and skip §1 cleanly. If a user wants always-on inbound (uncommon), they keep the worker manually under tmux / systemd; the manager doesn't care either way.

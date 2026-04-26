@@ -154,7 +154,11 @@ The other commands (`/objectives`, `/proposals`, `/promote`, `/pause`, `/resume`
 
 ### Worker management
 
-The long-poll worker (`bin/manager-bot.py`) holds the open connection to `api.telegram.org`. Three host options:
+The long-poll worker (`bin/manager-bot.py`) holds the open connection to `api.telegram.org`. Two patterns:
+
+**Chain-bound (recommended; Phase 18 in spec)**: the chain driver (`sst-chain-driver`) starts the worker at chain-session start and stops it at chain-session end. Worker only runs while there's an active chain whose state it can report on. Avoids the inbound-noise pattern where a persistent worker keeps acking queued user commands without an active chain. Until Phase 18 lands, this is operationally a manual pattern: the user starts the worker before invoking `/skill-set-chain-driver` (or whichever proprietary chain driver) and stops it after the run completes.
+
+**Always-on (legacy / always-available bot)**: the worker runs persistently under one of three hosts, surfacing inbound commands even between chain runs. Keep this if you want manager-bot commands available 24/7 (the user can `/status` at any time and the next manager tick consumes the queued command). Three host options:
 
 - **tmux** (laptop-friendly; default for `sst-setup-telegram`): one detached session per worker. Survives terminal close, not host reboot.
   ```bash
