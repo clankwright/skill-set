@@ -1,8 +1,10 @@
 ---
 name: sst-dev-cycle
-description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one amended commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
+description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.2.0
+version: 1.3.0
+model-floor: sonnet
+effort-floor: high
 ---
 
 # Autonomous TDD Cycle
@@ -70,6 +72,22 @@ Selection priority:
 Tie-break by: smallest surface area → most independent → highest user impact. If the user gave a specific request, that overrides everything above (also: append the request to "Next up" first, so the audit trail is intact).
 
 Record the pick by writing the `## In flight` line in `TODO.md` now: `- [<this-skill-name> @ <utc-iso>] <one-line description of the picked item>`. Don't commit yet; this gets committed alongside the code change at the end of the cycle.
+
+**Difficulty label & sentinel emit (model + effort routing).** After the In flight line is written, read the picked item's leading difficulty bracket. Item shape: `- [ ] [hard] <description>` in `SPEC.md` and `- [hard] <description>. Reason: ...` in `TODO.md`'s `## Next up`. Three valid values — `easy` / `medium` / `hard` — mapping to `(model, effort)` tiers `(haiku, low)` / `(sonnet, medium)` / `(opus, high)`; see `~/Dev/skill-set/templates/SPEC.md` "Difficulty labels" appendix for the full contract and per-tier guidance. If the picked item has no parseable label (this is the expected state during the contract-bump rollout window when many existing items are still unlabeled, including any user-provided override that didn't carry a tag), print exactly one line on stdout:
+
+```
+[bad-label] item missing difficulty; defaulting to medium
+```
+
+and treat the tier as `medium`. Then print exactly one line on stdout BEFORE the first §2 tool call:
+
+```
+[picked-difficulty: <tier>]
+```
+
+The chain runner captures this sentinel as the authoritative tier for any skill that runs after this one (review, supervisor, etc.); the runner resolves `effective_model = max(<tier-model>, skill.model_floor)` and `effective_effort = max(<tier-effort>, skill.effort_floor)` independently per axis, so a skill's floor wins on either axis when it is stricter than the item's tier.
+
+Do NOT downgrade `[hard]` to `[easy]` to fit a quota; if the budget feels tight, queue a follow-up `Next up` entry asking the user to confirm the route AND ship the picked item at the labeled tier (or skip this cycle if the user-confirmation is needed first). Do NOT upgrade `[easy]` to `[hard]` either; the labels are the queue author's contract with the runner. The graceful-degradation `[bad-label]` warn becomes a hard exit in a future framework cycle once the migration backfill is complete; treat unlabeled items as a queue-hygiene gap to fix opportunistically (label them in `## Next up` when you touch them for any other reason).
 
 ## 2. Write failing tests
 

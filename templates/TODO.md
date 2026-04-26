@@ -26,6 +26,13 @@
 <!--
   One line per queued item. The next cycle picks the top item unless the spec says otherwise.
   Format:
-  - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
-  Order: blockers/highest-impact first.
+  - [<difficulty>] <one-line description>. Reason: <spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
+  Difficulty (model + effort routing) is one of: easy / medium / hard.
+    [easy]   = Haiku tier + low effort. Mechanical, well-bounded.
+    [medium] = Sonnet tier + medium effort. Substantial reasoning, multi-step, structured.
+    [hard]   = Opus tier + high effort. Novel design, cross-file, architectural decisions.
+  The chain runner pre-parses the top entry's label and routes the iter's skills via
+  `effective = max(item_tier, skill_floor)` per axis. See SPEC.md "Difficulty labels"
+  appendix for the full contract.
+  Order: blockers/highest-impact first (label is independent of priority).
 -->

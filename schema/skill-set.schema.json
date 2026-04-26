@@ -34,6 +34,16 @@
     "transferable-version": {
       "type": "string",
       "description": "PROPRIETARY skills only: npm-style version range pinning the transferable counterpart (e.g. '>=1.0.0', '^1.2.0', '~1.0.5')."
+    },
+    "model-floor": {
+      "type": "string",
+      "enum": ["opus", "sonnet", "haiku"],
+      "description": "Phase 19 model-tier routing: lowest model tier this skill is ever allowed to run on, regardless of item difficulty. Resolved at iter-start as `effective_model = max(item.model_tier, skill.model_floor)` over the order {haiku < sonnet < opus}. Optional; defaults to 'opus' when absent. Framework-level skills (sst-supervisor, sst-sanitize-transferable) pin 'opus'; review-class skills typically 'sonnet'; mechanical / well-bounded skills 'haiku'."
+    },
+    "effort-floor": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "xhigh", "max"],
+      "description": "Phase 19 effort-tier routing: lowest reasoning-effort tier this skill is ever allowed to run on, regardless of item difficulty. Resolved at iter-start as `effective_effort = max(item.effort_tier, skill.effort_floor)` over the order {low < medium < high < xhigh < max}. Optional; defaults to 'high' when absent (matches the API-standard default; Opus 4.7's CLI implicit 'xhigh' is downshifted by the runner's pinned `--effort high`). Framework-level skills pin 'xhigh'; review-class 'high'; mechanical 'medium' (recorded for forward-compat with future Haiku tiers that support effort)."
     }
   },
   "allOf": [
