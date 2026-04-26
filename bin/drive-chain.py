@@ -53,6 +53,7 @@ skill rename.
 
 import argparse
 import datetime as _dt
+import fcntl
 import json
 import os
 import re
@@ -66,6 +67,17 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_CHAIN = REPO_ROOT / "bin" / "skill-chain.py"
 NOTIFY_TELEGRAM = REPO_ROOT / "bin" / "notify-telegram.sh"
+MANAGER_BOT = REPO_ROOT / "bin" / "manager-bot.py"
+
+# Phase 18 chain-bound worker lifecycle paths.
+WORKER_STATE_DIR = Path.home() / ".claude" / "state"
+WORKER_PID_FILE = WORKER_STATE_DIR / "manager-bot.pid"
+WORKER_LOCK_FILE = WORKER_STATE_DIR / "manager-bot.pid.lock"
+
+# Legacy default tmux session name from README "Worker management" (always-on
+# pattern). Probed alongside the persona-derived name so an externally-managed
+# legacy worker is recognized as pre-existing and left untouched.
+LEGACY_WORKER_TMUX_NAME = "manager-bot"
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -211,6 +223,166 @@ def _verdict_outcome(verdict_path: Path) -> str:
     return "clean"
 
 
+def _persona_from_env_file(env_path: Path | None) -> str | None:
+    """Derive the persona from a `<persona>-telegram.env` path.
+
+    Convention from CLAUDE.md and sst-setup-telegram: the env file lives at
+    `~/.config/<persona>-telegram.env`. The persona is also the tmux session
+    suffix (`<persona>-bot`) the chain-bound worker runs under. Returns None
+    when the path is missing or doesn't follow the convention; the caller
+    then skips worker management rather than guessing a name.
+    """
+    if env_path is None:
+        return None
+    name = env_path.name
+    suffix = "-telegram.env"
+    if not name.endswith(suffix):
+        return None
+    persona = name[: -len(suffix)]
+    return persona or None
+
+
+def _tmux_session_exists(name: str) -> bool:
+    try:
+        r = subprocess.run(
+            ["tmux", "has-session", "-t", name],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0
+
+
+def _read_live_pid(pid_file: Path) -> int | None:
+    """Read pid_file; return the PID iff the process is alive. Stale files
+    (process exited but PID file remained) return None so the probe falls
+    through to a fresh start."""
+    if not pid_file.exists():
+        return None
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
+    except (ValueError, OSError):
+        return None
+    if pid <= 0:
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except PermissionError:
+        # Process exists but is owned by another user; still counts as live.
+        return pid
+    return pid
+
+
+def _probe_worker(persona_session: str) -> dict | None:
+    """Look for an existing manager-bot worker. Returns a descriptor dict
+    when found, else None. Probes (in order): the persona-suffixed tmux
+    session, the legacy `manager-bot` tmux session, and a live PID at the
+    well-known PID file.
+    """
+    for name in (persona_session, LEGACY_WORKER_TMUX_NAME):
+        if _tmux_session_exists(name):
+            return {"kind": "tmux", "name": name, "ours": False}
+    pid = _read_live_pid(WORKER_PID_FILE)
+    if pid is not None:
+        return {"kind": "pid", "pid": pid, "ours": False}
+    return None
+
+
+def _start_worker(*, persona: str, env_file: Path) -> dict | None:
+    """Start a detached tmux session running bin/manager-bot.py with
+    TELEGRAM_ENV_FILE pointing at env_file. Holds an exclusive flock on
+    WORKER_LOCK_FILE during the start so two simultaneous chain drivers
+    serialize. Re-probes inside the lock to handle the TOCTOU window;
+    returns None if another driver won the race or tmux is unavailable.
+    """
+    if not MANAGER_BOT.exists():
+        return None
+    WORKER_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    WORKER_LOCK_FILE.touch(exist_ok=True)
+
+    session = f"{persona}-bot"
+    shell_cmd = (
+        f"TELEGRAM_ENV_FILE={shlex.quote(str(env_file))} "
+        f"{shlex.quote(sys.executable)} {shlex.quote(str(MANAGER_BOT))}"
+    )
+
+    try:
+        lock_fd = os.open(str(WORKER_LOCK_FILE), os.O_RDWR)
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # Another chain driver is mid-start; assume it will succeed and
+            # let the caller treat the resulting worker as externally-managed
+            # (we won't kill it on session-end since worker_started_by_us
+            # stays False).
+            return None
+
+        if _probe_worker(session) is not None:
+            return None
+
+        try:
+            r = subprocess.run(
+                ["tmux", "new-session", "-d", "-s", session, shell_cmd],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        if r.returncode != 0:
+            return None
+
+        pid = -1
+        try:
+            pinfo = subprocess.run(
+                ["tmux", "list-panes", "-t", session, "-F", "#{pane_pid}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            line = pinfo.stdout.strip().splitlines()[0] if pinfo.stdout.strip() else ""
+            if line:
+                pid = int(line)
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            pass
+
+        if pid > 0:
+            try:
+                WORKER_PID_FILE.write_text(f"{pid}\n", encoding="utf-8")
+            except OSError:
+                pass
+
+        return {"kind": "tmux", "name": session, "pid": pid, "ours": True}
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(lock_fd)
+
+
+def _stop_worker(descriptor: dict) -> None:
+    """Stop a worker started by this chain driver. Idempotent: safe to call
+    even if the tmux session has already exited. Removes the PID file when
+    we wrote it."""
+    if descriptor.get("kind") == "tmux":
+        name = descriptor.get("name")
+        if name:
+            try:
+                subprocess.run(
+                    ["tmux", "kill-session", "-t", name],
+                    capture_output=True, text=True, timeout=5,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+    if WORKER_PID_FILE.exists():
+        try:
+            WORKER_PID_FILE.unlink()
+        except OSError:
+            pass
+
+
 def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     p = argparse.ArgumentParser(
         prog="drive-chain.py",
@@ -297,6 +469,53 @@ def main() -> int:
 
     telegram = TelegramSink(enabled=not args.no_telegram, env=tg_env)
     label = args.label or args.chain
+
+    # Phase 18: chain-bound worker lifecycle. Start the manager-bot worker iff
+    # Telegram is enabled, an env file was provided (so we have a chat-id to
+    # ack), and no existing worker is running. Pre-existing workers
+    # (persona-suffixed, legacy, or PID-file-tracked) are left untouched and
+    # `worker_started_by_us` stays False so session-end cleanup is a no-op.
+    worker_started_by_us = False
+    worker_descriptor: dict | None = None
+    if not args.no_telegram and args.telegram_env is not None:
+        persona = _persona_from_env_file(args.telegram_env)
+        if persona:
+            session = f"{persona}-bot"
+            existing = _probe_worker(session)
+            if existing is None:
+                worker_descriptor = _start_worker(
+                    persona=persona, env_file=args.telegram_env.resolve(),
+                )
+                if worker_descriptor is not None:
+                    worker_started_by_us = True
+                    print(
+                        f"[chain-driver] worker started: tmux session "
+                        f"'{worker_descriptor.get('name')}' "
+                        f"(pid {worker_descriptor.get('pid', '?')})",
+                        file=sys.stderr, flush=True,
+                    )
+                else:
+                    print(
+                        "[chain-driver] worker start skipped (raced with "
+                        "another driver, tmux unavailable, or manager-bot.py "
+                        "not found); chain will run without an inbound worker.",
+                        file=sys.stderr, flush=True,
+                    )
+            else:
+                print(
+                    f"[chain-driver] worker already running "
+                    f"({existing.get('kind')}: "
+                    f"{existing.get('name') or existing.get('pid')}); "
+                    f"leaving externally-managed worker untouched.",
+                    file=sys.stderr, flush=True,
+                )
+        else:
+            print(
+                f"[chain-driver] --telegram-env path "
+                f"'{args.telegram_env}' does not match the "
+                f"<persona>-telegram.env convention; skipping worker management.",
+                file=sys.stderr, flush=True,
+            )
 
     # Provisional `looping` from the CLI override; the chain runner may still
     # resolve loop_count != 1 from the chain YAML's `loop:` field even when
@@ -513,6 +732,16 @@ def main() -> int:
     # come).
     if last_iter_seen > iters_finalized:
         _finalize_iteration(last_iter_seen)
+
+    # Phase 18: stop the worker iff we started it. Externally-managed workers
+    # (probe found one at session-start) are left running.
+    if worker_started_by_us and worker_descriptor is not None:
+        _stop_worker(worker_descriptor)
+        print(
+            f"[chain-driver] worker stopped: tmux session "
+            f"'{worker_descriptor.get('name')}'",
+            file=sys.stderr, flush=True,
+        )
 
     # Read top-level manifest for the session-end summary.
     top_manifest_path = log_dir / "MANIFEST.json" if log_dir else None
