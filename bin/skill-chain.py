@@ -154,6 +154,29 @@ RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_
 NO_WORK_SENTINEL_RE = re.compile(r"^\s*\[no-work\](?:\s+(.*\S))?\s*$", re.MULTILINE)
 
 
+def _no_work_bail_should_fire(
+    record: dict,
+    sha_before: str | None,
+    sha_after: str | None,
+) -> bool:
+    """Return True iff the skill's `[no-work]` sentinel should abort the loop.
+
+    A commit landing during the skill (sha_before != sha_after, both known)
+    means real work shipped: the sentinel was a false-positive (e.g. the dev
+    skill quoting its own bail prose mid-reasoning, or a code block with an
+    example sentinel line). When git SHAs are unavailable (non-git harness or
+    `git rev-parse` failure on either side), trust the sentinel: the dev
+    skill is the authority on its own steady-state, and gating bails on a
+    SHA-comparison we can't perform would silently break the contract on
+    consumers that don't run under git.
+    """
+    if not record.get("no_work_bail"):
+        return False
+    if sha_before is not None and sha_after is not None and sha_before != sha_after:
+        return False
+    return True
+
+
 def _parse_reset_time(value: Any) -> float | None:
     """Parse a rate-limit reset time into epoch seconds. Returns None on failure.
 
@@ -1017,6 +1040,7 @@ def run_iteration(
 
     rc = 0
     for i, skill in enumerate(skills_to_run):
+        sha_before_skill = _git_sha(cwd)
         skill_rc, record = run_skill_with_retry(
             harness,
             skill,
@@ -1046,8 +1070,14 @@ def run_iteration(
         # this iteration (review, supervisor) since there's no commit for them
         # to work against, and let main() abort the loop. Recorded on the iter
         # manifest so a chain driver / supervisor / reader can distinguish a
-        # bail from a clean run with real work.
-        if record.get("no_work_bail"):
+        # bail from a clean run with real work. Phase 18 review follow-up:
+        # if the skill ALSO committed (sha changed), the sentinel was a false
+        # positive (e.g. dev skill quoting its own bail prose mid-reasoning,
+        # then proceeding to commit real work). Suppress in that case so
+        # review + supervisor still run on the real commit and the loop
+        # continues.
+        sha_after_skill = _git_sha(cwd)
+        if _no_work_bail_should_fire(record, sha_before_skill, sha_after_skill):
             iter_manifest["no_work_bail"] = {
                 "skill": skill,
                 "reason": record["no_work_bail"],
@@ -1055,6 +1085,18 @@ def run_iteration(
             print(c(f"\n[no-work] /{skill}: {record['no_work_bail']}: "
                     f"skipping remaining skills + aborting loop", BLUE), flush=True)
             break
+        if record.get("no_work_bail"):
+            sentinel_reason = record.pop("no_work_bail")
+            record["no_work_bail_suppressed"] = {
+                "reason": "commit shipped during skill",
+                "sha_before": sha_before_skill,
+                "sha_after": sha_after_skill,
+                "sentinel_reason": sentinel_reason,
+            }
+            _snapshot_manifest()
+            print(c(f"\n[no-work] /{skill}: sentinel detected but commit shipped "
+                    f"({(sha_before_skill or '?')[:7]} -> {(sha_after_skill or '?')[:7]}); "
+                    f"treating as false-positive, continuing", DIM), flush=True)
 
     iter_manifest["finished_at"] = _utc_iso()
     iter_manifest["git_sha_after"] = _git_sha(cwd)
