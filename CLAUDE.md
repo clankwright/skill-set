@@ -38,3 +38,13 @@ Any change that promotes a proprietary skill into a transferable one (or drafts 
 ## Don't fork the contract
 
 If you find yourself wanting to add a side-channel (a non-SPEC plan doc, a second TODO section, a bespoke log format), stop. The point of the framework is one contract across all projects. Change the contract in `docs/SPEC.md` + `templates/` first, then update every consuming surface.
+
+## Telegram bot
+
+User-facing setup, daily commands, and worker management live in `README.md` → "Telegram bot". When you touch this surface in code, honor these constraints:
+
+- **Don't read `~/.config/*-telegram.env`.** Token is secret; the same rule the global `CLAUDE.md` applies to `.env` files under `~/Dev/**` extends here. If you need a value, ask the user to paste it.
+- **Outbound: source the env file in a subshell, then pipe to `bin/notify-telegram.sh`.** That helper expects `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` in the environment; it does NOT auto-source `TELEGRAM_ENV_FILE`.
+- **The worker is a single `getUpdates` consumer.** Stop the tmux session before any inline `getUpdates` call, or your debug poll will steal updates from the worker.
+- **Inbound state is queue files** under `~/.claude/state/manager-bot-queue/`. The manager skill drains them on its next run. Don't introduce a side-channel; the queue dir is the contract.
+- **Env-file path is `~/.config/<persona>-telegram.env`**, where `<persona>` matches the proprietary chain-driver / manager skill name. New proprietary skills must match the convention so `bin/drive-chain.py --telegram-env` resolves without an explicit override.

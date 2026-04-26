@@ -85,6 +85,77 @@ Default is `proprietary`: the supervisor's lessons land immediately on proprieta
 
 When the active model run hits the rolling 5h Anthropic quota (or weekly / extra usage cap), `on-rate-limit: pause` (default) makes the runner sleep until the reset timestamp + jitter and re-invoke the killed skill from scratch. Each retry archives the prior attempt's `.txt`/`.jsonl` to `<stem>.retry-N.{ext}` so the audit trail is preserved. `pause-with-cap` falls back to `fail` when a single computed pause would exceed `max-rate-limit-pause-seconds`. `fail` (legacy) treats a rate-limit hit like any other non-zero exit. `max-pauses-per-session` aborts the chain when the same skill needs more than N pauses in one invocation, on the assumption that repeated pauses signal a quota-burning loop, not a genuine quota crossing.
 
+## Telegram bot
+
+The framework ships a small Telegram bot (`bin/manager-bot.py` + `bin/notify-telegram.sh`) so two long-running loops can talk to you directly:
+
+- **`sst-chain-driver`** fires Telegram bodies at session start, every iteration boundary (commit + per-iter spend + cumulative), every rate-limit pause / resume, every halt request, and session end. Lets you walk away from a multi-hour `--loop N` run.
+- **`sst-manager`** drains inbound slash-commands (`/status`, `/objectives`, `/proposals`, `/promote <project> <skill>`, `/pause`, `/resume`) into a queue at `~/.claude/state/manager-bot-queue/`, which the next manager run picks up.
+
+### Setup
+
+The user-invocable skill `sst-setup-telegram` provisions a bot end-to-end. Invoke it from any project:
+
+```
+/sst-setup-telegram
+```
+
+It walks you through the BotFather steps that must happen in your Telegram app (create the bot, send the first message), then automates everything else: `getMe` token verification, chat-id discovery via `getUpdates`, env-file write with mode 600, outbound + inbound round-trip tests, optional service-unit install, and `setMyCommands` registration.
+
+Env-file naming convention: `~/.config/<persona>-telegram.env`, where `<persona>` matches the proprietary chain-driver / manager skill name (e.g. `~/.config/skill-set-telegram.env` for `skill-set-chain-driver`, `~/.config/sdrai-telegram.env` for an `sdrai-manager`). Each file holds two lines:
+
+```
+TELEGRAM_BOT_TOKEN=<from-BotFather>
+TELEGRAM_CHAT_ID=<numeric-chat-id>
+```
+
+Mode 600, never committed. Token revocation: BotFather → `/revoke` → pick the bot → paste the new token into the env file.
+
+### Daily use
+
+Outbound (any script can fire a Telegram body):
+
+```bash
+( set -a; . ~/.config/skill-set-telegram.env; set +a; \
+  echo "ship report: 3/3 iter clean" | bash bin/notify-telegram.sh )
+```
+
+`notify-telegram.sh` reads stdin, truncates to 4000 chars, POSTs to `sendMessage`, and exits non-zero if Telegram does not ack. `TELEGRAM_PARSE_MODE=Markdown` (default) lets you bold / link / code-format the body.
+
+Inbound (you talk to the bot in Telegram):
+
+```
+/help    list commands
+/ping    liveness check (worker replies "pong")
+/status  paste back the most recent manager digest
+```
+
+The other commands (`/objectives`, `/proposals`, `/promote`, `/pause`, `/resume`) write a queue file to `~/.claude/state/manager-bot-queue/`; the next `<persona>-manager` invocation drains the queue.
+
+### Worker management
+
+The long-poll worker (`bin/manager-bot.py`) holds the open connection to `api.telegram.org`. Three host options:
+
+- **tmux** (laptop-friendly; default for `sst-setup-telegram`): one detached session per worker. Survives terminal close, not host reboot.
+  ```bash
+  # Start:
+  tmux new-session -d -s manager-bot \
+      "TELEGRAM_ENV_FILE=$HOME/.config/skill-set-telegram.env /usr/bin/python3 $PWD/bin/manager-bot.py 2>&1"
+  # Watch:
+  tmux attach -t manager-bot          # Ctrl-b d to detach
+  # Restart (kill + relaunch):
+  tmux kill-session -t manager-bot
+  tmux new-session -d -s manager-bot "..."   # same command as above
+  ```
+- **systemd user-unit** (auto-restart, survives host reboot when lingering is enabled): `bin/manager-bot.service` is shipped as a template; edit the four `<...>` placeholders, drop it at `~/.config/systemd/user/manager-bot.service`, then `systemctl --user daemon-reload && systemctl --user enable --now manager-bot.service && loginctl enable-linger <user>`.
+- **rc.d** (FreeBSD and similar): `bin/manager-bot.rc.d` is the template. Copy to `/usr/local/etc/rc.d/manager-bot`, `chmod 755`, add `manager-bot_enable="YES"` to `/etc/rc.conf`, then `sudo service manager-bot start`.
+
+### Caveats
+
+- **Single `getUpdates` consumer.** Telegram allows only one process polling `getUpdates` per bot. While the worker is running, an inline `curl .../getUpdates` for debugging will steal updates from it: stop the worker first.
+- **Sleep is fine; hibernate / `wsl --shutdown` is not.** Host sleep just freezes the worker; on wake the long-poll is re-established and Telegram replays any queued inbound (24h server-side queue). Hibernate or full shutdown requires manual relaunch (or a systemd unit with `Restart=always`).
+- **No webhook mode.** `manager-bot.py` is long-poll only; no public hostname or TLS cert needed. Webhook would be a separate worker.
+
 ## Selecting a harness
 
 ```bash
