@@ -10,6 +10,11 @@
 #   TELEGRAM_CHAT_ID    — your numeric chat id (from @userinfobot or the bot's getUpdates)
 #
 # Optional env:
+#   TELEGRAM_ENV_FILE    — path to a .env file with TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID;
+#                          auto-sourced ONLY when TELEGRAM_BOT_TOKEN is not already exported.
+#                          Lets `TELEGRAM_ENV_FILE=<env-path> bash notify-telegram.sh` work
+#                          directly without a manual subshell pre-source. Explicit shell env
+#                          wins (auto-source is skipped if the caller already set the token).
 #   TELEGRAM_PARSE_MODE  — "Markdown" (default), "MarkdownV2", "HTML", or empty for plain.
 #
 # Behavior:
@@ -19,8 +24,16 @@
 
 set -euo pipefail
 
-: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}"
-: "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID is required}"
+if [ -n "${TELEGRAM_ENV_FILE:-}" ] && [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+    if [ ! -r "$TELEGRAM_ENV_FILE" ]; then
+        echo "notify-telegram: TELEGRAM_ENV_FILE=$TELEGRAM_ENV_FILE not readable" >&2
+        exit 1
+    fi
+    set -a; . "$TELEGRAM_ENV_FILE"; set +a
+fi
+
+: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required (or set TELEGRAM_ENV_FILE to a .env file containing it)}"
+: "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID is required (or set TELEGRAM_ENV_FILE to a .env file containing it)}"
 PARSE_MODE="${TELEGRAM_PARSE_MODE-Markdown}"
 
 text="$(cat)"
