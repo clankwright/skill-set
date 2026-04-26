@@ -1,0 +1,10 @@
+name: dev-cycle-overnight
+description: Long-running variant of dev-cycle-with-review for unattended overnight runs. Loops until failure or Ctrl-C; pair with sst-chain-driver --max-budget-usd $X / --max-cycles N as the safety net. Randomized inter-iteration delay [300, 7200] (5min-2h) keeps commit cadence human-shaped over many hours. Auto-promote is `all` so supervisor improvements (proprietary AND sanitization-cleared transferable) land within the run, letting later iterations consume them. Designed to drain `TODO.md > Next up` while you sleep.
+version: 1.0.0
+user-invocable: true
+loop: 0
+loop-delay-random: [300, 7200]
+auto-promote: all
+skills:
+  - sst-dev-cycle
+  - sst-dev-review

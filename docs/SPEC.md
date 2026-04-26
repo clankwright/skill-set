@@ -339,3 +339,19 @@ Three skills shared the "orchestrator" / "manager" naming axis and routinely got
 - [x] **Stale deployed copies cleared.** Old `~/.claude/skills/sst-orchestrator/` and `~/.claude/skills/sst-agent-orchestrator/` directories removed manually after `bin/install-skills.sh -y` (the install script intentionally does not delete target-only dirs to protect hand-managed skills, so renames require an explicit cleanup step). Harness skill registry verified to list the new names and not the old ones.
 
 - [x] **Validator clean** (24 skills + 6 chains).
+
+### Phase 16: long-running chain pattern + chain selection docs
+
+The Phase 12 / Phase 15 work shipped the chain driver mechanism (`sst-chain-driver` + `bin/drive-chain.py`) and a single multi-iter chain (`dev-cycle-with-review-looped`, loop:3). That covers the "knock out 1-3 items in one sitting" use case. Phase 16 fills in two adjacent shapes the same mechanism enables: an unattended overnight drain pattern (`loop: 0` until-failure, paired with `--max-budget-usd` as the natural stopping criterion) and the missing user-facing documentation that says which chain to use when.
+
+- [x] **`chains/dev-cycle-overnight.yaml` (new transferable).** `loop: 0`, `loop-delay-random: [300, 7200]` (5min-2h), `auto-promote: all`. Designed to be invoked through `sst-chain-driver` so the budget cap is the safety net (the chain itself loops forever; the driver halts at `--max-budget-usd` / `--max-cycles` / supervisor escalation). Same skill sequence as `dev-cycle-with-review` (`sst-dev-cycle` → `sst-dev-review`); the auto-supervisor is auto-appended per default. Auto-promote `all` matches the looped chain's choice (supervisor improvements land within the run after sanitize-clears them).
+
+- [x] **Proprietary `.claude/chains/skill-set-overnight.yaml`.** Mirrors the transferable with skill-set-* skills (`skill-set-dev` → `skill-set-dev-review` → auto-appended `skill-set-supervisor`). Lives under `.claude/chains/` (gitignored runtime state, not version-controlled here; matches the pattern for `skill-set-cycle.yaml`).
+
+- [x] **README.md "Chains shipped here" subsection.** Table mapping every transferable chain to its use case, loop count, and auto-promote mode. Followed by a "Pick the dev chain by intent" guide (one change → `dev-cycle-with-review`; 1-3 items → `dev-cycle-with-review-looped` via `sst-chain-driver`; overnight drain → `dev-cycle-overnight` via `sst-chain-driver` with budget cap). Note about proprietary `<persona>-chain-driver` skills carrying the chain + cap defaults so the user types `/<persona>-chain-driver` with no flags.
+
+- [x] **CLAUDE.md "Choosing a chain" section.** Skill-set-specific guidance pointing to `/skill-set-chain-driver` (canonical default), `/skill-set-chain-driver --chain skill-set-overnight --max-budget-usd 80` (overnight drain), and raw `bin/skill-chain.py --chain skill-set-cycle` (debug mode without driver wrap).
+
+- [x] **Proprietary `skill-set-chain-driver` SKILL.md updated.** Added the overnight invocation as a fourth common override pattern in the "Common overrides" list.
+
+- [x] **Validator clean** (24 skills + 7 chains; new transferable count is 7).

@@ -31,6 +31,16 @@ On close of every substantive change:
 - New skill definitions live in `skills/<category>/<name>/SKILL.md` and must satisfy `schema/skill-set.schema.json`.
 - If a change affects the harness abstraction, keep `bin/skill-chain.py`'s `Harness` base class the single source of truth; don't branch on harness names in the runner.
 
+## Choosing a chain (skill-set's own dev cycles)
+
+The proprietary chains under `.claude/chains/` are skill-set's own dogfooding surface. Pick by intent:
+
+- **`/skill-set-chain-driver`** (canonical default; wraps `skill-set-cycle`, loop:3, $30 budget cap) — daily multi-item run that closes 1-3 queued items per session and posts Telegram updates at every iteration boundary, rate-limit pause, and session end. This is what the user invokes most days.
+- **`/skill-set-chain-driver --chain skill-set-overnight --max-budget-usd 80`** (or higher) — unattended overnight drain. Loops until failure / budget / Ctrl-C; randomized [5min, 2h] inter-iter delay keeps commit cadence human-shaped across many hours; auto-promote `all` so the supervisor's framework improvements land within the run.
+- **`bin/skill-chain.py --chain skill-set-cycle`** (no chain-driver wrap) — debug mode, no Telegram, no budget cap. Use when iterating on chain runner behavior or when you want a single quick item without the wrapper overhead.
+
+Both proprietary chains exist locally only (`.claude/` is gitignored as Claude Code runtime state). The transferable parents are `dev-cycle-with-review-looped` and `dev-cycle-overnight` under `chains/`; consuming projects build their own `<persona>-cycle` / `<persona>-overnight` proprietary chains the same way.
+
 ## Never bypass the sanitization path
 
 Any change that promotes a proprietary skill into a transferable one (or drafts a transferable proposal) must go through `skills/framework/sst-sanitize-transferable/` and include the sanitization-checklist footer. CI rejects PRs that skip this.

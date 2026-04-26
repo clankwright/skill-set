@@ -65,9 +65,29 @@ CLI flags (`--loop`, `--loop-delay`, `--auto-promote`, `--on-rate-limit`, etc.) 
 
 ### Loop mode
 
-`loop: N` makes the chain runner repeat its full skill sequence N times. A non-supervisor failure aborts the loop; Ctrl-C cleanly breaks after the current skill finishes. Each iteration's logs land in `<run-dir>/iter_NN/` with their own `MANIFEST.json`; the top-level `MANIFEST.json` carries an `iterations: [...]` array summarizing each pass. For `loop: 1` (the default) the single-run flat layout is preserved unchanged.
+`loop: N` makes the chain runner repeat its full skill sequence N times. A non-supervisor failure aborts the loop; Ctrl-C cleanly breaks after the current skill finishes. Each iteration's logs land in `<run-dir>/iter_NN/` with their own `MANIFEST.json`; the top-level `MANIFEST.json` carries an `iterations: [...]` array summarizing each pass. For `loop: 1` (the default) the single-run flat layout is preserved unchanged. `loop: 0` means "until failure / Ctrl-C," intended for `sst-chain-driver`-wrapped overnight runs where the budget cap is the natural stopping criterion.
 
-Loop mode pairs naturally with skills that pick the next item from `TODO.md > Next up` each iteration: dev cycles, content cycles, lead-gen runs. The supervisor still runs once per iteration, so the handoff-doc contract stays intact between cycles. `chains/dev-cycle-with-review-looped.yaml` ships a 3-iteration variant of `dev-cycle-with-review` for exactly this use.
+Loop mode pairs naturally with skills that pick the next item from `TODO.md > Next up` each iteration: dev cycles, content cycles, lead-gen runs. The supervisor still runs once per iteration, so the handoff-doc contract stays intact between cycles.
+
+### Chains shipped here
+
+| Chain                            | Loop      | Auto-promote   | Use case                                                                                  |
+| :---                             | :---      | :---           | :---                                                                                      |
+| `dev-cycle-with-review`          | 1         | `proprietary`  | Single-item dev work. Conservative supervisor routing (proprietary edits land; transferable improvements wait for human promotion). |
+| `dev-cycle-with-review-looped`   | 3         | `all`          | Three-item dev batch. Aggressive routing so the supervisor's transferable improvements land within the run and later iterations consume them. |
+| `dev-cycle-overnight`            | 0         | `all`          | Unattended overnight drain of `TODO.md > Next up`. Pair with `sst-chain-driver --max-budget-usd $X` as the safety net. Randomized [5min, 2h] inter-iter delay keeps commit cadence human-shaped. |
+| `editorial-with-fact-check`      | 1         | `off`          | Run a draft through an editorial pass with citation verification. No supervisor self-modification. |
+| `multi-output-evaluation`        | 1         | `off`          | Compare N candidate outputs on a rubric and pick the best. |
+| `research-and-write`             | 1         | `off`          | Research a topic and produce a synthesized written deliverable. |
+| `research-write-promote`         | 1         | `off`          | Research → write → social-promote pipeline. |
+
+Pick the dev chain by intent:
+
+- **One specific change** → `dev-cycle-with-review` directly (`bin/skill-chain.py --chain dev-cycle-with-review`).
+- **Knock out the next 1-3 items in one sitting** → `dev-cycle-with-review-looped` via `sst-chain-driver` so you get per-iter Telegram bodies.
+- **Drain the queue overnight** → `dev-cycle-overnight` via `sst-chain-driver` with `--max-budget-usd $X` as the budget gate.
+
+A proprietary `<persona>-chain-driver` skill (e.g. `skill-set-chain-driver`) carries the chain name + cap defaults so the user types `/<persona>-chain-driver` with no flags. Override `--loop`, `--max-budget-usd`, or `--max-cycles` on the CLI for a one-off shape change.
 
 ### Auto-promote
 
