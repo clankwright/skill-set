@@ -107,6 +107,56 @@ Default is `proprietary`: the supervisor's lessons land immediately on proprieta
 
 When the active model run hits the rolling 5h Anthropic quota (or weekly / extra usage cap), `on-rate-limit: pause` (default) makes the runner sleep until the reset timestamp + jitter and re-invoke the killed skill from scratch. Each retry archives the prior attempt's `.txt`/`.jsonl` to `<stem>.retry-N.{ext}` so the audit trail is preserved. `pause-with-cap` falls back to `fail` when a single computed pause would exceed `max-rate-limit-pause-seconds`. `fail` (legacy) treats a rate-limit hit like any other non-zero exit. `max-pauses-per-session` aborts the chain when the same skill needs more than N pauses in one invocation, on the assumption that repeated pauses signal a quota-burning loop, not a genuine quota crossing.
 
+## Model-tier routing
+
+The runner picks `--model` and `--effort` per skill, per iteration, by combining two inputs: a **per-skill floor** declared in SKILL.md frontmatter, and a **per-item difficulty label** read from the dev's pick. Each axis (model, effort) resolves independently via `max()` so neither input can drop a safety-critical skill below its declared floor.
+
+**Per-skill floors** sit in SKILL.md frontmatter as two optional fields:
+
+```yaml
+model-floor: opus      # opus | sonnet | haiku  (default opus)
+effort-floor: xhigh    # low | medium | high | xhigh | max  (default high)
+```
+
+The framework's canonical floor table:
+
+| Skill class                                                                 | `model-floor` | `effort-floor` |
+| :---                                                                        | :---          | :---           |
+| `sst-supervisor`, `sst-sanitize-transferable`                               | `opus`        | `xhigh`        |
+| `sst-dev-cycle`, `sst-dev-review`, `sst-skill-router`, `sst-editorial-pass`, `sst-iterative-writer`, `sst-literary-critic` | `sonnet` | `high` |
+| `sst-translator`, `sst-fact-checker`, `sst-promote-skill-proposal`, `sst-output-selector`, `sst-llm-judge-ranker`, `sst-email-control-loop`, `sst-setup-telegram` | `haiku` | `medium` |
+
+**Per-item difficulty labels** sit on every open SPEC item and TODO Next-up entry:
+
+- `[easy]` → Haiku tier + `low` effort (mechanical, well-bounded, no judgment-bleeding-edge).
+- `[medium]` → Sonnet tier + `medium` effort (substantial reasoning, multi-step, structured).
+- `[hard]` → Opus tier + `high` effort (novel design, cross-file reasoning, architectural decisions).
+
+Format: SPEC items use `- [ ] [<difficulty>] <description>`; TODO Next-up uses `- [<difficulty>] <description>. Reason: ...`. Closed `[x]` items and `## Just shipped` entries don't carry labels (historical).
+
+**Resolution rule (per skill, per iter):**
+
+```
+effective_model  = max(item.model_tier,  skill.model_floor)   over {haiku < sonnet < opus}
+effective_effort = max(item.effort_tier, skill.effort_floor)  over {low < medium < high < xhigh < max}
+```
+
+Routing flow: the runner pre-parses the next item's difficulty BEFORE invoking the iter's first skill (the dev). The dev skill emits `[picked-difficulty: <tier>]` on stdout before its first tool call as the source of truth; if the actual pick differs from the pre-parse, the runner overrides the iter's difficulty for downstream skills (review, supervisor) only. Each skill's resolved route logs as `[route] /<skill>: difficulty=<d> floors=(<m>,<e>) -> model=<M> effort=<E>` and lands on the iter manifest's `route` sub-record for post-hoc analysis.
+
+**Worked example** — a `[medium]` item picked by `sst-dev-cycle`, reviewed by `sst-dev-review`, then supervised by `sst-supervisor`:
+
+| Skill                    | item tier         | skill floor       | resolved          |
+| :---                     | :---              | :---              | :---              |
+| `sst-dev-cycle`          | sonnet, medium    | sonnet, high      | **sonnet, high**  |
+| `sst-dev-review`         | sonnet, medium    | sonnet, high      | **sonnet, high**  |
+| `sst-supervisor`         | sonnet, medium    | opus, xhigh       | **opus, xhigh**   |
+
+The dev + review run on Sonnet+high (effort floor wins on the effort axis; model floor matches the item tier on the model axis); the supervisor still runs on Opus+xhigh because its floors win on both axes regardless of item difficulty. A `[hard]` item by the same chain would lift dev + review to Opus+high (item tier wins on both axes); an `[easy]` item by `sst-translator` would run on Haiku+low (floors match the item tier).
+
+**Throughput impact.** Combined with the dev/review tier dropping from Opus+xhigh to Sonnet+high on most items, routing review-class work to Sonnet+medium and mechanical work to Haiku+low cuts quota burn per iter to ~25-35% of an all-Opus+xhigh baseline (~3-4× more iters per Max window). Supervisor + sanitize stay on Opus+xhigh on every cycle since their floors are absolute; auto-promoted transferable rewrites are still authored at the supervisor's Opus+xhigh route.
+
+**Anti-fork rule.** Floors are declared in SKILL.md frontmatter; the runner reads them, never invents them. The `max()` resolution rule binds at both axes — there is no path that lets an item difficulty drop a skill below its floor, and no fifth resolution input that bypasses both axes. If a new skill class needs a different floor pair, add the frontmatter values; don't branch the resolver.
+
 ## Telegram bot
 
 The framework ships a small Telegram bot (`bin/manager-bot.py` + `bin/notify-telegram.sh`) so two long-running loops can talk to you directly:
