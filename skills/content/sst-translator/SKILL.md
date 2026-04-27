@@ -3,7 +3,9 @@ name: sst-translator
 description: |
   Translate text between languages while preserving meaning, tone, style, cultural nuance, technical terminology, and formatting. Returns only the translated text (no commentary). Handles plain prose, structured documents, and timestamped subtitles (preserves SRT/VTT timing strings exactly). Also supports language detection given an input sample.
 user-invocable: true
-version: 1.0.0
+version: 1.0.1
+model-floor: haiku
+effort-floor: medium
 argument-hint: [text or path | from <lang> | to <lang>]
 ---
 

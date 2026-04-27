@@ -2,7 +2,9 @@
 name: sst-fact-checker
 description: Verify a list of factual claims via web search. For each claim, runs targeted searches, visits the most relevant pages, and decides verified / corrected / unverified with cited sources. Produces a structured Fact Checking Report grouped by outcome. Designed to be called by a higher-level editorial loop OR run standalone on a list of claims a human or upstream agent supplies.
 user-invocable: true
-version: 1.0.0
+version: 1.0.1
+model-floor: haiku
+effort-floor: medium
 argument-hint: [list of claims (one per line) or path to a claims file]
 ---
 

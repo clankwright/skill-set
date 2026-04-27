@@ -3,7 +3,9 @@ name: sst-skill-router
 description: |
   Per-task router that picks which sub-skills to invoke for a complex multi-step request, sequences them, passes outputs between them, and synthesizes a final result. Discovers available skills via the harness's skill registry; chooses by description, not by hardcoded names. Always ends with an editorial pass on the synthesized output. Distinct from sst-manager (cron-based, multi-project, periodic ops loop) and from sst-chain-driver (single-session driver of one multi-iter chain run); this one runs INSIDE a single user request.
 user-invocable: true
-version: 1.1.0
+version: 1.1.1
+model-floor: sonnet
+effort-floor: high
 argument-hint: [high-level task or objective]
 ---
 

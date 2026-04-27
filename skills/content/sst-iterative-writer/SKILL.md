@@ -2,7 +2,9 @@
 name: sst-iterative-writer
 description: Draft long-form content from a prompt and iteratively improve it through internal critique cycles. Each iteration calls the sst-literary-critic skill, applies its feedback, and produces a better draft. Stops when the critic returns a "solid; minor polish only" verdict OR after a configurable max iterations (default 3). Final output is the polished draft, ready for an sst-editorial-pass or direct publication.
 user-invocable: true
-version: 1.0.0
+version: 1.0.1
+model-floor: sonnet
+effort-floor: high
 argument-hint: [writing brief / prompt]
 ---
 

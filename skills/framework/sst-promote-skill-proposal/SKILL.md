@@ -2,7 +2,9 @@
 name: sst-promote-skill-proposal
 description: User-gated promotion of a supervisor-written SKILL.patch.md sidecar into a real SKILL.md. Scans the current project and harness skills dir for pending sidecars, lets the user pick one, shows the diff, and (on confirmation) replaces the target SKILL.md with the sidecar's content. Never auto-promotes; never crosses the proprietary→transferable boundary without re-running the leak check. Used when a chain ran with auto-promote turned off (or for any transferable skill whose auto-promote was blocked by sanitization findings).
 user-invocable: true
-version: 1.1.0
+version: 1.1.1
+model-floor: haiku
+effort-floor: medium
 ---
 
 # Promote skill proposal

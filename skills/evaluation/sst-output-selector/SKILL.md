@@ -2,7 +2,9 @@
 name: sst-output-selector
 description: Compare N candidate outputs (drafts, designs, code variants, research reports, ...) on a stated rubric and pick the best, with cited justification. The candidates already exist on disk in the project's standard output dir; this skill does not generate them. Produces a comparison table, a clear winner, and (when no candidate is clearly best) a recommendation for combining strengths.
 user-invocable: true
-version: 1.0.0
+version: 1.0.1
+model-floor: haiku
+effort-floor: medium
 argument-hint: [paths to candidate files | dir containing candidates]
 ---
 
