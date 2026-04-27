@@ -2,7 +2,7 @@
 name: sst-chain-driver
 description: Single-session driver for a multi-iteration skill-chain run. Spawns `bin/skill-chain.py --chain <name> --loop N` as a subprocess via `bin/drive-chain.py`, watches the live event stream, posts Telegram updates at session start, each iteration boundary (commit + per-iter spend + cumulative), every rate-limit pause/resume, supervisor escalation, and session end. Honors a `--max-budget-usd` halt and a `--max-cycles` halt independently of the chain's own loop count. Distinct from sst-manager (cron-based, multi-project, periodic) and from sst-skill-router (in-process planner inside one user request). The proprietary counterpart supplies the watched-chain name, Telegram chat ID, and budget defaults.
 user-invocable: true
-version: 1.2.0
+version: 1.2.1
 argument-hint: <chain-name> [--loop N] [--max-budget-usd $X] [--max-cycles N]
 ---
 
@@ -148,14 +148,12 @@ bin/drive-chain.py
 
 `--label` is the human-readable tag the helper prefixes every Telegram body with. Default is the chain name. The proprietary counterpart usually overrides it to the persona name (`<persona>` rather than `dev-cycle-with-review-looped`).
 
-## Worker lifecycle (Phase 18; in spec, not yet implemented)
+## Worker lifecycle
 
-Per framework policy, the `bin/manager-bot.py` long-poll Telegram worker only runs while a chain session is active. The chain driver SHOULD:
+Per framework policy, the `bin/manager-bot.py` long-poll Telegram worker only runs while a chain session is active. The chain driver:
 
-1. At session-start, after the pre-flight in §0 succeeds and BEFORE spawning `bin/skill-chain.py`: check whether a worker is already running for this `telegram-env` (probe by tmux session name `<persona>-bot` or by a PID file in `~/.claude/state/manager-bot.pid`). If not, start one in a detached tmux session named after the persona.
-2. At session-end, after the chain runner exits and BEFORE the final stdout summary: stop the worker IFF this session started it. If the worker was already running before the chain started (externally managed by the user), do NOT touch it.
-
-Until the implementation lands, the chain driver assumes the worker is externally managed (tmux session started by the user via `/sst-setup-telegram` or by hand). The user is responsible for stopping the worker between chain runs to avoid the inbound-noise pattern Phase 18 exists to fix.
+1. At session-start, after the pre-flight in §0 succeeds and BEFORE spawning `bin/skill-chain.py`: checks whether a worker is already running for this `telegram-env` (probe by tmux session name `<persona>-bot` or by a PID file in `~/.claude/state/manager-bot.pid`). If not, starts one in a detached tmux session named after the persona.
+2. At session-end, after the chain runner exits and BEFORE the final stdout summary: stops the worker IFF this session started it. If the worker was already running before the chain started (externally managed by the user), does NOT touch it.
 
 The manager skill (`sst-manager`) does NOT depend on the worker being live: when the worker is down, the manager's §1 inbound-command sweep finds an empty queue dir and proceeds with §2 (cross-project status) cleanly.
 
