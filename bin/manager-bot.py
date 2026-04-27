@@ -26,6 +26,7 @@ import datetime as _dt
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -66,7 +67,7 @@ if not CHAT_ID_ALLOW:
 
 API = f"https://api.telegram.org/bot{TOKEN}"
 
-KNOWN_COMMANDS = {"status", "objectives", "proposals", "promote", "pause", "resume", "ping", "help"}
+KNOWN_COMMANDS = {"status", "objectives", "proposals", "promote", "pause", "resume", "ping", "help", "feedback"}
 
 
 def _utc_iso() -> str:
@@ -116,6 +117,26 @@ def queue_task(command: str, args: list[str], from_chat_id: int) -> Path:
     return path
 
 
+def queue_feedback(body: str, from_chat_id: int) -> Path:
+    QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = _utc_filestamp()
+    path = QUEUE_DIR / f"{stamp}_feedback.json"
+    # The shared 1-second filestamp resolution would silently overwrite a
+    # second feedback submitted in the same second, dropping user input.
+    suffix = 2
+    while path.exists():
+        path = QUEUE_DIR / f"{stamp}_feedback-{suffix}.json"
+        suffix += 1
+    payload = {
+        "command": "feedback",
+        "body": body,
+        "received_at": _utc_iso(),
+        "from_chat_id": from_chat_id,
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 def latest_digest() -> str | None:
     if not DIGESTS_DIR.is_dir():
         return None
@@ -127,6 +148,21 @@ def latest_digest() -> str | None:
 
 def handle_command(text: str, chat_id: int) -> str:
     """Parse one command line and return the reply text. Side-effect: queues a task when appropriate."""
+    # Feedback captures the full message body verbatim (preserving whitespace
+    # and newlines), so split-by-whitespace would corrupt multi-line input.
+    # Match the leading `/feedback` token (optional @botname) and take
+    # everything after the first separator as the body.
+    fb_match = re.match(r"^/feedback(?:@\S+)?(?:\s+(.*))?$", text, flags=re.DOTALL)
+    if fb_match:
+        body = (fb_match.group(1) or "").strip()
+        if not body:
+            return "Usage: /feedback <message>\n(give the supervisor steering input or course corrections)"
+        path = queue_feedback(body, chat_id)
+        return (
+            f"Queued feedback ({len(body)} chars). "
+            "Next manager run will route it to the supervisor."
+        )
+
     parts = text.lstrip("/").split()
     if not parts:
         return "Empty command. Try /help."
@@ -149,6 +185,7 @@ def handle_command(text: str, chat_id: int) -> str:
             "/objectives — current objectives.md\n"
             "/proposals — list pending skill-patch proposals\n"
             "/promote <project> <skill> — queue a /promote-skill-proposal run\n"
+            "/feedback <message> — steer the supervisor (course corrections, focus, do/don't)\n"
             "/pause — manager skips its next scheduled run\n"
             "/resume — manager runs again at next schedule\n"
             "/ping — bot liveness check\n\n"

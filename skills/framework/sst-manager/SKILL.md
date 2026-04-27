@@ -1,8 +1,8 @@
 ---
 name: sst-manager
-description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user, and writes a short guiding-principles preamble to ~/.claude/state/manager-guidance.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
+description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user (including user feedback routed onward to the supervisor), and writes a short guiding-principles preamble to ~/.claude/state/manager-guidance.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.2.0
+version: 1.3.0
 ---
 
 # Manager
@@ -46,6 +46,7 @@ State files this skill reads / writes:
 | `~/.claude/state/manager-guidance.md`         | yes  | yes   |
 | `~/.claude/state/manager-paused`              | yes  | no    |
 | `~/.claude/state/manager-bot-queue/*.json`    | yes  | delete after processing |
+| `~/.claude/state/manager-feedback.md`         | yes  | yes (append newest-first; ~2KB cap) |
 | `~/.claude/state/manager-digests/<utc>.txt`   | no   | yes   |
 | `<objectives-path>`                           | yes  | yes (only `[ ]` ↔ `[x]` toggles) |
 
@@ -60,12 +61,21 @@ State files this skill reads / writes:
 
 ### 1. Process inbound bot commands first
 
-`~/.claude/state/manager-bot-queue/*.json` holds tasks the user fired from Telegram (the bot writes these but never executes anything). Each file:
+`~/.claude/state/manager-bot-queue/*.json` holds tasks the user fired from Telegram (the bot writes these but never executes anything). Two file shapes:
 
 ```json
 {
   "command": "promote" | "status" | "objectives" | "proposals" | "pause" | "resume",
   "args": ["<project-name>", "<skill-name>"],
+  "received_at": "<utc-iso>",
+  "from_chat_id": <int>
+}
+```
+
+```json
+{
+  "command": "feedback",
+  "body": "<full message text, may contain whitespace and newlines>",
   "received_at": "<utc-iso>",
   "from_chat_id": <int>
 }
@@ -78,8 +88,28 @@ Handle in received-at order:
 - `objectives` → reply with the current `objectives.md` (truncate to 3500 chars to fit Telegram).
 - `proposals` → list pending proposals across all watched projects' `.skill-runs/*/proposals/` and the master repo's `proposals/`. Format: one line per proposal with severity, source, target.
 - `promote <project> <skill>` → write `~/.claude/state/manager-bot-queue/promote-task.txt` for the next user-driven `/sst-promote-skill-proposal` invocation (this skill does NOT execute Claude itself; it just queues). Reply `queued`.
+- `feedback` → route the user's body verbatim to the supervisor via `~/.claude/state/manager-feedback.md`. See "Routing feedback to the supervisor" below. Reply confirming the body was routed onward (e.g. `Routed feedback (N chars) to the supervisor; it will read it on the next chain run.`).
 
 After processing, delete each task file. If a task fails, leave it and add a `.error` sibling with the failure reason.
+
+**Routing feedback to the supervisor.** When a `feedback` queue file is processed:
+
+1. Read or create `~/.claude/state/manager-feedback.md`. If empty, start with:
+   ```markdown
+   # User feedback to supervisor
+
+   Newest first. The supervisor reads this as authoritative steering input on every run, alongside (but distinct from) `manager-guidance.md`. Each entry is one user message routed verbatim from the bot.
+   ```
+2. Prepend (NOT append) a new entry just under the H1, in the format:
+   ```markdown
+   ## <utc-iso> from <chat-id>
+
+   <body verbatim, preserving the user's whitespace and line breaks>
+   ```
+3. Trim total file length to ~2KB by deleting the OLDEST entries (from the bottom) until the file is under threshold. Keep the leading H1 + lead paragraph; entries are bounded by the next `## ` heading.
+4. Delete the queue file last; if the prepend fails, leave the queue file in place so the next manager run retries (do not write a `.error` sibling for this category — feedback retries are cheap and avoid losing user input on a transient write failure).
+
+This is the only path the user has to inject concrete steering into the supervisor's loop without editing skill prose by hand. The manager does NOT interpret or paraphrase the body — that's the supervisor's job. The manager's only role is to (a) capture the body when it arrives, (b) trim the file when it gets too long, and (c) route. Feedback is distinct from `manager-guidance.md`: guidance is patterns the manager itself derived from observing many runs ("the last 3 cycles each spent >100k tokens on the deploy step"); feedback is direct user-to-supervisor messaging ("stop tagging skills with `[easy]` until the harness honors the floor table"). The supervisor weighs both but treats feedback as the more authoritative of the two when they conflict.
 
 ### 2. Walk watched projects
 

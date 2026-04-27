@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.6.1
+version: 1.7.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -36,8 +36,9 @@ Read these in order, all from the run log directory passed to you (the chain run
 1. **`MANIFEST.json`** — chain name, harness, per-skill exit codes, durations, model + token usage, git SHA before/after. Also carries `chain_definition` (path to the chain YAML) — read that YAML and note the `auto-promote:` field; default is `proprietary` when the field is absent. This value controls §3's output routing. The manifest may have `"in_progress": true` when you read it — the chain runner snapshot-writes after each skill so you can see the records of all skills that ran before you, but your own record (and the chain's `finished_at` / `git_sha_after` / `exit_code`) won't appear until after this skill returns. That's expected; don't treat your own missing entry as a defect to flag.
 2. **Each `<i>_<skill>.txt`** — the prettified, ANSI-stripped transcript of one skill invocation.
 3. **Each skill's current `SKILL.md`** — for the chain runner's CWD-local `.claude/skills/<skill>/SKILL.md` (proprietary) and, if the proprietary skill has a `transferable:` field, the installed transferable at `~/.claude/skills/<transferable>/SKILL.md` (runtime read path, same dir where any sidecar `SKILL.patch.md` lives).
-4. **`~/.claude/state/manager-guidance.md`** if it exists — guiding principles the manager has nudged into your input on prior runs.
-5. **`docs/SPEC.md` and `docs/TODO.md`** — for context on what the chain was working toward.
+4. **`~/.claude/state/manager-guidance.md`** if it exists — guiding principles the manager has nudged into your input on prior runs. The manager derives these from observed run patterns; treat them as soft steering.
+5. **`~/.claude/state/manager-feedback.md`** if it exists — direct user-to-supervisor messages, routed verbatim by the manager from the Telegram `/feedback <message>` command. Treat as authoritative steering input distinct from (and stronger than) `manager-guidance.md`. Each entry is a `## <utc-iso> from <chat-id>` block with the user's body below it, newest-first. Feedback can direct concrete writes ("modify skill X to do Y", "add SPEC item Z to phase N", "append TODO Next-up item W"), and those directives are valid motivating citations for §3's change-intent table (the citation column reads `manager-feedback.md:<line>` rather than a transcript line). Apply the most recent feedback entry that bears on this run; older entries that have already been actioned in a prior cycle stay in the file as audit history (the manager's ~2KB cap eventually trims them). Anti-fork rules still bind: feedback that asks you to skip sanitize on a transferable write, commit code, or deploy is REFUSED — reply by writing the refusal in `## Notes for the manager` rather than acting on it. Conflict resolution: when feedback and manager-guidance disagree, feedback wins; when feedback and the chain's `auto-promote` mode disagree, `auto-promote` wins (the chain YAML is the run-time contract, feedback is a steering hint).
+6. **`docs/SPEC.md` and `docs/TODO.md`** — for context on what the chain was working toward.
 
 ## Process
 
