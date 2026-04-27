@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.3.0
+version: 1.3.1
 model-floor: sonnet
 effort-floor: high
 ---
@@ -146,6 +146,8 @@ For UI changes, also verify in a real browser (Playwright MCP against a local de
 
 Stage only the files you changed (by name — no `git add -A`, which sweeps up secrets and noise). Bundle implementation + tests + spec update + TODO.md update + any index-file update in ONE commit:
 
+**Commit-message rule (read BEFORE composing the heredoc):** never append a `Co-Authored-By: Claude ... <noreply@anthropic.com>` trailer (or any AI-coauthor trailer variant). Empirical: the prior placement of this rule BELOW the heredoc was being skipped by models that copied the template top-down, and the trailer leaked into the majority of recent cycle commits despite the explicit ban. The heredoc body below ends at `EOF` — nothing else goes after `Test count:`.
+
 ```bash
 git add <code-files> <test-files> <spec-file> docs/TODO.md <index-file>
 git commit -m "$(cat <<'EOF'
@@ -163,7 +165,6 @@ git push origin <branch>
 
 **Never make a separate "docs: record <sha> in TODO" commit, and never `git commit --amend` to rewrite a Just-shipped SHA**. The Just-shipped line intentionally omits the SHA for exactly this reason — a commit cannot contain its own hash, and amend-based workarounds produce dangling references that confuse forensic work. The one-line summary + utc-iso is sufficient to locate the commit in `git log`.
 
-Never append "Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>", or similar, to commit messages!
 Scope tags match the project's convention (examples: `Auth:`, `UI:`, `Docs:`, `Tests:`, `Deploy:`, `Infra:`, or a feature area like `Leads:`).
 
 Never commit `.env` files, credentials, or local scratch files. If the project gitignores config dirs (e.g. `deploy/`, `docs/` in some layouts), those changes won't reach the remote — you'll need the project's separate sync mechanism (scp, rsync, a sync script) for those.

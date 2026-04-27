@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.3.0
+version: 1.3.1
 ---
 
 # Autonomous Dev-Cycle Review
@@ -200,6 +200,8 @@ Order: blockers first, then should-fix, then any pre-existing entries (push pre-
 
 ## 5. Commit + push (only if step 4 actually added items)
 
+**Commit-message rule (read BEFORE composing the heredoc):** never append a `Co-Authored-By: Claude ... <noreply@anthropic.com>` trailer (or any AI-coauthor trailer variant). The heredoc body below ends at `EOF` — nothing else goes after the closing paragraph. Empirical placement-below-heredoc was being skipped by models reading top-down, so the rule lives ABOVE the template now.
+
 ```bash
 git add <spec-file> docs/TODO.md  # plus any status-index file you corrected
 git commit -m "$(cat <<'EOF'
@@ -214,7 +216,6 @@ EOF
 git push origin <branch>
 ```
 
-Never append "Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>", or similar, to commit messages!
 **Never deploy.** This skill does not touch production. The follow-ups are spec-only; actual fixes go through `/sst-dev-cycle`.
 
 ## 6. Report to user
