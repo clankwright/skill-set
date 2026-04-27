@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.2.1
+version: 1.3.0
 ---
 
 # Autonomous Dev-Cycle Review
@@ -164,24 +164,35 @@ A clean report with no findings is a success signal, not a failure to find work.
 
 ```markdown
 **Review follow-ups (open — schedule as the next `/sst-dev-cycle` cycle):**
-- [ ] [blocker] `<file>:<line>` — <one-sentence description>. Proposed fix: <short hint>.
-- [ ] [should-fix] `<file>:<function>` — <one-sentence description>. Proposed fix: <short hint>.
+- [ ] [<difficulty>] [blocker] `<file>:<line>` — <one-sentence description>. Proposed fix: <short hint>.
+- [ ] [<difficulty>] [should-fix] `<file>:<function>` — <one-sentence description>. Proposed fix: <short hint>.
 ```
 
 Rules:
 
-- Only `[blocker]` and `[should-fix]` items go here. No nice-to-have / nitpick / cosmetic items — if you can't justify why it causes a real bug, security risk, or major confusion, don't file it.
+- Every entry MUST carry a difficulty label as the leading bracket immediately after the checkbox, with the severity bracket second. Difficulty is one of `[easy]` / `[medium]` / `[hard]` per the SPEC.md "Difficulty labels" appendix; the project's chain runner pre-parses it to route the next cycle's skills (`effective = max(item_tier, skill_floor)` per axis). Closed `[x]` items don't carry the label (historical).
+- Only `[blocker]` and `[should-fix]` severities go here. No nice-to-have / nitpick / cosmetic items — if you can't justify why it causes a real bug, security risk, or major confusion, don't file it.
 - One checkbox per finding; do not bundle. A later `/sst-dev-cycle` will pick the top unchecked item (or a bundled chunk, if it uses a chunk-sizing rule).
-- Order by severity (blocker → should-fix), then by file/line.
+- Order by severity (blocker → should-fix), then by file/line. Difficulty is independent of severity and does not affect ordering.
 - If a finding also affects another sub-section or module, put the follow-up under the **most recent** sub-section (the one this review targets), not the older one. The idea is to work chronologically through the spec.
 - Do not move any existing `[x]` box to `[ ]`. If a previously-claimed item turns out to be incomplete, that is a **new** follow-up line, not a regression edit.
+
+**Assigning difficulty from the finding's nature.** Difficulty answers "how much reasoning does the FIX cost?", not "how serious is the BUG?" — severity already covers seriousness. Default mapping:
+
+- `[easy]` — prose nit in a SKILL.md or doc, a single-line typo / stale number, hoisting a one-liner inside a heredoc, quoting a YAML scalar, applying a known-good migration to N call-sites, tagging frontmatter with a value the spec already names.
+- `[medium]` — a bounded code change touching one module + its tests, a localized helper rewrite, softening one halt-condition to note-and-proceed with a narrow exception, a contract addition the spec has already designed (no new schema decisions).
+- `[hard]` — cross-file refactor, a new schema field with runner support, a concurrency / lifecycle invariant (refcount, flock, signal handling), anything that requires a fresh design judgment or interacts with a security/data-integrity surface.
+
+If the finding's fix straddles two tiers, pick the higher one — under-routing burns the cycle on a too-small model; over-routing only spends quota. A `[blocker]` that's mechanically a one-liner (e.g. a hoist) is still `[easy]`; a `[should-fix]` that needs a refcount is still `[hard]`.
 
 **TODO.md.** Open `docs/TODO.md`. For each finding you just filed in the spec, append a corresponding line to `## Next up`:
 
 ```markdown
-- [blocker] <one-line restating the spec entry, with file:line> — review of <commit-sha-short>
-- [should-fix] <one-line restating the spec entry, with file:line> — review of <commit-sha-short>
+- [<difficulty>] [blocker] <one-line restating the spec entry, with file:line> — review of <commit-sha-short>
+- [<difficulty>] [should-fix] <one-line restating the spec entry, with file:line> — review of <commit-sha-short>
 ```
+
+Use the same `<difficulty>` token you assigned in the spec entry; the two surfaces stay in lockstep.
 
 **Same-root tagging.** If two or more findings share a single root cause (the same constant needs propagating to multiple surfaces; the same missing guard appears across sibling modules; the same discovery surface is stale in both a manifest AND a README), append `(group with <root-keyword>)` to each TODO.md line, where `<root-keyword>` is a short token that names the shared cause. Pick a token that's specific enough to disambiguate from unrelated work (e.g. `(group with input-bound-propagation)`, `(group with manifest-readme-sync)`, `(group with auth-helper-migration)`) and reuse the exact same token across every entry in the group — `sst-dev-cycle` §1's same-root bundling rule keys on string-equality of the tag. Tag only when the bundling is real: disjoint files, cohesive change, plausibly under ~300 LoC combined. Spec entries do NOT get the tag — the spec is a longer-lived record and bundling is a TODO-level scheduling concern; the spec's filing rule of "one checkbox per finding, do not bundle" is unchanged. If only one finding is on the shared root, do not tag (a `(group with X)` of size 1 is just noise).
 
