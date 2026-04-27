@@ -2,7 +2,7 @@
 name: sst-manager
 description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user, and writes a short guiding-principles preamble to ~/.claude/state/manager-guidance.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Manager
@@ -113,21 +113,78 @@ When in doubt, don't flip. The user always wins.
 
 ### 4. Compose the digest
 
+Write for the user reading on a phone. Organize around what matters to them — what moved forward, what broke, what got fixed — not what the framework did internally.
+
+**Language rules (apply to every digest):**
+- Use role words instead of tool names: "the dev cycle" not `sst-dev-cycle`; "the reviewer" not `sst-supervisor`; "the manager" for this skill. Drop names that add no meaning to a non-technical reader.
+- Replace internal numbering (e.g. "Phase 19 #7") with what the work actually is ("the per-skill cost-routing rollout").
+- Drop framework terms: "run dir", "MANIFEST", "exit_code", "sanitize gate", "auto-promote", "anti-fork", "supervisor verdict", "sidecar". Use plain equivalents: "a recent run", "a check failed", "a proposed improvement".
+- Status in plain English: "on track" / "stuck on X" / "needs your input on Y" / "all quiet, nothing happened".
+- Timestamps in digest bodies become human-readable dates ("April 27, 2026"), not ISO strings.
+
 **Default (status digest):**
 
 ```
-manager digest — <utc-iso>
+Progress update — <Month D, YYYY>
 
-since last check (<N> watched projects):
-  project-a: 2 cycles shipped, 1 supervisor proposal pending
-    last: <sha-short> "<commit-subject>" (<utc>)
-  project-b: no new runs
+What moved forward:
+  <project-name>: <plain-English summary of what shipped, or "quiet since last check">
 
-objectives:
-  [x] <recently-flipped objective>
-  [ ] <next objective>, no progress this period
+Goals:
+  ✓ <completed objective>
+  → <active objective> — <status: on track / no movement / needs your input>
 
-pending review: <N> proposals across <M> projects (run /proposals to list)
+Suggested improvements waiting for review: <N, or "none">
+Issues: <one line, or "none">
+Fixes: <one line, or "none">
+```
+
+Three representative examples (calibrate tone against these):
+
+*Objective progress + issue + fix:*
+```
+Progress update — April 27, 2026
+
+What moved forward:
+  project-a: finished the per-skill cost-routing rollout — dev and review work now
+    use a cheaper model when the task is routine (2 changes shipped)
+  project-b: quiet since last check
+
+Goals:
+  ✓ Reduce per-cycle cost by 25% — done
+  → Add user feedback channel — no movement this period
+
+Suggested improvements waiting for review: 1
+Issues: the reviewer flagged a missed step in an older commit; a follow-up is queued
+Fixes: fixed a bug where the bot worker wasn't stopping at end of session
+```
+
+*Clean tick (nothing new):*
+```
+Progress update — April 27, 2026
+
+project-a: nothing new since last check
+project-b: nothing new since last check
+
+Goals:
+  → Reduce per-cycle cost by 25% — on track
+  → Add user feedback channel — on track
+
+Suggested improvements waiting for review: none
+No issues or fixes to report.
+```
+
+*All work done (empty queue):*
+```
+Progress update — April 27, 2026
+
+All queued work is complete — nothing in the pipeline.
+
+Goals:
+  ✓ All current goals achieved
+
+Suggested improvements waiting for review: none
+No issues or fixes to report. Reply /objectives to review or add goals.
 ```
 
 Save to `~/.claude/state/manager-digests/<utc>.txt`. Send via `bin/notify-telegram.sh` (prepend a leading newline so Telegram renders cleanly).
@@ -136,19 +193,17 @@ Save to `~/.claude/state/manager-digests/<utc>.txt`. Send via `bin/notify-telegr
 
 Trigger when ANY of:
 
-- A `supervisor_verdict.md` outcome is `escalate`.
-- More than 2 consecutive cycles in one project failed (chain `exit_code != 0`).
-- An objective bullet that was `[x]` is now `[ ]` (regression — manual user edit, but worth surfacing).
-- A `sst-sanitize-transferable` rejection happened (visible in `supervisor_verdict.md`'s "Notes for the manager").
+- A run's review determined something needs the user's attention (outcome was `escalate`).
+- More than 2 consecutive runs in one project failed to complete.
+- A completed goal was un-marked (possibly a manual edit — worth surfacing).
+- An automated quality check blocked a proposed improvement from shipping.
 
 ```
-🚨 ESCALATION — <project> <utc>
+⚠ Something needs your attention — <project-name>, <Month D, YYYY>
 
-<one paragraph: what triggered, what's affected, what action the user
-should consider. Cite the run dir and the supervisor verdict.>
-
-run: <run-dir-name>
-verdict: <run-dir>/supervisor_verdict.md
+<one paragraph in plain English: what happened, what it affects, and what
+the user should consider doing. No internal paths or jargon. The user can
+reply /status for more detail if needed.>
 ```
 
 ### 5. Update guidance for the supervisor
@@ -190,4 +245,4 @@ Stdout: a one-line summary (`manager: 2 watched projects, 1 escalation, sent dig
 
 ## Worker-lifecycle expectation
 
-The `bin/manager-bot.py` long-poll worker is NOT meant to run persistently in this framework. Per the Phase 18 lifecycle policy, the chain driver (`sst-chain-driver`) starts the worker at chain-session start and stops it at chain-session end, so inbound bot commands are only collected while a chain is actually running. The manager's own invocation is independent (the cron / `/loop` trigger does not require the bot worker to be running); manager runs that fire while the worker is down simply find no new queued commands in `~/.claude/state/manager-bot-queue/` and skip §1 cleanly. If a user wants always-on inbound (uncommon), they keep the worker manually under tmux / systemd; the manager doesn't care either way.
+The `bin/manager-bot.py` long-poll worker is NOT meant to run persistently in this framework. The chain driver (`sst-chain-driver`) starts the worker at chain-session start and stops it at chain-session end, so inbound bot commands are only collected while a chain is actually running. The manager's own invocation is independent (the cron / `/loop` trigger does not require the bot worker to be running); manager runs that fire while the worker is down simply find no new queued commands in `~/.claude/state/manager-bot-queue/` and skip §1 cleanly. If a user wants always-on inbound (uncommon), they keep the worker manually under tmux / systemd; the manager doesn't care either way.
