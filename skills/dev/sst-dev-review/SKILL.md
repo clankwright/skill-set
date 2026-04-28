@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.3.2
+version: 1.4.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -150,6 +150,41 @@ A missing prod-verify of a migration, auth path, or billing path is **blocker**.
 - Unbounded loop over user-supplied list without a cap?
 - Per-row DB query inside a loop that could be one batched query (`IN (...)`, `ANY(...)`, join)?
 - Synchronous blocking call inside an async handler that holds the event loop?
+
+### 2.9 Batch coherence
+
+*(Applies when the dev cycle used the batching protocol — the dev skill emits a `[batch-pick]` block to stdout before its first tool call.)*
+
+**Find the `[batch-pick]` block** in the dev transcript (most recent `.skill-runs/*/iter_NN/00_<dev-skill>.txt` or `.skill-runs/*/00_<dev-skill>.txt`). If no log exists, fall back to the `## Just shipped` top entries in `docs/TODO.md` as a proxy.
+
+Parse the block's stated items and compare against the actual commit:
+
+- `git show HEAD -- docs/SPEC.md | grep '^\+.*\[x\]'` — each `[x]` flip should correspond to a stated batch item (no extra flips, no missing flips).
+- `## Just shipped` additions in the diff — each stated item should have a corresponding entry.
+- `git show HEAD --stat` — files touched should be explained by the batch items; two or more items that touch disjoint files with no shared SPEC phase, concept, or mechanical pattern signal incoherent bundling.
+
+**File a `[should-fix]` tagged `[batch-coherence]`** when any of: (a) a stated item has no `[x]` flip and no Just-shipped entry; (b) the diff contains `[x]` flips absent from the stated batch; (c) batch items touch disjoint files with no discernible shared relation axis.
+
+Do **not** file for a single-item batch (trivially coherent) or when the multi-file reach is a uniform mechanical change (e.g. tagging the same frontmatter field in N SKILL.md files = one concept, one axis).
+
+### 2.10 Batch sizing
+
+*(Applies when the iter MANIFEST is available. If absent, note it in §6 and skip this axis.)*
+
+Locate the MANIFEST at `.skill-runs/<latest-run-dir>/MANIFEST.json` (flat) or `.skill-runs/<latest-run-dir>/iter_NN/MANIFEST.json` (looped run). Read: `difficulty` (set by the runner's sentinel capture) and the sum of `model_usage.input_tokens` across all skills in the `skills` array.
+
+Band edges by difficulty (input-token soft caps):
+- `[easy]` → 100–200k; undersize threshold 50k (50% of lower edge)
+- `[medium]` → 200–300k; undersize threshold 100k
+- `[hard]` → 400–500k; undersize threshold 200k
+
+Also read the `[batch-pick]` block's `window-target ~XXk` and verify it falls within the band for the stated difficulty.
+
+**File a `[should-fix]` tagged `[batch-sizing]`** when:
+- **Undersized**: actual input tokens < the undersize threshold AND the pre-commit queue (read from `git show HEAD -- docs/TODO.md | grep '^\-.*\[' | head -20`) offered ≥1 item of compatible difficulty + related concept that the dev did not batch.
+- **Oversized**: actual input tokens exceed the upper band edge, OR MANIFEST records `terminated_by == "max_turns"`, OR the diff shows no SPEC `[x]` flips despite a stated batch pick (§6+§7 of the dev cycle did not land cleanly).
+
+Include the actual token count, difficulty, and band edges in the finding text. The `[batch-sizing]` tag allows the supervisor to aggregate findings across iters and trigger window-target refinement.
 
 ## 3. Decide on output
 
