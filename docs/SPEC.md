@@ -127,7 +127,7 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 - [x] `transferable:` field added to consuming proprietary skills; canonical homes for transferables moved to `skills/`.
 - [x] Handoff-doc read/update contract baked into transferable preambles.
 - [x] `schema/skill-set.schema.json` validator written.
-- [ ] [easy] User runs `bin/install-skills.sh -y` to deploy updated `sst-dev-cycle`/`sst-dev-review` into `~/.claude/skills/`.
+- [x] User runs `bin/install-skills.sh --force` to deploy all updated transferable skills into `~/.claude/skills/` (24 skills installed; 5 stale-diverged skills force-updated: sst-dev-cycle v1.4.1, sst-dev-review v1.4.5, sst-supervisor v1.8.2, sst-chain-driver v1.2.1, sst-manager; 8 updated, 5 new).
 
 ### Phase 3: supervisor (closed)
 
