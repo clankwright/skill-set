@@ -2,7 +2,7 @@
 name: sst-manager
 description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user (including user feedback routed onward to the supervisor), and writes a short guiding-principles preamble to ~/.claude/state/manager-guidance.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.3.0
+version: 1.4.0
 ---
 
 # Manager
@@ -143,78 +143,77 @@ When in doubt, don't flip. The user always wins.
 
 ### 4. Compose the digest
 
-Write for the user reading on a phone. Organize around what matters to them — what moved forward, what broke, what got fixed — not what the framework did internally.
+State facts. The user is technical and wants commit subjects, spend figures, and concrete status — not narrative or mood. Every status digest MUST contain all five sections below; write "nothing" or "none" rather than omitting a section.
 
 **Language rules (apply to every digest):**
-- Use role words instead of tool names: "the dev cycle" not `sst-dev-cycle`; "the reviewer" not `sst-supervisor`; "the manager" for this skill. Drop names that add no meaning to a non-technical reader.
+- Translate tool names to role words: "the dev cycle" not `sst-dev-cycle`; "the reviewer" not `sst-dev-review`; "the supervisor" not `sst-supervisor`; "the manager" for this skill.
 - Replace internal numbering (e.g. "Phase 19 #7") with what the work actually is ("the per-skill cost-routing rollout").
 - Drop framework terms: "run dir", "MANIFEST", "exit_code", "sanitize gate", "auto-promote", "anti-fork", "supervisor verdict", "sidecar". Use plain equivalents: "a recent run", "a check failed", "a proposed improvement".
-- Status in plain English: "on track" / "stuck on X" / "needs your input on Y" / "all quiet, nothing happened".
-- Timestamps in digest bodies become human-readable dates ("April 27, 2026"), not ISO strings.
+- Keep technical specifics: quote commit subjects verbatim (backticks); round spend to nearest cent; keep difficulty labels (`[easy]`/`[medium]`/`[hard]`) as-is.
+- Timestamps become human-readable dates ("April 27, 2026"), not ISO strings.
 
-**Default (status digest):**
+**Default (status digest) — five required sections:**
 
 ```
 Progress update — <Month D, YYYY>
 
-What moved forward:
-  <project-name>: <plain-English summary of what shipped, or "quiet since last check">
+What shipped:
+  <project-name>: <N> commit(s), ≈$<X.XX> spend
+    • `<commit subject verbatim>` — <one sentence: what problem this closed, in plain English>
+    • `<commit subject verbatim>` — <one sentence>
+  <project-name>: nothing since last check
+
+What stalled or failed:
+  <one specific line per issue, or "nothing">
 
 Goals:
-  ✓ <completed objective>
-  → <active objective> — <status: on track / no movement / needs your input>
+  ✓ <objective text> — <evidence, e.g. "all 12 spec items closed">
+  → <objective text> — <concrete status: "N of M items closed", "no movement", "blocked on <X>">
 
-Suggested improvements waiting for review: <N, or "none">
-Issues: <one line, or "none">
-Fixes: <one line, or "none">
+Open queue: <N> item(s); top: [<difficulty>] <top Next-up item one-liner>
+Pending review: <N> proposal(s), or "none"
 ```
 
-Three representative examples (calibrate tone against these):
+Two representative examples:
 
-*Objective progress + issue + fix:*
+*Active run with one issue:*
+```
+Progress update — April 28, 2026
+
+What shipped:
+  project-a: 2 commits, ≈$6.20 spend
+    • `fix: batch-sizing check now reads correct token field` — fixed a bug where the reviewer was always measuring batch sizes as zero, making the oversizing detection permanently blind
+    • `feat: add user feedback routing via Telegram bot` — new /feedback command lets you steer the auto-reviewer directly from your phone without editing files
+  project-b: nothing since last check
+
+What stalled or failed:
+  project-a: iter 3 hit a rate limit mid-run; auto-resumed after ~2h pause
+
+Goals:
+  ✓ Reduce per-cycle cost by 25% — all 12 spec items closed; $4.50/iter vs $7.20 baseline
+  → Add user feedback channel — 3 of 3 spec items closed; acceptance test pending
+
+Open queue: 7 items; top: [medium] manager digest format rewrite
+Pending review: 1 proposal (dev-review patch)
+```
+
+*Clean tick — nothing new:*
 ```
 Progress update — April 27, 2026
 
-What moved forward:
-  project-a: finished the per-skill cost-routing rollout — dev and review work now
-    use a cheaper model when the task is routine (2 changes shipped)
-  project-b: quiet since last check
+What shipped:
+  project-a: nothing since last check
+  project-b: nothing since last check
+
+What stalled or failed:
+  nothing
 
 Goals:
-  ✓ Reduce per-cycle cost by 25% — done
-  → Add user feedback channel — no movement this period
+  → Reduce per-cycle cost by 25% — 9 of 12 items closed
+  → Add user feedback channel — 2 of 3 items closed
 
-Suggested improvements waiting for review: 1
-Issues: the reviewer flagged a missed step in an older commit; a follow-up is queued
-Fixes: fixed a bug where the bot worker wasn't stopping at end of session
-```
-
-*Clean tick (nothing new):*
-```
-Progress update — April 27, 2026
-
-project-a: nothing new since last check
-project-b: nothing new since last check
-
-Goals:
-  → Reduce per-cycle cost by 25% — on track
-  → Add user feedback channel — on track
-
-Suggested improvements waiting for review: none
-No issues or fixes to report.
-```
-
-*All work done (empty queue):*
-```
-Progress update — April 27, 2026
-
-All queued work is complete — nothing in the pipeline.
-
-Goals:
-  ✓ All current goals achieved
-
-Suggested improvements waiting for review: none
-No issues or fixes to report. Reply /objectives to review or add goals.
+Open queue: 5 items; top: [easy] acceptance check for empty-queue handling
+Pending review: none
 ```
 
 Save to `~/.claude/state/manager-digests/<utc>.txt`. Send via `bin/notify-telegram.sh` (prepend a leading newline so Telegram renders cleanly).

@@ -190,7 +190,9 @@ def handle_command(text: str, chat_id: int) -> str:
             "/resume — manager runs again at next schedule\n"
             "/ping — bot liveness check\n\n"
             "All commands except /ping and /help write a queue file at "
-            f"`{QUEUE_DIR}` for the next manager-skill invocation to process."
+            f"`{QUEUE_DIR}` for the next manager-skill invocation to process.\n\n"
+            "Replies are live only during chain runs; commands sent between runs "
+            "queue and ack on the next session start."
         )
 
     if cmd == "status":

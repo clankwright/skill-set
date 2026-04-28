@@ -204,6 +204,8 @@ Inbound (you talk to the bot in Telegram):
 
 The other commands (`/objectives`, `/proposals`, `/promote`, `/pause`, `/resume`) write a queue file to `~/.claude/state/manager-bot-queue/`; the next `<persona>-manager` invocation drains the queue.
 
+**Replies are live only during chain runs.** The bot worker starts when a chain session begins and stops when it ends (chain-bound lifecycle). Commands you send between runs are queued to disk and acknowledged on the next session start — the bot going silent doesn't mean it's broken, it means no chain is currently running. Run `/ping` at the start of a chain session to confirm liveness before relying on inbound commands.
+
 ### Worker management
 
 The long-poll worker (`bin/manager-bot.py`) holds the open connection to `api.telegram.org`. Two patterns:
