@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.3.1
+version: 1.4.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -15,7 +15,7 @@ One invocation = one shipped change. Read the spec, decide, write failing tests,
 
 - **Run to 100% completion. Never stop to ask.** If a step fails, diagnose and fix the root cause and retry. Only escalate to the user if you've exhausted reasonable attempts on an external blocker (server unreachable, missing credential, ambiguous spec wording that can't be resolved by reading the code).
 - **Tests define done.** Write the failing test first. If the test would require a mock that contradicts the real architecture, fix the test design — don't write implementation-first to "see what shape makes sense."
-- **Small scope per cycle.** One unchecked spec item (or one bug). Don't bundle unrelated changes. If you notice an adjacent issue, note it in the spec's deferred list or a follow-ups file rather than fixing it inline.
+- **Difficulty-windowed batching per cycle.** The primary item's difficulty (`[easy]` / `[medium]` / `[hard]`) determines a target context-window band: easy 100-200k, medium 200-300k, hard 400-500k input tokens. Pick a coherent batch of related items (same files, same phase, same skill target, same concept, or a similar small mechanical change repeated across files) sized to fit the band. If the queue offers only one actionable item, ship it alone; if zero, fire the `[no-work]` bail in §0. Bundling *unrelated* items remains forbidden — the batch must be cohesive, not just adjacent. See §1 for the full picking + batching protocol and the `[batch-pick]` declaration format.
 - **One commit.** Implementation + tests + spec + TODO update (including the new Just-shipped line) ship as one commit. Push once. No separate spec-only commit, no separate TODO-only commit. The Just-shipped line format does NOT include the commit's own SHA — that's provably impossible (a commit cannot contain its own hash). Correlate Just-shipped entries to commits by the one-line summary + utc-iso + `git log --oneline --grep`.
 - **Fix root causes, never mask failures.** No `@pytest.mark.skip`, no `xfail`, no `-k` to exclude failing tests, no deleting assertions "temporarily." If a test is wrong, fix the test with a clear rationale; if the code is wrong, fix the code.
 
@@ -61,19 +61,51 @@ Contract for every cycle:
 
 Find the project's spec or roadmap. Common locations: `docs/SPEC.md`, `docs/ROADMAP.md`, `TODO.md`, `README.md`, the top-level docstring of a main module, or a `docs/<project-name>_SPEC.md` variant. If multiple exist, prefer the most-recently-edited one and scan for a "primary spec" pointer.
 
-Selection priority:
-1. **`TODO.md`'s "Next up"** — top entry first. These are queued items already vetted by the previous cycle, supervisor, manager, or user. Treat the source/reason annotation on the entry as the authority for *why* you're doing it.
-2. If "Next up" is empty: items in the spec explicitly flagged as open gaps / blockers (labels vary: "V1 Status", "Known Issues", "TODO", "Open", `- [ ]`).
-3. The next unchecked `- [ ]` in the spec's newest active section.
-4. If everything checkable is checked, look at any "Deferred / Out of scope" list for items whose blocking reason no longer applies.
+### Pick the primary
 
-**Same-root bundling (when applicable).** If two or more `## Next up` entries carry a `(group with <root-keyword>)` tag (added by `sst-dev-review` §4 when the reviewer files multiple findings that share a root cause) AND the combined diff is plausibly under ~300 LoC AND they touch disjoint files (no merge-conflict risk between them), bundle the tagged set into one cycle. Rationale: a multi-surface follow-up that the reviewer correctly observed as one logical change should not pay the per-cycle review+supervisor overhead twice (the fixed cost dominates short cycles). Bundling does NOT relax the small-scope discipline: the work must be cohesive (same root cause), not just adjacent. If the combined diff would breach ~300 LoC, the test surfaces would conflict, the items have independent acceptance criteria, or the tag groupings disagree across the queued entries (e.g. one tagged item shares no root with the others), take only the top item and leave the rest in the queue. Untagged items are picked individually per the priority list above.
+1. **`TODO.md`'s `## Next up`** — top entry first. These are queued items already vetted by the previous cycle, supervisor, manager, or user. Treat the source/reason annotation on the entry as the authority for *why* you're doing it.
+2. If `## Next up` is empty: first open `- [ ]` in the latest active SPEC section. If the spec uses non-checkbox flagging conventions ("V1 Status", "Known Issues", "Open"), pick the next listed item there.
+3. If everything checkable is `[x]`: look at any "Deferred / Out of scope" list for items whose blocking reason no longer applies.
+4. **User directive** — if the user handed you a specific request, that overrides the above; still append it to `## Next up` first so the audit trail is intact.
 
-Tie-break by: smallest surface area → most independent → highest user impact. If the user gave a specific request, that overrides everything above (also: append the request to "Next up" first, so the audit trail is intact).
+The primary's difficulty (`[easy]` / `[medium]` / `[hard]`) is the cycle's difficulty for both routing (the `[picked-difficulty]` sentinel below) and window-sizing (the `[batch-pick]` band declared next).
 
-Record the pick by writing the `## In flight` line in `TODO.md` now: `- [<this-skill-name> @ <utc-iso>] <one-line description of the picked item>`. Don't commit yet; this gets committed alongside the code change at the end of the cycle.
+### Batch related items into the cycle
 
-**Difficulty label & sentinel emit (model + effort routing).** After the In flight line is written, read the picked item's leading difficulty bracket. Item shape: `- [ ] [hard] <description>` in `SPEC.md` and `- [hard] <description>. Reason: ...` in `TODO.md`'s `## Next up`. Three valid values — `easy` / `medium` / `hard` — mapping to `(model, effort)` tiers `(haiku, low)` / `(sonnet, medium)` / `(opus, high)`; see `~/Dev/skill-set/templates/SPEC.md` "Difficulty labels" appendix for the full contract and per-tier guidance. If the picked item has no parseable label (this is the expected state during the contract-bump rollout window when many existing items are still unlabeled, including any user-provided override that didn't carry a tag), print exactly one line on stdout:
+Don't ship just the primary if related siblings fit. Walk the rest of `Next up` AND the SPEC's open `[ ]` items. Add an item to the batch only when ALL of:
+
+- **At-or-below the primary's difficulty.** The runner already chose the model + effort at the primary's tier; no `[hard]` add-ons to a `[medium]` cycle.
+- **Related** by at least one of: same files touched, same SPEC phase, same skill target, same concept, OR a similar small mechanical change repeated across files (e.g. tagging N skills, hoisting one rule across N siblings, fixing the same typo across N spec entries).
+- **Combined estimated context fits the primary's band.** Target input-token windows by difficulty (judgment-estimated from chunk shapes you know): `[easy]` 100-200k, `[medium]` 200-300k, `[hard]` 400-500k. Reference chunk-shape sizes — prose patch ~30-60k, schema field + runner support + spec entry ~50-100k, new bin/ helper ~60-120k, full new transferable skill ~150-250k.
+- **One coherent commit.** No merge-conflict risk between batched items; no contradictory acceptance criteria; the change-set still tells one story in the commit message.
+
+If only the primary is actionable across both surfaces, ship it alone (the primary IS the entire batch). If zero items are actionable across both surfaces, exit via the `[no-work]` bail in §0 step 6 — do NOT pad the batch with speculative work or invent a `Next up` entry to consume.
+
+Bundling *unrelated* items remains forbidden. The batch must be cohesive (sharing files / phase / concept / mechanical pattern), not just adjacent in the queue.
+
+### Declare the batch BEFORE §2
+
+After the In flight line is written and BEFORE the `[picked-difficulty]` sentinel below, print one block to stdout on its own lines:
+
+```
+[batch-pick] N items @ <difficulty>; window-target ~XXk; rationale: <one-line>
+- <item 1 one-liner>
+- <item 2 one-liner>
+```
+
+Single-item picks still emit the block: `[batch-pick] 1 items @ <difficulty>; window-target ~XXk; rationale: only actionable item this cycle` (or whatever brief rationale fits). The block is uniform across batch sizes — omitting it on single-item picks would disable downstream batch-coherence review and break the contract. The chain runner captures this for the iter MANIFEST; downstream skills (review, supervisor) read it to validate that the actual commit's diff + SPEC `[x]` flips + `Just shipped` entries match the stated batch composition + rationale.
+
+### Tie-break + record
+
+If multiple equally-related groupings exist: prefer the grouping that closes a higher-impact item first → smallest combined surface → most-independent items.
+
+Record the pick: TodoWrite entry covering the batch (one TodoWrite item per batched SPEC/TODO item, or a single rolled-up entry referencing the `[batch-pick]` block — your call). Then write one `## In flight` line in `TODO.md` covering the whole batch: `- [<this-skill-name> @ <utc-iso>] <one-line summarizing the batch>`. Single line even for multi-item batches; rewrite (don't append) as the work narrows.
+
+Don't commit yet; this gets committed alongside the code change at the end of the cycle.
+
+### Difficulty label & sentinel emit (model + effort routing)
+
+After the `[batch-pick]` block, read the primary's leading difficulty bracket. Item shape: `- [ ] [hard] <description>` in `SPEC.md` and `- [hard] <description>. Reason: ...` in `TODO.md`'s `## Next up`. Three valid values — `easy` / `medium` / `hard` — mapping to `(model, effort)` tiers `(haiku, low)` / `(sonnet, medium)` / `(opus, high)`; see `~/Dev/skill-set/templates/SPEC.md` "Difficulty labels" appendix for the full contract and per-tier guidance. If the primary has no parseable label (expected during the contract-bump rollout window when many existing items are still unlabeled, including any user-provided override that didn't carry a tag), print exactly one line on stdout:
 
 ```
 [bad-label] item missing difficulty; defaulting to medium
@@ -88,6 +120,8 @@ and treat the tier as `medium`. Then print exactly one line on stdout BEFORE the
 The chain runner captures this sentinel as the authoritative tier for any skill that runs after this one (review, supervisor, etc.); the runner resolves `effective_model = max(<tier-model>, skill.model_floor)` and `effective_effort = max(<tier-effort>, skill.effort_floor)` independently per axis, so a skill's floor wins on either axis when it is stricter than the item's tier.
 
 Do NOT downgrade `[hard]` to `[easy]` to fit a quota; if the budget feels tight, queue a follow-up `Next up` entry asking the user to confirm the route AND ship the picked item at the labeled tier (or skip this cycle if the user-confirmation is needed first). Do NOT upgrade `[easy]` to `[hard]` either; the labels are the queue author's contract with the runner. The graceful-degradation `[bad-label]` warn becomes a hard exit in a future framework cycle once the migration backfill is complete; treat unlabeled items as a queue-hygiene gap to fix opportunistically (label them in `## Next up` when you touch them for any other reason).
+
+Emission order at iter start, top to bottom: TodoWrite → `## In flight` line → `[batch-pick]` block → `[picked-difficulty: <tier>]` → first §2 tool call.
 
 ## 2. Write failing tests
 
