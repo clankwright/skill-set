@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.8.1
+version: 1.8.2
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -48,7 +48,7 @@ When all four signals below say "clean," skip the deep walk through §1-7 and wr
 
 Eligibility — all four conditions must hold:
 
-1. **No prior escalation flag.** Locate the immediately-preceding `supervisor_verdict.md`: for multi-iter runs (`MANIFEST.iteration > 1`), look at `<base>/iter_<NN-1>/supervisor_verdict.md`; for single-iter runs or iter_01, look at the most recent `<cwd>/.skill-runs/*/supervisor_verdict.md` other than this run's (sort by directory name, which is timestamp-prefixed). If the `## Outcome` line contains `escalate`, abort the fast-path: the prior session asked for human attention and skipping the deep walk would lose that continuity. If no prior verdict exists (first run on this project), treat as no-escalation.
+1. **No prior escalation flag.** Locate the immediately-preceding `supervisor_verdict.md`: for multi-iter runs (`MANIFEST.iteration > 1`), look at `<base>/iter_<NN-1>/supervisor_verdict.md`; for single-iter runs or iter_01, collect all verdict files matching EITHER `<cwd>/.skill-runs/*/supervisor_verdict.md` (flat, single-iter shape) OR `<cwd>/.skill-runs/*/iter_*/supervisor_verdict.md` (nested, multi-iter shape), exclude any path under this run's directory, then pick the most recent by sorting on the run-directory name (timestamp-prefixed) with the `iter_NN` index as a tiebreaker for files in the same run directory. If the `## Outcome` line of the selected file contains `escalate`, abort the fast-path: the prior session asked for human attention and skipping the deep walk would lose that continuity. If no prior verdict exists (first run on this project), treat as no-escalation.
 
 2. **All non-supervisor skill exit codes == 0.** Read `MANIFEST.skills[i].exit_code` for every record except the supervisor's own (the supervisor's own record is not yet present in the snapshot manifest per §Inputs step 1). Any non-zero exit code aborts the fast-path: a failure needs a finding.
 
