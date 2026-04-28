@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.7.0
+version: 1.8.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -63,7 +63,9 @@ Eligibility — all four conditions must hold:
 
 4. **§0.6 drafts sweep returns zero orphans.** Run §0.6 to completion first — it is a cheap directory listing and the self-heal step must run regardless of fast-path eligibility. Any orphaned draft to consume becomes a finding under §1 and aborts the fast-path.
 
-When all four conditions hold, write the minimal verdict file and return:
+5. **§3.5 batch-window refinement check returns "no refinement needed."** Run §3.5's trigger-evaluation step (3.5.1 only — the cheap trailing-window scan; do NOT yet draft any patch) to decide whether the dev skill's window prose needs adjusting. If the trailing-window thresholds are below the trigger AND stable-termination is engaged OR not yet eligible, return "no refinement needed" and proceed; the cost is one read of `MANIFEST.json` plus a transcript-grep over the trailing iters' `<i>_<dev-review>.txt` files (cheap). If the trigger fires, abort the fast-path: §3.5 will write a refinement patch in the deep walk, and that write IS the iter's finding. The check is intentionally hoisted into the fast-path eligibility set so refinement keeps firing on otherwise-clean iters; without this condition, a long run of clean iters would let `[batch-sizing]` findings accumulate without ever crossing the deep walk.
+
+When all five conditions hold, write the minimal verdict file and return:
 
 ```markdown
 # Supervisor verdict — <run-dir-name>
@@ -171,6 +173,80 @@ If the helper exits non-zero (e.g. target path rejected), that's a bug to report
 The `SKILL.patch.md` file is a **drop-in replacement**: it contains full YAML frontmatter + body, identical in shape to a normal SKILL.md. No proposal-wrapper headers, no rationale section in the file itself. All rationale + citations live in the verdict file (§6).
 
 If a prior cycle left a stale `SKILL.patch.md` on a skill that this cycle has no finding for, **do not touch it** — the user may be mid-review. Only overwrite a sidecar when this cycle has a fresh finding for that skill.
+
+### 3.5. Batch-window refinement loop (self-tune)
+
+The dev skill's batching contract (`sst-dev-cycle` §1) sizes each cycle's batch against per-difficulty token-window targets (e.g. `[easy]` 100-200k, `[medium]` 200-300k, `[hard]` 400-500k input tokens). The dev's review counterpart (`sst-dev-review`) tags any cycle that falls outside the band with a `[batch-sizing]` finding. Those findings are honest empirical signal: the dev's chunk-shape estimates are wrong (drift from real cost-per-section), the band edges are mis-tuned, or a missing chunk-shape entry is causing the dev to systematically under- or over-pack the batch. Left alone, the windowing contract stays honor-system and the dev never learns from the misses. §3.5 closes the loop: the supervisor watches the trailing window of `[batch-sizing]` findings, and on accumulated signal authors a prose patch refining the dev's window-target text. Over many runs the dev's prose converges on observed reality.
+
+This step runs UNCONDITIONALLY (regardless of whether this iter has other findings). On most iters it returns "no refinement needed" without writing anything; on the rare iter where the trailing-window threshold trips, it writes a single refinement patch to `sst-dev-cycle` (transferable) and the proprietary mirror named per the chain's proprietary skills. The §0.5 fast-path's condition #5 calls §3.5.1 eagerly so refinement still fires on otherwise-clean iters.
+
+#### 3.5.1. Trigger evaluation (cheap; runs every iter)
+
+Scan the trailing window of recent dev-review transcripts and iter MANIFESTs. Define the window:
+
+- **Trailing iter set.** For multi-iter runs, walk backward from this iter through `<base>/iter_<NN-K>/` directories where K = 1, 2, ..., up to 20 (the `M=5 in trailing 20` window's outer bound). For single-iter runs, walk backward through the most recent `<cwd>/.skill-runs/*/` directories sorted by name (timestamp-prefixed); each single-iter run contributes one iter to the trailing set. Stop when fewer than 20 iters are available; partial windows are fine (the thresholds are minimums, not minimums-of-a-fixed-window).
+- **`[batch-sizing]` finding extraction.** For each iter in the trailing set, locate the dev-review transcript (the file whose name matches the chain's review skill — e.g. `01_sst-dev-review.txt` or `01_<proprietary-review>.txt` per the chain definition). Grep for lines matching `^\s*\[batch-sizing\]` (line-anchored, case-sensitive — the tag is framework-canonical). Each match is one finding; capture the `direction` token from the rest of the line (`undersized` | `oversized`) and the iter's primary difficulty (read from `iter_manifest.difficulty` if present, else parse the `[picked-difficulty: <tier>]` sentinel from the iter's dev transcript).
+
+Compute the trigger conditions:
+
+1. **Same-direction streak (default N=3):** `N` consecutive most-recent iters in the same difficulty band all carry a `[batch-sizing]` finding with the same `direction`. "Same difficulty band" matters because an `[easy]` undersizing and a `[hard]` undersizing are different prose problems (different chunk-shape estimates) and shouldn't be lumped. The streak counts iters, not findings — a single iter with two `[batch-sizing]` findings (rare) still counts as one streak step.
+2. **Trailing-window total (default M=5):** total `[batch-sizing]` findings across the trailing 20 iters is ≥ M, regardless of difficulty band or direction. The total-trigger catches diffuse drift that doesn't form a streak (e.g. an `easy` undersize, a `medium` oversize, an `easy` undersize, a `hard` oversize, an `easy` undersize: no streak, but real dispersion that says the windowing is mis-tuned across the board).
+3. **Stable-termination override (default K=10):** if the most recent K iters all carry zero `[batch-sizing]` findings AND a prior cycle's verdict file recorded a `## Batch-window refinement: monitoring (K=<n>)` block, the loop is in stable-termination mode. Suppress trigger evaluation entirely; return "no refinement needed (monitoring)". Re-engage the moment a `[batch-sizing]` finding lands again (the K-streak resets to zero on the next finding).
+
+Defaults are the framework's published values; do NOT vary them per cycle (a refinement that lowers N to chase a single iter's noise is the exact failure mode the trigger thresholds defend against). They MAY be raised per project via a future SPEC change; until then, treat them as constants.
+
+If neither trigger fires AND stable-termination is not in force, return "no refinement needed (below threshold)". If the trailing window has fewer iters than the smallest threshold permits a meaningful read (typically <3 iters), return "no refinement needed (insufficient trailing window)".
+
+If a trigger fires, capture the trigger metadata for §3.5.2: which trigger (`streak` or `total`), which difficulty band (for streak triggers), the dominant direction (`undersized` | `oversized` | `mixed` for total triggers), the iter range cited, and the count of `[batch-sizing]` findings within that range.
+
+#### 3.5.2. Refinement decision (only when trigger fires)
+
+Decide WHAT prose adjustment to write. There are three legal refinement kinds; pick exactly one per cycle (do not bundle multiple refinements; the next cycle's trailing-window read will surface the next-needed one):
+
+1. **Adjust a band edge** — when a streak trigger fires in a single difficulty band with a single direction. Move the edge by a single increment (~10-20% of the current edge value), in the direction the data implies: streak-undersized in `[medium]` → raise the lower edge of `[medium]` (the dev was under-packing because the floor was too low to motivate batching); streak-oversized in `[medium]` → lower the upper edge (the dev was over-packing because the ceiling permitted it). Do NOT cross-tier (an `[easy]`-band edge change must stay inside `[easy]`'s neighbors; never let `[easy]`-upper > `[medium]`-lower).
+2. **Refine a chunk-shape estimate** — when the trigger metadata implicates a specific chunk shape mentioned in the dev's prose (e.g. "supervisor + sanitize sub-skill: ~50-80k", "transferable prose patch: ~30-60k"). Tighten or widen the estimate by a single increment based on the trailing iters' actual cost; cite the iter range as the empirical basis in the patch's commit-style prose.
+3. **Add an empirical chunk-shape entry** — when the trailing iters consistently hit a chunk shape NOT already named in the dev's prose (e.g. a runner-changes iter consistently consumed ~80-120k with no estimate to compare against, biasing the dev's whole-cycle estimate). Append a single new entry to the dev's chunk-shape list, with the observed range bracketed conservatively.
+
+Refinements MUST stay inside the windowing-prose surface. Patches MUST NOT:
+
+- **Invent new section structure.** No new top-level sections, no new subsection numbering, no new contract surfaces. The refinement loop adjusts text inside the existing batching contract; it does not author the contract.
+- **Change the difficulty enum.** `[easy] | [medium] | [hard]` is a SPEC-defined contract; adding `[trivial]` or `[xhard]` requires a SPEC change first.
+- **Touch the per-skill model-floor / effort-floor table.** Routing floors are a separate concern (the routing spec phase); the refinement loop is windowing-only.
+- **Bundle a refinement with an unrelated improvement.** "While I was in here I also tightened §2's tone" is the scope-creep failure mode §3 already forbids; §3.5 inherits the same gate. The change-intent table for the refinement patch (§3) MUST contain exactly one row, and that row's motivating citation is the trigger-metadata line range from §3.5.1.
+
+If the trigger fires but the implicated change does not fit any of the three legal refinement kinds (e.g. the dev's prose has no chunk-shape entry that maps to the misbehaving cost shape, AND adding one would require renaming an existing entry), DO NOT write a hybrid patch. Record the refinement as `[deferred: shape-mismatch]` in the verdict (under "Updates written" with a one-line note explaining why the fix exceeds the legal refinement surface) and surface it in `## Notes for the manager`. The manager can route the case to the user as a SPEC change for a future cycle. The refinement loop is conservative on purpose: a too-broad patch that cascades into unrelated prose is worse than a deferred refinement that the user reviews directly.
+
+#### 3.5.3. Write the refinement patch (only when trigger fires AND refinement is in-surface)
+
+Author the full rewritten dev `SKILL.md` body — frontmatter (with bumped patch-level `version:`) + body with exactly the §3.5.2 prose change applied. SemVer guidance: a band-edge or chunk-shape-estimate adjustment is patch-level (clarification of existing prose); an empirical chunk-shape entry add is minor-level (added behavior in the windowing prose). No major bumps from §3.5; a major bump would imply contract change, which §3.5 is forbidden from authoring per §3.5.2.
+
+The dev skill is a `(transferable, proprietary)` pair. Write BOTH targets per the chain's `auto-promote:` mode using the §3 routing table: the transferable `sst-dev-cycle` AND its proprietary mirror named in the chain definition. Use `bin/apply-skill-patch.py` per §Permissions contract for both writes. Sanitize the transferable per §4 first; a `must-fix` finding aborts the transferable write and the proprietary mirror still receives the patch (so the loop's learning is not lost; the proprietary stays ahead of the transferable until the next sanitization-clean cycle promotes it). Record both writes in the verdict's "Updates written" block per §6.
+
+The proprietary mirror's body typically inherits the windowing prose from the transferable verbatim plus project-specific overrides (chunk-shape estimates that include the project's own per-skill costs, e.g. a custom deploy step that doesn't exist in the transferable). When the refinement is to a piece of prose that exists ONLY in the proprietary mirror (not in the transferable), skip the transferable write entirely — record `transferable: (no change; refinement is in proprietary-specific prose only)` in the verdict.
+
+#### 3.5.4. Stable-termination bookkeeping (always written, even when no refinement)
+
+Whether or not a refinement was written this iter, append a single block to the verdict file under a `## Batch-window refinement` header:
+
+```
+## Batch-window refinement
+
+- Trigger evaluation: <streak hit | total hit | below threshold | monitoring | insufficient window>
+- Trailing window scanned: iters <range>; `[batch-sizing]` findings: <count>; same-direction streak: <length> @ <difficulty>; total in trailing 20: <count>
+- Outcome: <patch written: sst-dev-cycle v<old>→v<new> + <proprietary-mirror> v<old>→v<new> | no refinement needed | deferred: shape-mismatch | monitoring (K=<n>)>
+```
+
+The next iter's §3.5.1 reads this block from the trailing iters' verdicts to know whether stable-termination was previously in force. Continuity is the contract: a clean K-streak produces a single `monitoring (K=<n>)` block per iter (incrementing); a `[batch-sizing]` finding next iter resets the K counter to zero AND demotes the outcome to `below threshold` until the streak or total triggers fire again.
+
+The `## Batch-window refinement` block is also written under the §0.5 fast-path verdict (after the `## Updates written` block). Fast-path verdicts that omit the block break stable-termination continuity for downstream iters; the eligibility check at §0.5.5 already runs §3.5.1, so the block's content is computed regardless.
+
+#### 3.5.5. Anti-fork constraints summary
+
+- Refinement patches stay inside the windowing-prose surface (band edges, chunk-shape estimates, empirical chunk-shape entries).
+- Triggers (N, M, K) are framework constants; do not vary per cycle.
+- One refinement kind per cycle; multiple in-surface needs queue across iters.
+- Trailing-window scan is read-only against transcripts and verdicts; never re-runs analysis on prior iters.
+- The refinement loop never authors the windowing contract itself (no new sections, no enum changes, no routing-floor touches).
 
 ### 4. Sanitize (any transferable write, direct or sidecar)
 
