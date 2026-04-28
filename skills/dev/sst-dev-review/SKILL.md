@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.4.0
+version: 1.4.1
 model-floor: sonnet
 effort-floor: high
 ---
@@ -171,7 +171,7 @@ Do **not** file for a single-item batch (trivially coherent) or when the multi-f
 
 *(Applies when the iter MANIFEST is available. If absent, note it in §6 and skip this axis.)*
 
-Locate the MANIFEST at `.skill-runs/<latest-run-dir>/MANIFEST.json` (flat) or `.skill-runs/<latest-run-dir>/iter_NN/MANIFEST.json` (looped run). Read: `difficulty` (set by the runner's sentinel capture) and the sum of `model_usage.input_tokens` across all skills in the `skills` array.
+Locate the MANIFEST at `.skill-runs/<latest-run-dir>/MANIFEST.json` (flat) or `.skill-runs/<latest-run-dir>/iter_NN/MANIFEST.json` (looped run). Read: `difficulty` (set by the runner's sentinel capture) and the total input tokens for the iter: for each skill in the `skills` array, sum `inputTokens + cacheReadInputTokens` across all entries in its `model_usage` dict (`model_usage` is keyed by model name, not a flat dict; both fields are included because cached tokens still occupy the context window).
 
 Band edges by difficulty (input-token soft caps):
 - `[easy]` → 100–200k; undersize threshold 50k (50% of lower edge)
