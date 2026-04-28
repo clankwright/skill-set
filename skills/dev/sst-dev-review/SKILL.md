@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.4.2
+version: 1.4.3
 model-floor: sonnet
 effort-floor: high
 ---
@@ -185,6 +185,14 @@ Also read the `[batch-pick]` block's `window-target ~XXk` and verify it falls wi
 - **Oversized**: actual input tokens exceed the upper band edge, OR MANIFEST records `terminated_by == "max_turns"`, OR the diff shows no SPEC `[x]` flips despite a stated batch pick (§6+§7 of the dev cycle did not land cleanly).
 
 Include the actual token count, difficulty, and band edges in the finding text. The `[batch-sizing]` tag allows the supervisor to aggregate findings across iters and trigger window-target refinement.
+
+Also emit a **machine-parseable summary line** to stdout immediately after deciding the finding (before §3), one line per direction found:
+
+```
+[batch-sizing] direction=<undersized|oversized> difficulty=<tier> actual=<n>k band=<lo>-<hi>k
+```
+
+This line is the supervisor's §3.5.1 extraction target and must appear as a standalone line in the transcript. If no batch-sizing finding fires this iter, do not emit the line.
 
 ## 3. Decide on output
 
