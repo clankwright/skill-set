@@ -1,13 +1,13 @@
 ---
 name: sst-manager
-description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user (including user feedback routed onward to the supervisor), and writes a short guiding-principles preamble to ~/.claude/state/manager-guidance.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
+description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user (including user feedback routed onward to the supervisor), and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.4.0
+version: 1.5.0
 ---
 
 # Manager
 
-The manager is the third-and-final loop. It runs on a cadence (cron / `/loop 6h`) and is the only loop that talks to the user proactively. It holds the long-lived org/persona objectives, watches the projects, and steers the supervisor by writing guiding principles the supervisor reads on its next run.
+The manager is the third-and-final loop. It runs on a cadence (cron / `/loop 6h`) and is the only loop that talks to the user proactively. It holds the long-lived org/persona objectives, watches the projects, and steers the supervisor by prepending source-tagged entries to a single notes file the supervisor reads on its next run.
 
 The manager NEVER:
 - edits a `SKILL.md` (that's `/sst-promote-skill-proposal`).
@@ -19,8 +19,8 @@ The manager NEVER:
 - **Objectives are sacrosanct.** The proprietary counterpart holds an `objectives.md`. The manager only flips `- [ ]` → `- [x]` when a measurable milestone is hit; it never rewrites the prose. If objectives are wrong, that's a user-level edit.
 - **Cursors prevent re-processing.** `~/.claude/state/manager-cursors.json` records the latest seen run dir per watched project. Only newer runs get analyzed.
 - **One digest per invocation.** Either a status digest (default) or an escalation. Never both. Escalations skip batching and fire immediately.
-- **Bounded shaping, not editing.** Updates to `~/.claude/state/manager-guidance.md` are append-and-trim, capped at ~1KB. The supervisor reads the file as a preamble, never the manager's full history.
-- **Pause respect.** If `~/.claude/state/manager-paused` exists, the cycle is a no-op (no walk, no digest, no guidance update). Reply silently to keep the cron quiet.
+- **Bounded shaping, not editing.** Updates to `~/.claude/state/manager-notes.md` are prepend-and-trim, capped at ~3KB. Each entry carries a source-tagged heading (`## <utc-iso> user feedback (chat <id>)` for verbatim user feedback routed from the bot, `## <utc-iso> manager observation` for manager-derived patterns). The supervisor reads the file as a preamble, never the manager's full history.
+- **Pause respect.** If `~/.claude/state/manager-paused` exists, the cycle is a no-op (no walk, no digest, no notes update). Reply silently to keep the cron quiet.
 
 ## Inputs
 
@@ -43,12 +43,18 @@ State files this skill reads / writes:
 | Path                                          | Read | Write |
 |-----------------------------------------------|------|-------|
 | `~/.claude/state/manager-cursors.json`        | yes  | yes   |
-| `~/.claude/state/manager-guidance.md`         | yes  | yes   |
+| `~/.claude/state/manager-notes.md`            | yes  | yes (prepend newest-first; source-tagged headings; ~3KB cap) |
 | `~/.claude/state/manager-paused`              | yes  | no    |
 | `~/.claude/state/manager-bot-queue/*.json`    | yes  | delete after processing |
-| `~/.claude/state/manager-feedback.md`         | yes  | yes (append newest-first; ~2KB cap) |
 | `~/.claude/state/manager-digests/<utc>.txt`   | no   | yes   |
 | `<objectives-path>`                           | yes  | yes (only `[ ]` ↔ `[x]` toggles) |
+
+`manager-notes.md` is the single state file the supervisor reads for cross-run steering. It carries TWO source-tagged entry kinds, interleaved newest-first:
+
+- `## <utc-iso> user feedback (chat <id>)` — direct user-to-supervisor messaging routed verbatim from the Telegram `/feedback` command (authoritative steering).
+- `## <utc-iso> manager observation` — patterns the manager derived from observing run logs (soft steering).
+
+Conflict resolution between the two kinds is the supervisor's job (user feedback wins). The manager's job is to capture, source-tag, and trim. Earlier framework versions split these into `manager-feedback.md` + `manager-guidance.md`; on first invocation the manager merges any legacy entries into `manager-notes.md` (interleaved by UTC, source-tagged by origin file) and renames each legacy file to `~/.claude/state/.archive/<name>.<utc-iso>.md`. Subsequent runs see only `manager-notes.md`.
 
 ## Process
 
@@ -88,28 +94,30 @@ Handle in received-at order:
 - `objectives` → reply with the current `objectives.md` (truncate to 3500 chars to fit Telegram).
 - `proposals` → list pending proposals across all watched projects' `.skill-runs/*/proposals/` and the master repo's `proposals/`. Format: one line per proposal with severity, source, target.
 - `promote <project> <skill>` → write `~/.claude/state/manager-bot-queue/promote-task.txt` for the next user-driven `/sst-promote-skill-proposal` invocation (this skill does NOT execute Claude itself; it just queues). Reply `queued`.
-- `feedback` → route the user's body verbatim to the supervisor via `~/.claude/state/manager-feedback.md`. See "Routing feedback to the supervisor" below. Reply confirming the body was routed onward (e.g. `Routed feedback (N chars) to the supervisor; it will read it on the next chain run.`).
+- `feedback` → route the user's body verbatim to the supervisor via `~/.claude/state/manager-notes.md` under a `user feedback (chat <id>)` source-tagged heading. See "Routing feedback to the supervisor" below. Reply confirming the body was routed onward (e.g. `Routed feedback (N chars) to the supervisor; it will read it on the next chain run.`).
 
 After processing, delete each task file. If a task fails, leave it and add a `.error` sibling with the failure reason.
 
 **Routing feedback to the supervisor.** When a `feedback` queue file is processed:
 
-1. Read or create `~/.claude/state/manager-feedback.md`. If empty, start with:
+1. Read or create `~/.claude/state/manager-notes.md`. If empty, start with:
    ```markdown
-   # User feedback to supervisor
+   # Manager notes for the supervisor
 
-   Newest first. The supervisor reads this as authoritative steering input on every run, alongside (but distinct from) `manager-guidance.md`. Each entry is one user message routed verbatim from the bot.
+   Newest first. The supervisor reads this as steering input on every run. Two source-tagged entry kinds, interleaved by UTC:
+   - `## <utc-iso> user feedback (chat <id>)` — verbatim user message from the Telegram `/feedback` command (authoritative).
+   - `## <utc-iso> manager observation` — manager-derived patterns from observed runs (soft steering).
    ```
-2. Prepend (NOT append) a new entry just under the H1, in the format:
+2. Prepend (NOT append) a new entry just under the lead paragraph, in the format:
    ```markdown
-   ## <utc-iso> from <chat-id>
+   ## <utc-iso> user feedback (chat <id>)
 
    <body verbatim, preserving the user's whitespace and line breaks>
    ```
-3. Trim total file length to ~2KB by deleting the OLDEST entries (from the bottom) until the file is under threshold. Keep the leading H1 + lead paragraph; entries are bounded by the next `## ` heading.
+3. Trim total file length to ~3KB by deleting the OLDEST entries (from the bottom) until the file is under threshold. Keep the leading H1 + lead paragraph; entries are bounded by the next `## ` heading.
 4. Delete the queue file last; if the prepend fails, leave the queue file in place so the next manager run retries (do not write a `.error` sibling for this category — feedback retries are cheap and avoid losing user input on a transient write failure).
 
-This is the only path the user has to inject concrete steering into the supervisor's loop without editing skill prose by hand. The manager does NOT interpret or paraphrase the body — that's the supervisor's job. The manager's only role is to (a) capture the body when it arrives, (b) trim the file when it gets too long, and (c) route. Feedback is distinct from `manager-guidance.md`: guidance is patterns the manager itself derived from observing many runs ("the last 3 cycles each spent >100k tokens on the deploy step"); feedback is direct user-to-supervisor messaging ("stop tagging skills with `[easy]` until the harness honors the floor table"). The supervisor weighs both but treats feedback as the more authoritative of the two when they conflict.
+This is the only path the user has to inject concrete steering into the supervisor's loop without editing skill prose by hand. The manager does NOT interpret or paraphrase the body — that's the supervisor's job. The manager's only role is to (a) capture the body when it arrives, (b) source-tag the entry, (c) trim the file when it gets too long, and (d) route. The supervisor weighs user-feedback entries as authoritative steering and manager-observation entries as soft steering; user feedback wins on conflict.
 
 ### 2. Walk watched projects
 
@@ -235,19 +243,15 @@ the user should consider doing. No internal paths or jargon. The user can
 reply /status for more detail if needed.>
 ```
 
-### 5. Update guidance for the supervisor
+### 5. Update notes for the supervisor
 
-`~/.claude/state/manager-guidance.md`:
+`~/.claude/state/manager-notes.md` (the same file feedback routing writes to in §1; manager-observation entries interleave with user-feedback entries by UTC):
 
-- Read existing content. If empty, start with:
-  ```markdown
-  # Manager guidance to supervisor
-
-  Newest first. The supervisor reads this as a preamble on every run.
-  ```
+- Read existing content. If the file does not yet exist, initialize it with the H1 + lead paragraph shown in §1's "Routing feedback to the supervisor" step 1.
 - Prepend (NOT append) a new dated entry IF the manager noticed a pattern worth shaping the supervisor's behavior:
   ```markdown
-  ## <utc-iso>
+  ## <utc-iso> manager observation
+
   <2-4 sentences. Examples:
     "The last 3 cycles each spent >100k tokens on the deploy step.
      If you see another such run, file a should-fix on sst-dev-cycle's
@@ -256,13 +260,15 @@ reply /status for more detail if needed.>
      intentional through 2026-05-03."
   >
   ```
-- Trim total file length to ~1KB by deleting the oldest entries until under threshold. Keep the leading H1.
+- Trim total file length to ~3KB by deleting the OLDEST entries (from the bottom) until under threshold. Keep the leading H1 + lead paragraph; entries are bounded by the next `## ` heading.
 
 If no pattern was worth shaping, do NOT touch the file. Empty updates pollute the supervisor's preamble.
 
+**Legacy migration (one-time, idempotent).** On first invocation, if `~/.claude/state/manager-feedback.md` and/or `~/.claude/state/manager-guidance.md` exist alongside (or in place of) `manager-notes.md`, merge their entries into `manager-notes.md`: read each legacy file's `## <heading>` blocks, re-tag the heading per origin (`manager-feedback.md` entries become `## <utc> user feedback (chat <id>)` if a chat-id is recoverable from the heading, else `## <utc> user feedback`; `manager-guidance.md` entries become `## <utc> manager observation`), interleave by UTC newest-first under the new H1 + lead paragraph, then move each legacy file to `~/.claude/state/.archive/<name>.<utc-iso>.md`. Subsequent invocations see only `manager-notes.md` and skip the migration check.
+
 ### 6. Report
 
-Stdout: a one-line summary (`manager: 2 watched projects, 1 escalation, sent digest, supervisor guidance updated`). Telegram already received the user-facing message; stdout is for the cron log.
+Stdout: a one-line summary (`manager: 2 watched projects, 1 escalation, sent digest, supervisor notes updated`). Telegram already received the user-facing message; stdout is for the cron log.
 
 ## Hard rules
 
