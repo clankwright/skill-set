@@ -2,7 +2,7 @@
 name: sst-manager
 description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user (including user feedback routed onward to the supervisor), and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.5.0
+version: 1.6.0
 ---
 
 # Manager
@@ -100,22 +100,9 @@ After processing, delete each task file. If a task fails, leave it and add a `.e
 
 **Routing feedback to the supervisor.** When a `feedback` queue file is processed:
 
-1. Read or create `~/.claude/state/manager-notes.md`. If empty, start with:
-   ```markdown
-   # Manager notes for the supervisor
+Invoke `bin/manager-write-state.py --source feedback --src-file <queue-file>` via Bash. The helper handles all atomic-write, source-tagging, trim, and processed/-rename steps. If the invocation fails (non-zero exit), leave the queue file in place so the next manager run retries; do not write a `.error` sibling — feedback retries are cheap and avoid losing user input on a transient failure.
 
-   Newest first. The supervisor reads this as steering input on every run. Two source-tagged entry kinds, interleaved by UTC:
-   - `## <utc-iso> user feedback (chat <id>)` — verbatim user message from the Telegram `/feedback` command (authoritative).
-   - `## <utc-iso> manager observation` — manager-derived patterns from observed runs (soft steering).
-   ```
-2. Prepend (NOT append) a new entry just under the lead paragraph, in the format:
-   ```markdown
-   ## <utc-iso> user feedback (chat <id>)
-
-   <body verbatim, preserving the user's whitespace and line breaks>
-   ```
-3. Trim total file length to ~3KB by deleting the OLDEST entries (from the bottom) until the file is under threshold. Keep the leading H1 + lead paragraph; entries are bounded by the next `## ` heading.
-4. Delete the queue file last; if the prepend fails, leave the queue file in place so the next manager run retries (do not write a `.error` sibling for this category — feedback retries are cheap and avoid losing user input on a transient write failure).
+`bin/manager-write-state.py` initializes `manager-notes.md` with the correct H1 + lead paragraph if the file does not yet exist; prepends the entry just under the lead paragraph in the format `## <utc-iso> user feedback (chat <id>)` with a `<!-- src: <basename> -->` idempotency marker; trims total file length to ~3KB by deleting the oldest entries from the bottom; and renames the queue file to `manager-bot-queue/processed/<basename>`.
 
 This is the only path the user has to inject concrete steering into the supervisor's loop without editing skill prose by hand. The manager does NOT interpret or paraphrase the body — that's the supervisor's job. The manager's only role is to (a) capture the body when it arrives, (b) source-tag the entry, (c) trim the file when it gets too long, and (d) route. The supervisor weighs user-feedback entries as authoritative steering and manager-observation entries as soft steering; user feedback wins on conflict.
 
@@ -247,22 +234,11 @@ reply /status for more detail if needed.>
 
 `~/.claude/state/manager-notes.md` (the same file feedback routing writes to in §1; manager-observation entries interleave with user-feedback entries by UTC):
 
-- Read existing content. If the file does not yet exist, initialize it with the H1 + lead paragraph shown in §1's "Routing feedback to the supervisor" step 1.
-- Prepend (NOT append) a new dated entry IF the manager noticed a pattern worth shaping the supervisor's behavior:
-  ```markdown
-  ## <utc-iso> manager observation
+If a pattern is worth shaping the supervisor's behavior, write the observation body (2-4 sentences) to stdin and invoke `bin/manager-write-state.py --source observation` via Bash. The helper handles all atomic-write, source-tagging, and trim steps — it prepends a `## <utc-iso> manager observation` entry and trims the total file to ~3KB. Examples of useful observations:
+- "The last 3 cycles each spent >100k tokens on the deploy step. If you see another such run, file a should-fix to break the long step into pre-flight checks."
+- "Stop flagging the EMAIL_VERIFICATION_REQUIRED bypass; it's intentional through 2026-05-03."
 
-  <2-4 sentences. Examples:
-    "The last 3 cycles each spent >100k tokens on the deploy step.
-     If you see another such run, file a should-fix on sst-dev-cycle's
-     deploy section to break the long step into pre-flight checks."
-    "Stop flagging the EMAIL_VERIFICATION_REQUIRED bypass; it's
-     intentional through 2026-05-03."
-  >
-  ```
-- Trim total file length to ~3KB by deleting the OLDEST entries (from the bottom) until under threshold. Keep the leading H1 + lead paragraph; entries are bounded by the next `## ` heading.
-
-If no pattern was worth shaping, do NOT touch the file. Empty updates pollute the supervisor's preamble.
+If no pattern was worth shaping, do NOT invoke the helper. Empty updates pollute the supervisor's preamble.
 
 **Legacy migration (one-time, idempotent).** On first invocation, if `~/.claude/state/manager-feedback.md` and/or `~/.claude/state/manager-guidance.md` exist alongside (or in place of) `manager-notes.md`, merge their entries into `manager-notes.md`: read each legacy file's `## <heading>` blocks, re-tag the heading per origin (`manager-feedback.md` entries become `## <utc> user feedback (chat <id>)` if a chat-id is recoverable from the heading, else `## <utc> user feedback`; `manager-guidance.md` entries become `## <utc> manager observation`), interleave by UTC newest-first under the new H1 + lead paragraph, then move each legacy file to `~/.claude/state/.archive/<name>.<utc-iso>.md`. Subsequent invocations see only `manager-notes.md` and skip the migration check.
 
