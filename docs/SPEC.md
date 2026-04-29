@@ -348,7 +348,7 @@ This phase preserves every existing invariant (manager is read-only across watch
 
 Until now, `sst-dev-cycle` §1 picked one top-of-queue item per cycle (with a narrow `(group with <root-keyword>)` carve-out for review-tagged sibling findings). Iterations under `[easy]` and `[medium]` items routinely closed with substantial budget left and well below their context windows; the queue accumulated small follow-ups that each consumed a full review + supervisor pass. Phase 22 reframes the picking unit as a coherent batch sized to the picked-difficulty's context-window band, so each cycle uses its allotted budget productively and amortizes the per-cycle review/supervisor overhead across multiple closed items.
 
-Token windows (input-context target per cycle, soft cap, judgment-estimated by the dev from chunk-shape heuristics):
+Token windows (dev-skill input-context target per cycle, soft cap, judgment-estimated by the dev from chunk-shape heuristics; these are the lead agent's own tokens — the review's `[batch-sizing]` check fires on the dev's number, not the full-chain sum):
 
 - `[easy]` → 100-200k
 - `[medium]` → 200-300k

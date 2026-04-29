@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.4.6
+version: 1.4.7
 model-floor: sonnet
 effort-floor: high
 ---
@@ -171,12 +171,12 @@ Do **not** file for a single-item batch (trivially coherent) or when the multi-f
 
 *(Applies when the iter MANIFEST is available. If absent, note it in §6 and skip this axis.)*
 
-Locate the MANIFEST at `.skill-runs/<latest-run-dir>/MANIFEST.json` (flat) or `.skill-runs/<latest-run-dir>/iter_NN/MANIFEST.json` (looped run). Read: `difficulty` (set by the runner's sentinel capture) and the total input tokens for the iter: for each skill in the `skills` array, sum `inputTokens + cacheCreationInputTokens` across all entries in its `model_usage` dict (`model_usage` is keyed by model name, not a flat dict; `cacheCreationInputTokens` measures tokens written to cache first-time — a proxy for peak context size; `cacheReadInputTokens` is a billing-centric cumulative that grows with session turns, not context complexity, and would inflate the total ~40× for long sessions).
+Locate the MANIFEST at `.skill-runs/<latest-run-dir>/MANIFEST.json` (flat) or `.skill-runs/<latest-run-dir>/iter_NN/MANIFEST.json` (looped run). Read: `difficulty` (set by the runner's sentinel capture) and the dev skill's input tokens: sum `inputTokens + cacheCreationInputTokens` across all entries in its `model_usage` dict for **the dev skill only** (`skills[0]` — the first skill in the chain, the one that chose how much work to take on; `model_usage` is keyed by model name, not a flat dict; `cacheCreationInputTokens` measures tokens written to cache first-time — a proxy for peak context size; `cacheReadInputTokens` is a billing-centric cumulative that grows with session turns, not context complexity, and would inflate the total ~40× for long sessions). Do NOT sum review + supervisor tokens — those skills consume what they consume regardless of workload sizing; only the dev skill can act on its own window.
 
-Band edges by difficulty (full-chain input-token soft caps: dev + review + supervisor combined; the dev skill's own window target for the same difficulty is narrower — easy 100-200k, medium 200-300k, hard 400-500k):
-- `[easy]` → 100–350k; undersize threshold 50k (50% of lower edge)
-- `[medium]` → 200–430k; undersize threshold 100k
-- `[hard]` → 400–630k; undersize threshold 200k
+Band edges by difficulty (dev-skill input-token targets — same values the dev skill uses for its own batch window-sizing; the `[batch-sizing]` finding fires on the dev's number, not the full-chain sum):
+- `[easy]` → 100–200k; undersize threshold 50k (50% of lower edge)
+- `[medium]` → 200–300k; undersize threshold 100k
+- `[hard]` → 400–500k; undersize threshold 200k
 
 Also read the `[batch-pick]` block's `window-target ~XXk` and verify it falls within the band for the stated difficulty.
 
