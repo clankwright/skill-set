@@ -11,7 +11,6 @@
 -->
 
 
-
 ## Just shipped (last cycle)
 
 <!--
@@ -25,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- [easy] `sst-manager` v1.6.1→v1.6.2: fix §1 absent-helper block (replace misleading `--install` claim with explicit `cp bin/manager-write-state.py` step); `README.md` install-skills.sh description updated for update-only default + seed guidance; stale chain-runner drain fallback entry confirmed absent from Next up. Phase 24 review SPEC items all flipped `[x]`. Inline sanitize: must-fix=0. Validator clean. — by skill-set-dev at 2026-04-29T15:04:08Z
 - [medium] `bin/install-skills.sh` update-only default + `--install`/`--list-new`; `bin/skill-chain.py` Phase 24(5) pre-iter drain fallback `_drain_feedback_queue()`; `sst-manager` v1.6.0→v1.6.1 §1/§5 fallback for missing companion binary. Phase 24 SPEC items chain-runner drain + sst-manager companion + batch-sizing advisory all flipped `[x]`. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-29T14:38:22Z
 - Phase 24 [medium] `bin/manager-write-state.py` helper (3 modes: feedback/observation/drain-queue; flock; atomicity; idempotency); `sst-manager` v1.5.0→v1.6.0 + `skill-set-manager` v1.1.0→v1.2.0 prose updated to invoke helper; allowlist entry added. Phase 23 [easy] install: `sst-wiki-curator` NEW + 4 force-updated. Inline sanitize: must-fix=0. Validator clean. — by skill-set-dev at 2026-04-29T13:48:39Z
 - Phase 24 [easy] **Two-file collapse: `manager-feedback.md` + `manager-guidance.md` → `manager-notes.md` with source-tagged headings.** Foundation sub-item: sst-manager v1.4.0 → v1.5.0, sst-supervisor v1.8.2 → v1.9.0, skill-set-manager v1.0.0 → v1.1.0, skill-set-supervisor v1.1.1 → v1.2.0; supervisor `transferable-version` floor lifted to `>=1.9.0`. Single state file with two source-tagged entry kinds (`## <utc> user feedback (chat <id>)` authoritative + `## <utc> manager observation` soft); ~3KB cap; one-time idempotent legacy-merge migration on first manager invocation; supervisor reads legacy files as transition-state inputs until then. Conflict resolution: user feedback > manager observation; chain auto-promote > any notes entry. Inline sanitize on the two transferable touches: must-fix=0, should-fix=0, nit=0. Validator clean (25 skills + 7 chains; 5 proprietary + 2 chains). — by skill-set-dev at 2026-04-29T13:20:43Z
@@ -34,7 +34,6 @@
 - Phase 22 [easy] [should-fix] `sst-dev-review` v1.4.5 → v1.4.6 + `skill-set-dev-review` v1.2.5 → v1.2.6: raised §2.10/§2.11 full-chain band uppers for medium (300k → 430k) and hard (500k → 630k) to accommodate dev-skill's own window target + ~130k review+supervisor overhead; §176/§191 header prose updated to name all three dev-only targets (easy 100-200k, medium 200-300k, hard 400-500k). Inline sanitize: must-fix=0, should-fix=0, nit=0. Validator clean (25 skills + 7 chains; 5 proprietary + 2 chains). — by skill-set-dev at 2026-04-29T07:42:37Z
 - Phase 23 [hard]: authored new transferable `sst-wiki-curator` v1.0.0 under `skills/research/` for building and maintaining LLM-curated knowledge wikis (3 variants: minimal | middle | scripted; 2 modes: scaffold + ingest/maintain). 470-line SKILL.md covers project contract, three-layer architecture (raw → wiki → schema spec), file conventions, per-variant workflows, license tracking, anti-patterns, scripts reference. Inline sanitize: must-fix=0, should-fix=0, nit=0 (Karpathy gist URL retained as public technical citation per sst-web-research convention; Claude Code retained per `templates/sanitization-guidance.md` §Acceptable references; no project subdir names or `~/Dev/<domain>/` paths). Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-29T07:11:58Z
 - [easy] pushed /feedback to BotFather command list via Telegram setMyCommands API; all 9 commands confirmed (status, objectives, proposals, promote, feedback, pause, resume, ping, help) — by skill-set-dev at 2026-04-29T01:17:18Z
-- [medium] sst-manager v1.3.0→v1.4.0: rewrote §4 digest format — 5-section structured template (what shipped: N commits + ≈$spend + commit subjects; what stalled; goals with evidence; open queue count+top; pending review count); dropped 3 colloquial examples; replaced with 2 concrete examples showing commit subjects + plain-English explanations; language rules kept + "keep technical specifics" bullet added. Inline sanitize: must-fix=0, should-fix=0, nit=0. Validator clean. — by skill-set-dev at 2026-04-28T13:23:41Z
 
 ## Next up (queued for next cycle)
 
@@ -45,9 +44,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] `skills/framework/sst-manager/SKILL.md:109` — §1 absent-helper block says "run `bin/install-skills.sh --install sst-manager` to get both" but install-skills.sh only copies SKILL.md; binary stays missing — review of 950801c (group with install-skills-docs)
-- [easy] [should-fix] `README.md:21` — install-skills.sh description still says "copies every skill"; update for update-only default — review of 950801c (group with install-skills-docs)
-- [easy] [should-fix] `docs/TODO.md:## Next up` — chain-runner drain fallback (Phase 24 sub-5) shipped in 950801c but stale Next up entry not removed — review of 950801c
 - [hard] Phase 24 sub-item: smart manager on-demand routing. New `--process-feedback <queue-file>` mode in `sst-manager` that reads feedback body + objectives + SPEC + TODO + recent run log, decides one of four outcomes (queue item / SPEC addition / soft steering via `manager-translated user feedback` entry / refuse-or-clarify), replies via Telegram with where the change landed. Hard-rule expansion: scoped exception for `docs/TODO.md > Next up` and `docs/SPEC.md` appends only (modeled on the existing `objectives.md` exception). Update `sst-supervisor` to handle the third entry kind. Reason: spec Phase 24 sub-item 3; depends on the helper landing first.
 - [medium] Phase 24 sub-item: bot subprocess spawn on `/feedback`. Update `bin/manager-bot.py` to spawn `claude --print "/skill-set-manager --process-feedback <queue-file>"` out-of-band after writing the durable queue file; Telegram reply notes routing is in flight. Reason: spec Phase 24 sub-item 4; depends on smart-manager mode landing first.
 - [easy] Phase 24 sub-item: end-to-end acceptance test of the four `/feedback` outcomes (concrete change → TODO Next-up; shape-ish → manager-notes.md; refuse → Telegram explanation; ambiguous → clarifying question) plus crash-recovery via the chain-runner pre-iter drain fallback. Reason: spec Phase 24 acceptance item; depends on all preceding sub-items landing.

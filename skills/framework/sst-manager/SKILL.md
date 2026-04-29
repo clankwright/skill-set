@@ -2,7 +2,7 @@
 name: sst-manager
 description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user (including user feedback routed onward to the supervisor), and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.6.1
+version: 1.6.2
 ---
 
 # Manager
@@ -106,7 +106,7 @@ Check whether `bin/manager-write-state.py` is present before invoking it (`test 
 
 `bin/manager-write-state.py` initializes `manager-notes.md` with the correct H1 + lead paragraph if the file does not yet exist; prepends the entry just under the lead paragraph in the format `## <utc-iso> user feedback (chat <id>)` with a `<!-- src: <basename> -->` idempotency marker; trims total file length to ~3KB by deleting the oldest entries from the bottom; and renames the queue file to `manager-bot-queue/processed/<basename>`.
 
-**If the helper is absent** (consuming project installed `sst-manager` without the companion binary — run `bin/install-skills.sh --install sst-manager` from the skill-set repo to get both): fall back to these manual steps via Bash:
+**If the helper is absent** (consuming project installed `sst-manager` without the companion binary — copy it with `cp bin/manager-write-state.py <project>/bin/` from the skill-set repo): fall back to these manual steps via Bash:
 1. Read the queue file's `body` field.
 2. Prepend `## <utc-iso> user feedback (chat <id>)\n<body>\n\n` to `~/.claude/state/manager-notes.md` (create the file with the standard H1 + lead paragraph if absent).
 3. Trim `manager-notes.md` to ~3KB by removing the oldest `## ...` blocks from the bottom.
