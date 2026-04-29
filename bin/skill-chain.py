@@ -1373,6 +1373,32 @@ def run_iteration(
     return rc, iter_manifest
 
 
+def _drain_feedback_queue() -> None:
+    """Phase 24 (5): pre-iter drain of the feedback queue via manager-write-state.py.
+
+    Best-effort: if the helper is absent (older install) or exits non-zero,
+    print a warning and continue. The helper's idempotency marker means a file
+    already processed by the on-demand bot spawn is safely skipped here.
+    """
+    helper = Path(__file__).parent / "manager-write-state.py"
+    if not helper.exists():
+        return
+    try:
+        result = subprocess.run(
+            [sys.executable, str(helper), "--drain-feedback-queue"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            print(c(f"[drain-feedback] helper exited {result.returncode}: "
+                    f"{result.stderr.strip()[:200]}", ORANGE), flush=True)
+    except subprocess.TimeoutExpired:
+        print(c("[drain-feedback] helper timed out (30s); continuing", ORANGE), flush=True)
+    except Exception as exc:
+        print(c(f"[drain-feedback] {exc}; continuing", ORANGE), flush=True)
+
+
 def main() -> int:
     args = parse_args(sys.argv[1:])
     harness = get_harness(args.harness)
@@ -1561,6 +1587,11 @@ def main() -> int:
                 iter_log_dir: Path | None = log_dir / f"iter_{iteration:02d}"
             else:
                 iter_log_dir = log_dir
+
+            # Phase 24 (5): drain any feedback queued since the last iter so
+            # the supervisor's upcoming pass sees it even if the on-demand
+            # bot spawn failed (crash / rate-limit / network).
+            _drain_feedback_queue()
 
             rc, iter_manifest = run_iteration(
                 harness,

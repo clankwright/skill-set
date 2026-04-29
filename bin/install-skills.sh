@@ -7,18 +7,28 @@
 # skills at the target that aren't in the source — that prevents accidentally
 # wiping a project-local or hand-managed skill.
 #
+# UPDATE-ONLY BY DEFAULT: without explicit name filters or --install, only
+# skills already present under $TARGET are updated. New skills (present in
+# canonical but absent from $TARGET) are skipped — they require explicit opt-in.
+# Use --list-new to see what's available, --install <name> to add one.
+#
 # Usage:
-#   bin/install-skills.sh                          # all skills, interactive
-#   bin/install-skills.sh <name> [<name> ...]      # only the named skills
-#   bin/install-skills.sh -y                       # skip confirmation
+#   bin/install-skills.sh                          # update installed skills, interactive
+#   bin/install-skills.sh -y                       # update installed skills, no prompt
+#   bin/install-skills.sh <name> [<name> ...]      # only the named skills (new or existing)
+#   bin/install-skills.sh --install <name>         # add a new skill (may repeat)
+#   bin/install-skills.sh --list-new               # list skills in canonical but not installed
 #   bin/install-skills.sh --dry-run                # show what would change, copy nothing
 #   bin/install-skills.sh --force                  # overwrite even DIVERGED targets (see below)
 #   bin/install-skills.sh --target DIR             # custom target (default: ~/.claude/skills)
 #   bin/install-skills.sh --source DIR             # custom source (default: <repo>/skills)
 #
 # Examples:
-#   bin/install-skills.sh sst-sanitize-transferable       # one skill
-#   bin/install-skills.sh -y sst-supervisor sst-manager   # two, no prompt
+#   bin/install-skills.sh -y                              # update all installed, skip new
+#   bin/install-skills.sh -y --install sst-wiki-curator   # update all + add one new
+#   bin/install-skills.sh --list-new                      # discover what's available to add
+#   bin/install-skills.sh sst-sanitize-transferable       # one named skill (new or existing)
+#   bin/install-skills.sh -y sst-supervisor sst-manager   # two named, no prompt
 #   bin/install-skills.sh --dry-run sst-dev-cycle         # preview one
 #
 # Output groups skills by their source-repo category (e.g. framework/, dev/,
@@ -49,15 +59,20 @@ SOURCE="${REPO_ROOT}/skills"
 DRY_RUN=0
 ASSUME_YES=0
 FORCE=0
+LIST_NEW=0
 FILTERS=()
+INSTALLS=()  # explicit --install <name> additions
 
-usage() { sed -n '2,40p' "$0"; }
+usage() { sed -n '2,57p' "$0"; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         -y|--yes)      ASSUME_YES=1; shift ;;
         --dry-run)     DRY_RUN=1; shift ;;
         --force)       FORCE=1; shift ;;
+        --list-new)    LIST_NEW=1; shift ;;
+        --install)     [ $# -ge 2 ] || { echo "--install requires a name argument" >&2; exit 1; }
+                       INSTALLS+=("$2"); shift 2 ;;
         --target)      TARGET="$2"; shift 2 ;;
         --source)      SOURCE="$2"; shift 2 ;;
         -h|--help)     usage; exit 0 ;;
@@ -92,8 +107,36 @@ if [ -n "$dup" ]; then
     exit 1
 fi
 
-# Apply the name filter (if any). Every positional arg must match exactly one
-# skill; unknown names are a hard error so a typo doesn't silently no-op.
+# --list-new: show skills present in canonical but absent from target, then exit.
+if [ "$LIST_NEW" -eq 1 ]; then
+    echo "Skills available to install (not yet in $TARGET):"
+    found=0
+    for dir in "${skill_dirs[@]}"; do
+        name="$(basename "$dir")"
+        if [ ! -d "$TARGET/$name" ]; then
+            # Extract one-line description from frontmatter for context.
+            desc=""
+            sm="$dir/SKILL.md"
+            if [ -f "$sm" ]; then
+                desc=$(awk '
+                    BEGIN { in_fm=0; past_fm=0 }
+                    NR==1 && /^---[[:space:]]*$/ { in_fm=1; next }
+                    in_fm && /^---[[:space:]]*$/ { in_fm=0; past_fm=1; next }
+                    in_fm && /^description:/ { sub(/^description:[[:space:]]*/, ""); print; exit }
+                ' "$sm" | head -c 100)
+            fi
+            printf "  %-36s  %s\n" "$name" "$desc"
+            found=$((found + 1))
+        fi
+    done
+    if [ "$found" -eq 0 ]; then
+        echo "  (none; all canonical skills are already installed)"
+    fi
+    exit 0
+fi
+
+# Apply the explicit name filter (positional args). Every named skill must
+# exist in canonical; unknown names are a hard error.
 if [ "${#FILTERS[@]}" -gt 0 ]; then
     filtered=()
     unmatched=()
@@ -118,6 +161,62 @@ if [ "${#FILTERS[@]}" -gt 0 ]; then
         exit 1
     fi
     skill_dirs=("${filtered[@]}")
+fi
+
+# UPDATE-ONLY: if no explicit positional filter, restrict to skills already
+# present in the target. New skills silently excluded; use --list-new to
+# discover them, --install <name> to add one. --install names are appended
+# AFTER this filter runs, so the semantics are "update installed + add these".
+if [ "${#FILTERS[@]}" -eq 0 ]; then
+    update_only=()
+    new_count=0
+    for dir in "${skill_dirs[@]}"; do
+        name="$(basename "$dir")"
+        if [ -d "$TARGET/$name" ]; then
+            update_only+=("$dir")
+        else
+            new_count=$((new_count + 1))
+        fi
+    done
+    skill_dirs=("${update_only[@]+"${update_only[@]}"}")
+    if [ "$new_count" -gt 0 ] && [ "${#INSTALLS[@]}" -eq 0 ]; then
+        echo "Note: $new_count new skill(s) available but skipped (update-only mode)."
+        echo "      Run '--list-new' to see them, '--install <name>' to add one."
+        echo
+    fi
+fi
+
+# Validate --install names against canonical and append them to the work set.
+if [ "${#INSTALLS[@]}" -gt 0 ]; then
+    install_dirs=()
+    unmatched_installs=()
+    for want in "${INSTALLS[@]}"; do
+        # Skip if already in skill_dirs (positional filter or update-only already included it).
+        already=0
+        for dir in "${skill_dirs[@]+"${skill_dirs[@]}"}"; do
+            [ "$(basename "$dir")" = "$want" ] && already=1 && break
+        done
+        [ "$already" -eq 1 ] && continue
+        # Find in full canonical source.
+        hit=""
+        while IFS= read -r -d '' sm; do
+            d="$(dirname "$sm")/"
+            if [ "$(basename "$d")" = "$want" ]; then
+                hit="$d"
+                break
+            fi
+        done < <(find "$SOURCE" -type f -name SKILL.md -print0 | sort -z)
+        if [ -n "$hit" ]; then
+            install_dirs+=("$hit")
+        else
+            unmatched_installs+=("$want")
+        fi
+    done
+    if [ "${#unmatched_installs[@]}" -gt 0 ]; then
+        echo "error: --install skill(s) not found in $SOURCE: ${unmatched_installs[*]}" >&2
+        exit 1
+    fi
+    skill_dirs+=("${install_dirs[@]+"${install_dirs[@]}"}")
 fi
 
 # Compute each skill's source-side category (path between $SOURCE and the skill
@@ -176,6 +275,12 @@ status_of() {
         printf "UPDATE"
     fi
 }
+
+if [ "${#skill_dirs[@]}" -eq 0 ]; then
+    echo "Nothing to install or update."
+    echo "(Use --list-new to see available skills, --install <name> to add one.)"
+    exit 0
+fi
 
 echo "Source: $SOURCE"
 echo "Target: $TARGET"

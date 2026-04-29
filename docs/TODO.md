@@ -12,7 +12,6 @@
 
 
 
-
 ## Just shipped (last cycle)
 
 <!--
@@ -26,6 +25,7 @@
   phase blocks and `git log`.
 -->
 
+- [medium] `bin/install-skills.sh` update-only default + `--install`/`--list-new`; `bin/skill-chain.py` Phase 24(5) pre-iter drain fallback `_drain_feedback_queue()`; `sst-manager` v1.6.0→v1.6.1 §1/§5 fallback for missing companion binary. Phase 24 SPEC items chain-runner drain + sst-manager companion + batch-sizing advisory all flipped `[x]`. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-29T14:38:22Z
 - Phase 24 [medium] `bin/manager-write-state.py` helper (3 modes: feedback/observation/drain-queue; flock; atomicity; idempotency); `sst-manager` v1.5.0→v1.6.0 + `skill-set-manager` v1.1.0→v1.2.0 prose updated to invoke helper; allowlist entry added. Phase 23 [easy] install: `sst-wiki-curator` NEW + 4 force-updated. Inline sanitize: must-fix=0. Validator clean. — by skill-set-dev at 2026-04-29T13:48:39Z
 - Phase 24 [easy] **Two-file collapse: `manager-feedback.md` + `manager-guidance.md` → `manager-notes.md` with source-tagged headings.** Foundation sub-item: sst-manager v1.4.0 → v1.5.0, sst-supervisor v1.8.2 → v1.9.0, skill-set-manager v1.0.0 → v1.1.0, skill-set-supervisor v1.1.1 → v1.2.0; supervisor `transferable-version` floor lifted to `>=1.9.0`. Single state file with two source-tagged entry kinds (`## <utc> user feedback (chat <id>)` authoritative + `## <utc> manager observation` soft); ~3KB cap; one-time idempotent legacy-merge migration on first manager invocation; supervisor reads legacy files as transition-state inputs until then. Conflict resolution: user feedback > manager observation; chain auto-promote > any notes entry. Inline sanitize on the two transferable touches: must-fix=0, should-fix=0, nit=0. Validator clean (25 skills + 7 chains; 5 proprietary + 2 chains). — by skill-set-dev at 2026-04-29T13:20:43Z
 - [easy] [fix] `bin/drive-chain.py`: added `_is_worker_stale()` helper (compares `manager-bot.py` mtime vs worker pane's `/proc/<pid>/stat` start-time) and recycle logic in `main()` — if stale, kill the existing tmux session before starting a fresh one, so chain-driver upgrades are picked up on the next run. — by skill-set-dev at 2026-04-29T12:04:18Z
@@ -35,7 +35,6 @@
 - Phase 23 [hard]: authored new transferable `sst-wiki-curator` v1.0.0 under `skills/research/` for building and maintaining LLM-curated knowledge wikis (3 variants: minimal | middle | scripted; 2 modes: scaffold + ingest/maintain). 470-line SKILL.md covers project contract, three-layer architecture (raw → wiki → schema spec), file conventions, per-variant workflows, license tracking, anti-patterns, scripts reference. Inline sanitize: must-fix=0, should-fix=0, nit=0 (Karpathy gist URL retained as public technical citation per sst-web-research convention; Claude Code retained per `templates/sanitization-guidance.md` §Acceptable references; no project subdir names or `~/Dev/<domain>/` paths). Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-29T07:11:58Z
 - [easy] pushed /feedback to BotFather command list via Telegram setMyCommands API; all 9 commands confirmed (status, objectives, proposals, promote, feedback, pause, resume, ping, help) — by skill-set-dev at 2026-04-29T01:17:18Z
 - [medium] sst-manager v1.3.0→v1.4.0: rewrote §4 digest format — 5-section structured template (what shipped: N commits + ≈$spend + commit subjects; what stalled; goals with evidence; open queue count+top; pending review count); dropped 3 colloquial examples; replaced with 2 concrete examples showing commit subjects + plain-English explanations; language rules kept + "keep technical specifics" bullet added. Inline sanitize: must-fix=0, should-fix=0, nit=0. Validator clean. — by skill-set-dev at 2026-04-28T13:23:41Z
-- [easy] bin/manager-bot.py + README: added worker-lifecycle note to /help reply ("Replies are live only during chain runs; commands sent between runs queue and ack on the next session start.") + matching paragraph in README → "Telegram bot" → "Daily commands". — by skill-set-dev at 2026-04-28T13:23:41Z
 
 ## Next up (queued for next cycle)
 
@@ -46,8 +45,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] [should-fix] `skills/framework/sst-manager/SKILL.md:§1,§5` — v1.6.0 references `bin/manager-write-state.py` via Bash but `install-skills.sh` delivers only SKILL.md; consuming projects that install sst-manager v1.6.0 without the companion binary will fail at feedback-routing and notes-update steps. Proposed fix: bin-companion install mechanism OR §1/§5 fallback to manual steps when helper absent. — review of e11b7fd
-- [easy] [should-fix] [batch-sizing] iter_02 `.skill-runs/2026-04-29T13-14-28Z_skill-set-cycle/` (e11b7fd): difficulty=medium, actual ~98k dev tokens, below 100k undersize threshold; chain-runner drain fallback ([medium], Phase 24, compatible) was not batched. Bundle it with the next [medium] pick. — review of e11b7fd
 - [hard] Phase 24 sub-item: smart manager on-demand routing. New `--process-feedback <queue-file>` mode in `sst-manager` that reads feedback body + objectives + SPEC + TODO + recent run log, decides one of four outcomes (queue item / SPEC addition / soft steering via `manager-translated user feedback` entry / refuse-or-clarify), replies via Telegram with where the change landed. Hard-rule expansion: scoped exception for `docs/TODO.md > Next up` and `docs/SPEC.md` appends only (modeled on the existing `objectives.md` exception). Update `sst-supervisor` to handle the third entry kind. Reason: spec Phase 24 sub-item 3; depends on the helper landing first.
 - [medium] Phase 24 sub-item: bot subprocess spawn on `/feedback`. Update `bin/manager-bot.py` to spawn `claude --print "/skill-set-manager --process-feedback <queue-file>"` out-of-band after writing the durable queue file; Telegram reply notes routing is in flight. Reason: spec Phase 24 sub-item 4; depends on smart-manager mode landing first.
 - [medium] Phase 24 sub-item: chain-runner pre-iter drain fallback. `bin/skill-chain.py` calls `bin/manager-write-state.py --drain-feedback-queue` at the start of every iter so feedback that bypassed the on-demand spawn (crash, rate-limit, network glitch) still lands in `manager-notes.md` for the supervisor's next read. Idempotent via the helper's `<!-- src: <basename> -->` marker. Reason: spec Phase 24 sub-item 5; depends on the helper.
