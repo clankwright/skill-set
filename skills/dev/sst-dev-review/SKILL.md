@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.4.5
+version: 1.4.6
 model-floor: sonnet
 effort-floor: high
 ---
@@ -175,8 +175,8 @@ Locate the MANIFEST at `.skill-runs/<latest-run-dir>/MANIFEST.json` (flat) or `.
 
 Band edges by difficulty (full-chain input-token soft caps: dev + review + supervisor combined; the dev skill's own window target for the same difficulty is narrower — easy 100-200k, medium 200-300k, hard 400-500k):
 - `[easy]` → 100–350k; undersize threshold 50k (50% of lower edge)
-- `[medium]` → 200–300k; undersize threshold 100k
-- `[hard]` → 400–500k; undersize threshold 200k
+- `[medium]` → 200–430k; undersize threshold 100k
+- `[hard]` → 400–630k; undersize threshold 200k
 
 Also read the `[batch-pick]` block's `window-target ~XXk` and verify it falls within the band for the stated difficulty.
 
