@@ -313,6 +313,47 @@ def _probe_worker(persona_session: str) -> dict | None:
     return None
 
 
+def _is_worker_stale(descriptor: dict) -> bool:
+    """Return True when bin/manager-bot.py was modified *after* the worker
+    process started, meaning the worker is serving old code and should be
+    recycled. Only meaningful for tmux-kind descriptors on Linux (/proc).
+    Conservatively returns False on any read failure so a live worker is
+    never incorrectly killed."""
+    if not MANAGER_BOT.exists():
+        return False
+    try:
+        bot_mtime = MANAGER_BOT.stat().st_mtime
+    except OSError:
+        return False
+    if descriptor.get("kind") != "tmux":
+        return False
+    session = descriptor.get("name")
+    if not session:
+        return False
+    # Get the PID of the pane running in the tmux session.
+    try:
+        pinfo = subprocess.run(
+            ["tmux", "list-panes", "-t", session, "-F", "#{pane_pid}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        line = pinfo.stdout.strip().splitlines()[0] if pinfo.stdout.strip() else ""
+        if not line:
+            return False
+        pid = int(line)
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return False
+    # /proc/<pid>/stat field 22 (0-indexed 21) is jiffies since boot.
+    try:
+        stat_fields = Path(f"/proc/{pid}/stat").read_text().split()
+        start_jiffies = int(stat_fields[21])
+        uptime_seconds = float(Path("/proc/uptime").read_text().split()[0])
+        sc_clk_tck = os.sysconf("SC_CLK_TCK")
+        process_start_real = time.time() - uptime_seconds + start_jiffies / sc_clk_tck
+    except (OSError, ValueError, AttributeError, IndexError):
+        return False
+    return bot_mtime > process_start_real
+
+
 def _start_worker(*, persona: str, env_file: Path) -> dict | None:
     """Start a detached tmux session running bin/manager-bot.py with
     TELEGRAM_ENV_FILE pointing at env_file. Holds an exclusive flock on
@@ -661,7 +702,9 @@ def main() -> int:
     # Telegram is enabled, an env file was provided (so we have a chat-id to
     # ack), and no existing worker is running. Pre-existing workers
     # (persona-suffixed, legacy, or PID-file-tracked) are left untouched and
-    # `worker_started_by_us` stays False so session-end cleanup is a no-op.
+    # `worker_started_by_us` stays False so session-end cleanup is a no-op,
+    # UNLESS the existing worker is stale (manager-bot.py updated since it
+    # started), in which case it is recycled before starting a fresh one.
     worker_started_by_us = False
     worker_descriptor: dict | None = None
     if not args.no_telegram and args.telegram_env is not None:
@@ -669,6 +712,17 @@ def main() -> int:
         if persona:
             session = f"{persona}-bot"
             existing = _probe_worker(session)
+            if existing is not None and _is_worker_stale(existing):
+                print(
+                    f"[chain-driver] stale worker detected "
+                    f"({existing.get('kind')}: "
+                    f"{existing.get('name') or existing.get('pid')}); "
+                    f"manager-bot.py was updated since the worker started — "
+                    f"recycling session.",
+                    file=sys.stderr, flush=True,
+                )
+                _stop_worker(existing)
+                existing = None
             if existing is None:
                 worker_descriptor = _start_worker(
                     persona=persona, env_file=args.telegram_env.resolve(),

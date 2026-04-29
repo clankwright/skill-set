@@ -1631,7 +1631,16 @@ def main() -> int:
         manifest["iterations"] = iterations_collected
     else:
         # Preserve the original flat shape for single-run manifests.
-        manifest["skills"] = iterations_collected[0]["skills"] if iterations_collected else []
+        # Also promote iter-level routing fields so §2.11 batch-sizing and
+        # supervisor §3.5.1 refinement work on debug-mode runs.
+        if iterations_collected:
+            iter0 = iterations_collected[0]
+            manifest["skills"] = iter0["skills"]
+            manifest["difficulty"] = iter0.get("difficulty")
+            manifest["difficulty_source"] = iter0.get("difficulty_source")
+            manifest["rate_limit_pauses"] = iter0.get("rate_limit_pauses", [])
+        else:
+            manifest["skills"] = []
 
     if log_dir is not None:
         (log_dir / "MANIFEST.json").write_text(
