@@ -168,15 +168,15 @@ def spawn_on_demand_manager(queue_file: Path) -> bool:
         f"/{MANAGER_SKILL_NAME} --process-feedback {queue_file}",
     ]
     try:
-        log_fd = open(log_path, "ab", buffering=0)
-        subprocess.Popen(
-            cmd,
-            stdout=log_fd,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-            close_fds=True,
-        )
+        with open(log_path, "ab", buffering=0) as log_fd:
+            subprocess.Popen(
+                cmd,
+                stdout=log_fd,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+            )
     except Exception as exc:
         logger.error("on-demand manager spawn failed: %s", exc)
         return False
