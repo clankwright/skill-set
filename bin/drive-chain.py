@@ -227,10 +227,14 @@ def _supervisor_verdict_path(log_dir: Path, iter_num: int, looping: bool) -> Pat
 def _verdict_outcome(verdict_path: Path) -> str:
     """Inspect a supervisor_verdict.md and return a one-word outcome label.
 
-    Looks for an explicit `Outcome: <word>` line first; failing that, scans
-    for `escalate` / `ESCALATE` markers anywhere in the body. Returns
-    'unknown' when the file is absent (caller decides whether that's an
-    error vs just a no-supervisor chain).
+    Checks two patterns for an explicit outcome declaration (markdown-header
+    form first, legacy colon form second); failing both, scans the body for
+    `escalate` / `ESCALATE` with code spans stripped so a supervisor
+    enumerating grep patterns it did NOT find (e.g. ``"`[escalate]`"`` in a
+    "no matches" sentence) does not false-trigger.
+
+    Returns 'unknown' when the file is absent (caller decides whether that's
+    an error vs just a no-supervisor chain).
     """
     if not verdict_path.exists():
         return "unknown"
@@ -238,10 +242,20 @@ def _verdict_outcome(verdict_path: Path) -> str:
         body = verdict_path.read_text(encoding="utf-8")
     except OSError:
         return "unknown"
+    # Primary: markdown-header form `## Outcome\n\n<word ...>` (what supervisors
+    # actually write — the first non-empty word on the line after the heading).
+    m = re.search(r"^##\s+Outcome\s*\n+\s*([A-Za-z_-]+)", body, re.MULTILINE)
+    if m:
+        return m.group(1).strip().lower()
+    # Secondary: inline colon form `Outcome: <word>` (legacy / alternative).
     m = re.search(r"^\s*\*?\*?Outcome\*?\*?\s*:\s*([A-Za-z_-]+)", body, re.MULTILINE)
     if m:
         return m.group(1).strip().lower()
-    if re.search(r"\bescalate\b", body, re.IGNORECASE):
+    # Fallback: strip fenced blocks and inline code spans before scanning so
+    # "`[escalate]`" in a "no matches" enumeration doesn't match \bescalate\b.
+    stripped = re.sub(r"```[\s\S]*?```", "", body)
+    stripped = re.sub(r"`[^`\n]+`", "", stripped)
+    if re.search(r"\bescalate\b", stripped, re.IGNORECASE):
         return "escalate"
     return "clean"
 
@@ -557,7 +571,12 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
                         "--loop (whichever fires first wins). Only meaningful when "
                         "the resolved chain loop count is greater than --max-cycles "
                         "(or 0/unlimited); single-iter chains finish naturally before "
-                        "the cap can fire and a no-op note is printed at startup.")
+                        "the cap can fire and a no-op note is printed at startup. "
+                        "Precedence: when --loop N is passed explicitly without "
+                        "--max-cycles, any profile default-max-cycles is skipped "
+                        "(--loop is the only ceiling for that run). To impose a "
+                        "lower cap on an explicit --loop N run, pass --max-cycles M "
+                        "alongside it.")
     p.add_argument("--telegram-env", type=Path, default=None,
                    help="Path to a shell-style env file exporting TELEGRAM_BOT_TOKEN "
                         "and TELEGRAM_CHAT_ID. Sourced into the chain driver's "
@@ -591,6 +610,12 @@ def main() -> int:
 
     cwd = os.getcwd()
 
+    # Snapshot before profile loading so the precedence gate below can
+    # distinguish "user said --loop N" from "profile filled in default-loop."
+    # When --loop N is explicit, default-max-cycles is skipped so the user's
+    # loop count is the only ceiling (no silent profile cap).
+    explicit_loop = args.loop is not None
+
     # Resolve profile defaults as a layer BELOW CLI args. Each CLI arg keeps
     # its current "explicit > profile > None/builtin" semantics; we only fill
     # in fields the user didn't pass. Unknown profile keys are dropped by
@@ -620,7 +645,9 @@ def main() -> int:
                     args.max_budget_usd = float(profile["default-max-budget-usd"])
                 except (TypeError, ValueError):
                     pass
-            if args.max_cycles is None and profile.get("default-max-cycles") is not None:
+            if (args.max_cycles is None
+                    and not explicit_loop
+                    and profile.get("default-max-cycles") is not None):
                 try:
                     args.max_cycles = int(profile["default-max-cycles"])
                 except (TypeError, ValueError):
@@ -637,6 +664,12 @@ def main() -> int:
             "--chain is required (or pass --profile <persona> resolving to a "
             "'<persona>-chain-driver/SKILL.md' with `watched-chain:` set)."
         )
+
+    print(
+        f"[chain-driver] resolved: chain={args.chain!r} loop={args.loop} "
+        f"max_cycles={args.max_cycles} max_budget_usd={args.max_budget_usd}",
+        file=sys.stderr, flush=True,
+    )
 
     if args.log_dir is not None:
         log_dir = args.log_dir.resolve()

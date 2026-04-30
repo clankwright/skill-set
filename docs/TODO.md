@@ -11,6 +11,7 @@
 -->
 
 
+
 ## Just shipped (last cycle)
 
 <!--
@@ -24,6 +25,8 @@
   phase blocks and `git log`.
 -->
 
+- [easy] [fix] [blocker] `bin/drive-chain.py _verdict_outcome`: extended primary regex to match markdown-header `## Outcome\n\n<word>` form; added secondary colon-form regex; stripped fenced + inline code spans from fallback body scan so `` `[escalate]` `` in a "no matches" sentence no longer false-triggers. Smoke-tested against iter_01 + iter_02 of `2026-04-29T14-29-05Z_skill-set-cycle/`; both return `"clean"`. — by skill-set-dev at 2026-04-30T01:17:57Z
+- [easy] [fix] `bin/drive-chain.py` `--loop N` vs `default-max-cycles` precedence: snapshot `explicit_loop` before profile load; skip `default-max-cycles` from profile when `--loop` was explicit. Added resolved-caps diagnostic print, updated `--max-cycles` help, updated `skill-set-chain-driver` SKILL.md rationale + `--loop 6` invocation example. — by skill-set-dev at 2026-04-30T01:17:57Z
 - [easy] `sst-manager` v1.6.1→v1.6.2: fix §1 absent-helper block (replace misleading `--install` claim with explicit `cp bin/manager-write-state.py` step); `README.md` install-skills.sh description updated for update-only default + seed guidance; stale chain-runner drain fallback entry confirmed absent from Next up. Phase 24 review SPEC items all flipped `[x]`. Inline sanitize: must-fix=0. Validator clean. — by skill-set-dev at 2026-04-29T15:04:08Z
 - [medium] `bin/install-skills.sh` update-only default + `--install`/`--list-new`; `bin/skill-chain.py` Phase 24(5) pre-iter drain fallback `_drain_feedback_queue()`; `sst-manager` v1.6.0→v1.6.1 §1/§5 fallback for missing companion binary. Phase 24 SPEC items chain-runner drain + sst-manager companion + batch-sizing advisory all flipped `[x]`. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-29T14:38:22Z
 - Phase 24 [medium] `bin/manager-write-state.py` helper (3 modes: feedback/observation/drain-queue; flock; atomicity; idempotency); `sst-manager` v1.5.0→v1.6.0 + `skill-set-manager` v1.1.0→v1.2.0 prose updated to invoke helper; allowlist entry added. Phase 23 [easy] install: `sst-wiki-curator` NEW + 4 force-updated. Inline sanitize: must-fix=0. Validator clean. — by skill-set-dev at 2026-04-29T13:48:39Z
@@ -32,8 +35,6 @@
 - [medium] [should-fix] `bin/skill-chain.py` flat-run MANIFEST: promoted `difficulty`, `difficulty_source`, and `rate_limit_pauses` from `iterations_collected[0]` into the session manifest when `not looping`, enabling §2.11 batch-sizing and supervisor §3.5.1 refinement on debug-mode single-iter runs. — by skill-set-dev at 2026-04-29T12:04:18Z
 - [easy] [fix] `sst-dev-review` v1.4.6 → v1.4.7 + `sst-dev-cycle` v1.4.1 → v1.4.2 + proprietary mirrors: corrected §2.10/§2.11 to measure dev-skill tokens only (skills[0], not full-chain sum); reverted band edges to dev-skill targets (easy 100-200k, medium 200-300k, hard 400-500k); updated operating-principle parenthetical in dev skills to state the review fires on the dev's own number. Inline sanitize: must-fix=0, should-fix=0, nit=0. Validator clean (25 skills + 7 chains; 5 proprietary + 2 chains). — by skill-set-dev at 2026-04-29T11:35:23Z
 - Phase 22 [easy] [should-fix] `sst-dev-review` v1.4.5 → v1.4.6 + `skill-set-dev-review` v1.2.5 → v1.2.6: raised §2.10/§2.11 full-chain band uppers for medium (300k → 430k) and hard (500k → 630k) to accommodate dev-skill's own window target + ~130k review+supervisor overhead; §176/§191 header prose updated to name all three dev-only targets (easy 100-200k, medium 200-300k, hard 400-500k). Inline sanitize: must-fix=0, should-fix=0, nit=0. Validator clean (25 skills + 7 chains; 5 proprietary + 2 chains). — by skill-set-dev at 2026-04-29T07:42:37Z
-- Phase 23 [hard]: authored new transferable `sst-wiki-curator` v1.0.0 under `skills/research/` for building and maintaining LLM-curated knowledge wikis (3 variants: minimal | middle | scripted; 2 modes: scaffold + ingest/maintain). 470-line SKILL.md covers project contract, three-layer architecture (raw → wiki → schema spec), file conventions, per-variant workflows, license tracking, anti-patterns, scripts reference. Inline sanitize: must-fix=0, should-fix=0, nit=0 (Karpathy gist URL retained as public technical citation per sst-web-research convention; Claude Code retained per `templates/sanitization-guidance.md` §Acceptable references; no project subdir names or `~/Dev/<domain>/` paths). Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-29T07:11:58Z
-- [easy] pushed /feedback to BotFather command list via Telegram setMyCommands API; all 9 commands confirmed (status, objectives, proposals, promote, feedback, pause, resume, ping, help) — by skill-set-dev at 2026-04-29T01:17:18Z
 
 ## Next up (queued for next cycle)
 
