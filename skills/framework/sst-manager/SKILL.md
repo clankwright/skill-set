@@ -1,13 +1,19 @@
 ---
 name: sst-manager
-description: Periodic high-level oversight loop. Walks the watched projects' .skill-runs/, reads MANIFEST.json + supervisor_verdict.md + handoff docs, scores progress against the persona's objectives.md, sends a status digest (or an escalation) over Telegram, processes any inbound bot commands queued by the user (including user feedback routed onward to the supervisor), and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
+description: |
+  Two modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.6.2
+version: 1.7.0
 ---
 
 # Manager
 
-The manager is the third-and-final loop. It runs on a cadence (cron / `/loop 6h`) and is the only loop that talks to the user proactively. It holds the long-lived org/persona objectives, watches the projects, and steers the supervisor by prepending source-tagged entries to a single notes file the supervisor reads on its next run.
+The manager is the third-and-final loop. It runs in two modes:
+
+1. **Periodic oversight** — fires on a cadence (cron / `/loop 6h`), walks the watched projects, decides whether a status digest or an escalation is warranted, sends it over Telegram, drains the inbound bot queue, and shapes the supervisor's next-run inputs via `manager-notes.md`. This is the default invocation (`/<persona>-manager` with no extra args).
+2. **On-demand feedback routing** — fires immediately when the bot writes a `/feedback` queue file, invoked as `/<persona>-manager --process-feedback <queue-file>`. The manager reads the feedback body alongside its full context (objectives, SPEC, TODO, recent run log) and *decides* where the feedback lands instead of routing the body verbatim. Four legal outcomes; see §On-demand feedback routing.
+
+Both modes are the same skill, same single-process invocation. The mode is determined by whether `--process-feedback <queue-file>` appears in the input. The manager talks to the user proactively (status digests, escalations, on-demand replies) but is read-only across watched projects with one scoped exception for `docs/TODO.md > Next up` and `docs/SPEC.md` appends (on-demand mode only; see §Hard rules).
 
 The manager NEVER:
 - edits a `SKILL.md` (that's `/sst-promote-skill-proposal`).
@@ -42,19 +48,22 @@ State files this skill reads / writes:
 
 | Path                                          | Read | Write |
 |-----------------------------------------------|------|-------|
-| `~/.claude/state/manager-cursors.json`        | yes  | yes   |
+| `~/.claude/state/manager-cursors.json`        | yes  | yes (periodic mode only)   |
 | `~/.claude/state/manager-notes.md`            | yes  | yes (prepend newest-first; source-tagged headings; ~3KB cap) |
 | `~/.claude/state/manager-paused`              | yes  | no    |
-| `~/.claude/state/manager-bot-queue/*.json`    | yes  | delete after processing |
-| `~/.claude/state/manager-digests/<utc>.txt`   | no   | yes   |
-| `<objectives-path>`                           | yes  | yes (only `[ ]` ↔ `[x]` toggles) |
+| `~/.claude/state/manager-bot-queue/*.json`    | yes  | move to `processed/` after handling |
+| `~/.claude/state/manager-digests/<utc>.txt`   | no   | yes (periodic mode only) |
+| `<objectives-path>`                           | yes  | yes (only `[ ]` ↔ `[x]` toggles; periodic mode only) |
+| `<watched-project>/docs/TODO.md`              | yes  | yes (on-demand mode only; APPENDS to `## Next up` only) |
+| `<watched-project>/docs/SPEC.md`              | yes  | yes (on-demand mode only; APPENDS new sub-items or new phase blocks only) |
 
-`manager-notes.md` is the single state file the supervisor reads for cross-run steering. It carries TWO source-tagged entry kinds, interleaved newest-first:
+`manager-notes.md` is the single state file the supervisor reads for cross-run steering. It carries THREE source-tagged entry kinds, interleaved newest-first:
 
-- `## <utc-iso> user feedback (chat <id>)` — direct user-to-supervisor messaging routed verbatim from the Telegram `/feedback` command (authoritative steering).
+- `## <utc-iso> user feedback (chat <id>)` — direct user-to-supervisor messaging routed verbatim from the Telegram `/feedback` command (authoritative steering). Written by periodic-mode drain (helper `--source feedback`) or by chain-runner pre-iter drain fallback. The body is the user's words unmodified.
+- `## <utc-iso> manager-translated user feedback (chat <id>)` — manager-interpreted shape-ish feedback that didn't map to a discrete TODO Next-up item or SPEC addition (authoritative steering, written ONLY by on-demand mode's outcome (c); see §On-demand feedback routing). Body is a 2-4 sentence reasoning paragraph naming what the user said + which objective(s) it touches + what the manager recommends to the supervisor. The manager's reasoning is on the record so the supervisor can weigh it, and so a future cycle can detect a misroute.
 - `## <utc-iso> manager observation` — patterns the manager derived from observing run logs (soft steering).
 
-Conflict resolution between the two kinds is the supervisor's job (user feedback wins). The manager's job is to capture, source-tag, and trim. Earlier framework versions split these into `manager-feedback.md` + `manager-guidance.md`; on first invocation the manager merges any legacy entries into `manager-notes.md` (interleaved by UTC, source-tagged by origin file) and renames each legacy file to `~/.claude/state/.archive/<name>.<utc-iso>.md`. Subsequent runs see only `manager-notes.md`.
+Conflict resolution between the three kinds is the supervisor's job. The general rule: **user feedback (verbatim) ≥ manager-translated user feedback > manager observation**, and chain `auto-promote` mode beats any entry. The manager's job is to capture, source-tag, and trim. Earlier framework versions split these into `manager-feedback.md` + `manager-guidance.md`; on first invocation the manager merges any legacy entries into `manager-notes.md` (interleaved by UTC, source-tagged by origin file) and renames each legacy file to `~/.claude/state/.archive/<name>.<utc-iso>.md`. Subsequent runs see only `manager-notes.md`.
 
 ## Process
 
@@ -260,13 +269,92 @@ If no pattern was worth shaping, do NOT invoke the helper. Empty updates pollute
 
 Stdout: a one-line summary (`manager: 2 watched projects, 1 escalation, sent digest, supervisor notes updated`). Telegram already received the user-facing message; stdout is for the cron log.
 
+## On-demand feedback routing (`--process-feedback <queue-file>`)
+
+This mode runs INSTEAD OF the periodic Process loop above. It is invoked when the bot spawns the manager out-of-band immediately after writing a `/feedback` queue file: `claude --print "/<persona>-manager --process-feedback <queue-file>"`. Detect the mode by parsing the input: if the literal token `--process-feedback` is present, the next token is the queue-file path, and §1–§6 of the periodic loop are skipped. Otherwise, fall through to the periodic mode.
+
+The point of this mode is to use the manager's full context (objectives.md, every watched project's SPEC + TODO, the most recent run log) to *decide* where each `/feedback` lands rather than routing the body verbatim. The supervisor has a narrower context (one run log + handoff docs); the manager has the cross-cutting context where vague feedback often lives. Routing happens once, at on-demand time, instead of every supervisor cycle re-reading a verbatim body.
+
+### A. Read the inputs
+
+1. Read the queue file (`<queue-file>`). Required JSON fields: `body` (user's message text), `from_chat_id`, `received_at`. If the file is malformed, missing, or already in `processed/` (helper idempotency caught it), reply via Telegram `Already processed (or queue file missing); ignoring.` and exit 0.
+2. Read the proprietary counterpart's frontmatter / body for the same configuration the periodic mode reads (watched-projects, objectives-path, telegram-env). Fail fast with a stderr message if any required field is absent.
+3. Source the Telegram env file as in §0.3.
+4. Read `objectives-path`. This is the canonical north star — every routing decision must trace to one or more objective bullets (or be refused for falling outside).
+5. **For each watched project**, read `<project>/docs/SPEC.md` and `<project>/docs/TODO.md` end-to-end. The TODO's `## Next up` section is the queue an outcome (a) appends to; SPEC phase blocks are what outcome (b) appends under. Multi-project scope: when the feedback names a specific project ("the dev cycle on project-a is over-batching"), narrow to that project; when it's project-agnostic ("supervisor should weigh cost more"), the manager picks the most-relevant project (typically the one with the most recent run touching that surface).
+6. Read the most recent run log under `<chosen-project>/.skill-runs/<latest>/` — `MANIFEST.json` plus any `supervisor_verdict.md` — for "what just happened" context. If no recent run exists, that's fine; some feedback is forward-looking.
+7. Read `~/.claude/state/manager-notes.md` if present, primarily to detect duplicates: if a `<!-- src: <basename> -->` for THIS queue file already appears, the on-demand routing already happened (race with the chain-runner pre-iter drain or a prior on-demand spawn). Reply `Already routed (entry exists in manager-notes.md); ignoring duplicate.` and exit 0.
+
+### B. Decide the outcome
+
+Pick exactly ONE outcome. The four outcomes are mutually exclusive; bundling (e.g. SPEC addition AND TODO append for the same feedback) is forbidden and surfaces as scope creep on review.
+
+**(a) Direct queue item — append to `docs/TODO.md > Next up`.** Use when the feedback maps to a discrete, single-cycle work item that fits an objective bullet AND has clear acceptance: "tighten the supervisor's batch-window check so under-50% findings are batched", "add a `--dry-run` flag to install-skills.sh", "raise the [easy] band's lower edge from 100k to 130k". Append a single line to the chosen project's `<project>/docs/TODO.md` under `## Next up`:
+
+```
+- [<difficulty>] <one-line description> — (reason: user feedback <utc-iso>; chat <id>)
+```
+
+Pick `<difficulty>` by judging the work shape against the project's existing `[easy] | [medium] | [hard]` labels (the difficulty contract is the same one the dev skill uses; default to `[medium]` when uncertain). Order: append to the BOTTOM of `## Next up` so existing queued blockers stay ahead. Do NOT touch `## In flight` or `## Just shipped`. Do NOT modify any other section. Do NOT commit; the change is left in the working tree for the next chain run to pick up via the dev skill's normal §1 pick.
+
+**(b) SPEC addition — append to `docs/SPEC.md`.** Use when the feedback is bigger than a single cycle and represents a new contract surface, multi-step initiative, or design change ("add an end-to-end test that exercises every chain", "phase out manager-feedback.md once all consumers are on v1.5+", "introduce a per-skill effort-floor table"). Two append shapes are legal:
+
+- **Sub-item under the latest active phase**: locate the most-recent `### Phase N: <name>` block whose checklist still has open `[ ]` items, and append a new `- [ ] [<difficulty>] <one-line>` at the END of that phase's checklist. Use this when the feedback extends a phase already in flight.
+- **New phase block** at the very bottom of `## Phases`: when the feedback represents a distinct initiative not under any open phase. Format mirrors existing phase blocks: `### Phase <next-N>: <one-line title>` + a 1-paragraph context lede + a bulleted `- [ ]` checklist seeded with at least one item. Number `N` continues the existing sequence; do NOT renumber existing phases.
+
+In both shapes, the appended item(s) carry the same `(reason: user feedback <utc-iso>; chat <id>)` annotation either inline on the item or in the phase context paragraph. Do NOT renumber existing phases. Do NOT modify any existing item's `[ ]` / `[x]` state. Do NOT touch `## In flight`, `## Just shipped`, or `## Next up` in SPEC.md (those are TODO.md surfaces). Do NOT commit.
+
+**(c) Soft steering — write a `manager-translated user feedback` entry to `manager-notes.md`.** Use when the feedback is shape-ish — about the system's posture, taste, priorities, or how-the-supervisor-should-weigh-things — rather than a discrete work item. Examples: "you've been over-promoting transferables; be more conservative", "stop suggesting overnight runs unless I ask", "I want to see more cost data in the digest". The user wants the system to BEHAVE differently, not for a specific change to ship.
+
+Compose a 2-4 sentence reasoning paragraph naming what the user said (in plain English, paraphrased), which objective(s) it bears on (or "(no objective explicitly named; manager interpreted as taste guidance)"), and what action the manager recommends to the supervisor. Pipe the paragraph to the helper:
+
+```bash
+echo "<reasoning paragraph>" | bin/manager-write-state.py \
+    --source manager-translated \
+    --src-file <queue-file>
+```
+
+The helper prepends `## <utc-iso> manager-translated user feedback (chat <id>)` with the `<!-- src: <basename> -->` idempotency marker, trims the file to ~3KB, and moves the queue file to `processed/`. The supervisor reads this entry on its next run and weighs it as authoritative steering — but the steering is the manager's interpretation, not the user's exact words.
+
+**(d) Refuse / clarify — Telegram-only.** Use when the feedback either:
+
+- **Conflicts with anti-fork or hard rules** ("skip sanitize on the next transferable write", "have the supervisor commit code", "deploy without verification"). Refuse via Telegram with a one-paragraph plain-English explanation of the rule + offer the user a path that DOES fit the framework. Do NOT write any state file. Move the queue file to `processed/<basename>.refused` so the chain-runner pre-iter drain doesn't re-process it.
+- **Is genuinely ambiguous** ("fix the thing", "check that one thing about the cost"). Reply via Telegram with a clarifying question that names what's unclear ("Which 'thing'? The supervisor's batch-window check, the dev's window-target prose, or something else?"). Leave the queue file in place (NOT processed/) so a future on-demand or chain-runner-pre-iter drain can pick up a follow-up. The user's clarifying reply will arrive as a fresh `/feedback` message with its own queue file.
+
+### C. Reply via Telegram
+
+Always reply, even on outcome (d). Format:
+
+```
+✅ Routed your feedback — <Month D, YYYY> <HH:MM> UTC
+Outcome: <a|b|c|d-refused|d-clarify>
+Where it landed: <project>/<file path>:<section>  (or "Telegram-only; no file change" for d)
+Manager note: <one sentence: why this outcome was chosen>
+```
+
+For (a) name the file (`<project>/docs/TODO.md`) + section (`## Next up`). For (b) name the file + section (`docs/SPEC.md > ### Phase N: <title>` for sub-items, or `docs/SPEC.md > ### Phase <new-N>: <title>` for new phases). For (c) name the file + entry kind (`~/.claude/state/manager-notes.md > ## <utc> manager-translated user feedback`). For (d) explain the refusal-or-question; no "where it landed" line.
+
+If the Telegram send fails (rate-limited / network), retry up to 3 times with exponential backoff (`bin/notify-telegram.sh` already does some of this). After exhaustion, write a `.error` sibling next to the queue file with the failure reason and exit non-zero — the file changes have already been written, so the supervisor will see them next run; the user is just missing the confirmation.
+
+### D. Exit cleanly
+
+The on-demand mode does NOT walk other watched projects, score against objectives globally, or compose a digest. Its scope is the single `/feedback` message routed to the single chosen project. Stdout: a one-line summary (`manager: routed feedback (chat <id>) → <outcome> @ <project>/<file>`). Exit 0.
+
+If any input read fails (queue file gone, telegram-env missing, project paths unreachable), exit non-zero with a stderr message naming the missing input. The bot's spawn will see the non-zero exit and the queue file will still be in place; the chain-runner pre-iter drain or the next periodic-mode tick will eventually pick it up as the verbatim-routing fallback (degraded but not lost).
+
+### E. Never invoke another `claude --print` / harness from on-demand mode
+
+The on-demand mode runs INSIDE one `claude --print` already. Recursing would multiply harness load and break the bot's "one spawn per /feedback" contract. If decision-making requires reading more state than is available in this single run (e.g. stepping into a watched project to re-read code that has changed since the run log), instead route the feedback as outcome (a) "investigate <X>" or outcome (c) "supervisor should re-examine <X>"; the dev or supervisor cycle will do the read with proper context.
+
 ## Hard rules
 
-- **No `git commit` / `git push` / SSH / curl-against-prod.** The manager is read-only across watched projects, write-only to its own state files, and outbound-only to Telegram.
-- **No `claude -p` / harness invocation.** The manager runs INSIDE a single skill invocation (one `claude -p`), which the cron / `/loop` triggers. It does not spawn more.
+- **No `git commit` / `git push` / SSH / curl-against-prod.** The manager never commits, pushes, or talks to live services. Write surface is bounded to: its own state files (`manager-cursors.json`, `manager-notes.md`, `manager-digests/`), the Telegram outbound, `<objectives-path>` `[ ]` ↔ `[x]` toggles, AND (on-demand mode only) `docs/TODO.md > Next up` appends + `docs/SPEC.md` appends in watched projects. The TODO/SPEC scoped exception is APPENDS ONLY (modeled on the existing `objectives.md` `[ ]` ↔ `[x]` exception): never edits an existing item, never deletes, never renumbers, never modifies `## In flight` or `## Just shipped` or any phase heading text, never reorders phases, never commits or stages the change. The dev cycle's normal §1 pick is what eventually ships the queued item; the manager just inserts the line.
+- **No `claude -p` / harness invocation.** The manager runs INSIDE a single skill invocation (one `claude -p`), which the cron / `/loop` / bot-spawn triggers. It does not spawn more — even in on-demand mode where re-reading state in a fresh harness might tempt it (see §On-demand feedback routing E).
 - **Telegram messages capped at 4000 chars.** Truncate with `... [truncated; run /status for full digest]` if needed; the full digest is always in `manager-digests/<utc>.txt`.
 - **Never write a token, preimage, or chat ID into the digest body.** The CHAT_ID allowlist is enforced by the bot, not by message content.
 - **Never re-notify on persistent paused-job state.** A rate-limited or otherwise paused job is reported ONCE at the pause edge (via the chain driver) and ONCE at resume. The manager's periodic digest may MENTION currently-paused jobs in the consolidated status block, but MUST NOT fire a separate Telegram body per tick for the same paused job. If a job stays paused across multiple manager ticks, treat that as steady state, not a new event.
+- **On-demand mode is single-feedback-per-invocation.** `--process-feedback` accepts exactly one queue-file path and routes exactly one outcome. Batch routing (multiple queue files in one invocation) is a separate concern that belongs to the periodic-mode drain, not on-demand.
+- **On-demand mode never touches digests.** The on-demand mode does NOT compose or send a status digest, regardless of whether `manager-digests/` is stale. Digests are a periodic-mode concern; the bot-spawned on-demand path is for single-message routing only.
 
 ## Worker-lifecycle expectation
 

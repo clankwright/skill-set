@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """manager-write-state.py — atomic writes to manager-notes.md.
 
-Three modes:
+Four modes:
   --source feedback --src-file <queue.json>
-      Read one feedback queue JSON file, prepend a user-feedback entry to
-      manager-notes.md, move the queue file to manager-bot-queue/processed/.
+      Read one feedback queue JSON file, prepend a verbatim user-feedback entry
+      to manager-notes.md, move the queue file to manager-bot-queue/processed/.
+
+  --source manager-translated --src-file <queue.json>
+      Read one feedback queue JSON file, prepend a manager-translated entry to
+      manager-notes.md (manager's reasoning paragraph about a shape-ish piece
+      of user feedback). The translated body is read from stdin; the queue file
+      is referenced for source-tagging + idempotency marker, then moved to
+      manager-bot-queue/processed/.
 
   --source observation
       Read from stdin, prepend a manager-observation entry to manager-notes.md.
@@ -42,9 +49,13 @@ NOTES_HEADER = (
     "# Manager notes for the supervisor\n"
     "\n"
     "Newest first. The supervisor reads this as steering input on every run."
-    " Two source-tagged entry kinds, interleaved by UTC:\n"
+    " Three source-tagged entry kinds, interleaved by UTC:\n"
     "- `## <utc-iso> user feedback (chat <id>)` — verbatim user message from"
     " the Telegram `/feedback` command (authoritative).\n"
+    "- `## <utc-iso> manager-translated user feedback (chat <id>)` — manager's"
+    " interpreted reasoning paragraph for shape-ish feedback that didn't map"
+    " to a discrete TODO/SPEC item (authoritative; carries the user's intent"
+    " plus the manager's recommended action for the supervisor).\n"
     "- `## <utc-iso> manager observation` — manager-derived patterns from"
     " observed runs (soft steering).\n"
 )
@@ -157,6 +168,40 @@ def process_observation() -> None:
     print(f"wrote observation at {utc}")
 
 
+def process_manager_translated(src_file: Path) -> None:
+    """Prepend a manager-translated-feedback entry from stdin; reference + move queue file."""
+    data = json.loads(src_file.read_text(encoding="utf-8"))
+    chat_id = data.get("from_chat_id", "unknown")
+    utc = data.get("received_at") or _utc_now()
+    basename = src_file.name
+
+    body = sys.stdin.read().strip()
+    if not body:
+        print("error: empty stdin for manager-translated", file=sys.stderr)
+        sys.exit(1)
+
+    content = _read_notes()
+    if _already_seen(basename, content):
+        print(f"skip (already seen): {basename}")
+        return
+
+    entry = (
+        f"## {utc} manager-translated user feedback (chat {chat_id})\n"
+        f"<!-- src: {basename} -->\n"
+        f"\n"
+        f"{body}\n"
+    )
+    _atomic_write(NOTES_PATH, _prepend(content, entry))
+
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    dest = PROCESSED_DIR / basename
+    if not dest.exists():
+        src_file.rename(dest)
+    else:
+        src_file.unlink()
+    print(f"processed (translated): {basename}")
+
+
 def drain_feedback_queue() -> None:
     """Process all pending *_feedback*.json files, flock-guarded."""
     QUEUE_DIR.mkdir(parents=True, exist_ok=True)
@@ -185,15 +230,19 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--source",
-        choices=["feedback", "observation"],
-        help="feedback: needs --src-file; observation: reads stdin",
+        choices=["feedback", "manager-translated", "observation"],
+        help="feedback / manager-translated: need --src-file; observation: reads stdin",
     )
     group.add_argument(
         "--drain-feedback-queue",
         action="store_true",
         help="process all pending *_feedback*.json queue files (flock-guarded)",
     )
-    parser.add_argument("--src-file", type=Path, help="queue JSON file (required for --source feedback)")
+    parser.add_argument(
+        "--src-file",
+        type=Path,
+        help="queue JSON file (required for --source feedback / manager-translated)",
+    )
     args = parser.parse_args()
 
     if args.drain_feedback_queue:
@@ -202,6 +251,10 @@ def main() -> None:
         if not args.src_file:
             parser.error("--source feedback requires --src-file <path>")
         process_feedback(args.src_file)
+    elif args.source == "manager-translated":
+        if not args.src_file:
+            parser.error("--source manager-translated requires --src-file <path>")
+        process_manager_translated(args.src_file)
     elif args.source == "observation":
         process_observation()
 

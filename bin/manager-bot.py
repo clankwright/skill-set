@@ -27,6 +27,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -58,6 +60,14 @@ CHAT_ID_ALLOW = os.environ.get("TELEGRAM_CHAT_ID")  # numeric, as string
 STATE_DIR = Path(os.environ.get("MANAGER_STATE_DIR", str(Path.home() / ".claude" / "state")))
 QUEUE_DIR = STATE_DIR / "manager-bot-queue"
 DIGESTS_DIR = STATE_DIR / "manager-digests"
+# Persona-specific manager skill name (e.g. "skill-set-manager", "sdrai-manager").
+# When set, the bot spawns `claude --print "/<skill> --process-feedback <queue-file>"`
+# out-of-band on each /feedback so on-demand routing happens within seconds rather
+# than waiting for the next cron tick. When unset, /feedback queues only and the
+# next periodic-mode tick (or chain-runner pre-iter drain) does verbatim routing.
+MANAGER_SKILL_NAME = os.environ.get("MANAGER_SKILL_NAME")
+CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "claude"
+ON_DEMAND_LOG_DIR = STATE_DIR / "manager-bot-spawn-log"
 
 if not TOKEN:
     logger.error("TELEGRAM_BOT_TOKEN is required")
@@ -137,6 +147,43 @@ def queue_feedback(body: str, from_chat_id: int) -> Path:
     return path
 
 
+def spawn_on_demand_manager(queue_file: Path) -> bool:
+    """Spawn `claude --print "/<persona>-manager --process-feedback <queue-file>"`
+    out-of-band so on-demand routing happens within seconds. Returns True if the
+    spawn was launched successfully (the manager runs asynchronously; we don't
+    wait for the result — Telegram reply-on-routing-completion is the manager's
+    own responsibility). Returns False if MANAGER_SKILL_NAME is unset or the
+    spawn fails to launch; in either case the queue file remains in place and
+    the next periodic-mode tick or chain-runner pre-iter drain will catch up.
+    """
+    if not MANAGER_SKILL_NAME:
+        return False
+    ON_DEMAND_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = ON_DEMAND_LOG_DIR / f"{queue_file.stem}.log"
+    cmd = [
+        CLAUDE_BIN,
+        "--print",
+        "--permission-mode",
+        "bypassPermissions",
+        f"/{MANAGER_SKILL_NAME} --process-feedback {queue_file}",
+    ]
+    try:
+        log_fd = open(log_path, "ab", buffering=0)
+        subprocess.Popen(
+            cmd,
+            stdout=log_fd,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except Exception as exc:
+        logger.error("on-demand manager spawn failed: %s", exc)
+        return False
+    logger.info("spawned on-demand manager for %s (log=%s)", queue_file.name, log_path)
+    return True
+
+
 def latest_digest() -> str | None:
     if not DIGESTS_DIR.is_dir():
         return None
@@ -158,6 +205,12 @@ def handle_command(text: str, chat_id: int) -> str:
         if not body:
             return "Usage: /feedback <message>\n(give the supervisor steering input or course corrections)"
         path = queue_feedback(body, chat_id)
+        spawned = spawn_on_demand_manager(path)
+        if spawned:
+            return (
+                f"Routing feedback ({len(body)} chars) through the manager — "
+                "Telegram update incoming when it lands."
+            )
         return (
             f"Queued feedback ({len(body)} chars). "
             "Next manager run will route it to the supervisor."
@@ -185,7 +238,7 @@ def handle_command(text: str, chat_id: int) -> str:
             "/objectives — current objectives.md\n"
             "/proposals — list pending skill-patch proposals\n"
             "/promote <project> <skill> — queue a /promote-skill-proposal run\n"
-            "/feedback <message> — steer the supervisor (course corrections, focus, do/don't)\n"
+            "/feedback <message> — steer the supervisor; on-demand manager spawns if configured, otherwise queues for next periodic run\n"
             "/pause — manager skips its next scheduled run\n"
             "/resume — manager runs again at next schedule\n"
             "/ping — bot liveness check\n\n"
@@ -216,6 +269,16 @@ def main() -> int:
     QUEUE_DIR.mkdir(parents=True, exist_ok=True)
     logger.info("manager-bot starting; state=%s", STATE_DIR)
     logger.info("allowlisted chat: %s", CHAT_ID_ALLOW or "<any (insecure)>")
+    if MANAGER_SKILL_NAME:
+        logger.info(
+            "on-demand /feedback routing enabled: claude=%s skill=/%s",
+            CLAUDE_BIN, MANAGER_SKILL_NAME,
+        )
+    else:
+        logger.info(
+            "on-demand /feedback routing disabled (MANAGER_SKILL_NAME unset); "
+            "queue-only fallback active"
+        )
     offset = 0
     while True:
         updates = get_updates(offset)
