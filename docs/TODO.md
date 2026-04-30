@@ -11,7 +11,6 @@
 -->
 
 
-
 ## Just shipped (last cycle)
 
 <!--
@@ -25,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- 26.4 [medium] `sst-manager v1.7.1→v1.7.2` §B `remove <ID>`: rewritten to atomically purge matching TODO `## Next up` entries alongside SPEC deletion so stale queue items cannot survive to misdirect the next dev cycle. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-30T05:37:14Z
 - 26.3 [easy] `bin/validate-frontmatter.py:validate_spec_ids` presence check: added `_SPEC_CHECKBOX_RE` + error branch so any phase-scoped checkbox bullet missing a `<phase>.<n>` ID fails validation. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-30T05:21:06Z
 - Phase 26.1+26.2 [medium] **stable sub-item IDs + ID-addressable feedback**: retro-numbered all SPEC.md checkboxes as `<phase>.<n>`; updated `templates/SPEC.md` §Sub-item IDs, `CLAUDE.md` §Sub-item IDs, `sst-dev-cycle` v1.4.3, `sst-dev-review` v1.4.8, `sst-supervisor` v1.10.1, `sst-manager` v1.7.1 (+ ID-addressed pre-check for `add/remove/modify <ID>` commands); `bin/validate-frontmatter.py` SPEC ID uniqueness check; `skill-set-manager` v1.3.1. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-30T05:03:28Z
 - [easy] [fix] `bin/manager-bot.py:170-184` `spawn_on_demand_manager` fd leak: wrapped `open(log_path)` in a `with` block enclosing `Popen` so parent fd closes immediately after spawn returns; child retains its dup'd fd. Phase 26 spec (26.1 + 26.2 sub-items) + TODO Next-up entries committed from manager-authored working-tree dirt. — by skill-set-dev at 2026-04-30T04:26:55Z
@@ -34,7 +34,6 @@
 - [easy] `sst-manager` v1.6.1→v1.6.2: fix §1 absent-helper block (replace misleading `--install` claim with explicit `cp bin/manager-write-state.py` step); `README.md` install-skills.sh description updated for update-only default + seed guidance; stale chain-runner drain fallback entry confirmed absent from Next up. Phase 24 review SPEC items all flipped `[x]`. Inline sanitize: must-fix=0. Validator clean. — by skill-set-dev at 2026-04-29T15:04:08Z
 - [medium] `bin/install-skills.sh` update-only default + `--install`/`--list-new`; `bin/skill-chain.py` Phase 24(5) pre-iter drain fallback `_drain_feedback_queue()`; `sst-manager` v1.6.0→v1.6.1 §1/§5 fallback for missing companion binary. Phase 24 SPEC items chain-runner drain + sst-manager companion + batch-sizing advisory all flipped `[x]`. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-29T14:38:22Z
 - Phase 24 [medium] `bin/manager-write-state.py` helper (3 modes: feedback/observation/drain-queue; flock; atomicity; idempotency); `sst-manager` v1.5.0→v1.6.0 + `skill-set-manager` v1.1.0→v1.2.0 prose updated to invoke helper; allowlist entry added. Phase 23 [easy] install: `sst-wiki-curator` NEW + 4 force-updated. Inline sanitize: must-fix=0. Validator clean. — by skill-set-dev at 2026-04-29T13:48:39Z
-- Phase 24 [easy] **Two-file collapse: `manager-feedback.md` + `manager-guidance.md` → `manager-notes.md` with source-tagged headings.** Foundation sub-item: sst-manager v1.4.0 → v1.5.0, sst-supervisor v1.8.2 → v1.9.0, skill-set-manager v1.0.0 → v1.1.0, skill-set-supervisor v1.1.1 → v1.2.0; supervisor `transferable-version` floor lifted to `>=1.9.0`. Single state file with two source-tagged entry kinds (`## <utc> user feedback (chat <id>)` authoritative + `## <utc> manager observation` soft); ~3KB cap; one-time idempotent legacy-merge migration on first manager invocation; supervisor reads legacy files as transition-state inputs until then. Conflict resolution: user feedback > manager observation; chain auto-promote > any notes entry. Inline sanitize on the two transferable touches: must-fix=0, should-fix=0, nit=0. Validator clean (25 skills + 7 chains; 5 proprietary + 2 chains). — by skill-set-dev at 2026-04-29T13:20:43Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -44,7 +43,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] [should-fix] `skills/framework/sst-manager/SKILL.md:§B remove <ID>` — `remove <ID>` deletes from SPEC but leaves any corresponding `## Next up` entry intact; stale queue entry causes next dev cycle to attempt a non-existent SPEC item — review of fe00c76
 - [hard] Phase 25 sub-item 1: reframe `.claude/skills/skill-set-manager/objectives.md` (and the transferable `templates/` sample) from prose to numbered measurable criteria with executable checks (`check: <shell-or-metric-expr>`, `target: <bound>`, `since: <utc>`). The existing three "single goal" `[ ]` criteria are already grep-able — encode them in the new schema as the worked example. Update `sst-manager` SKILL.md with a §Score-against-objectives sub-section explaining how to read the schema and compute gap. Versions: `sst-manager` minor bump; `skill-set-manager` minor bump. Reason: spec Phase 25 sub-item 1; user message 2026-04-30 (autonomous progress toward high-level goals without spelling out each `[ ]`).
 - [hard] Phase 25 sub-item 2: `sst-manager --plan` mode. When `Next up` empty + every SPEC `[ ]` is `[x]` (or invoked explicitly), score each measurable criterion, pick the 1-3 highest-gap, draft `[unconfirmed:<id>]` items at the top of `Next up` with `<!-- planner: <utc> --> <!-- planner-id: <id> -->` markers and a one-paragraph rationale per item. Re-entry rule: never propose a new batch while a prior `[unconfirmed:*]` item is still outstanding. Hard-rule expansion: scoped exception for `Next up` appends of `[unconfirmed:*]` lines only (modeled on Phase 24's exception). Reason: spec Phase 25 sub-item 2; depends on sub-item 1 landing first.
 - [easy] Phase 24 sub-item: end-to-end acceptance test of the four `/feedback` outcomes (concrete change → TODO Next-up; shape-ish → manager-notes.md; refuse → Telegram explanation; ambiguous → clarifying question) plus crash-recovery via the chain-runner pre-iter drain fallback. Reason: spec Phase 24 acceptance item; sub-items 3+4 shipped this cycle, so the acceptance test is now unblocked.

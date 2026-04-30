@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Two modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.7.1
+version: 1.7.2
 ---
 
 # Manager
@@ -294,7 +294,7 @@ Pick exactly ONE outcome. The four outcomes are mutually exclusive; bundling (e.
 **ID-addressed pre-check.** Before routing to (a)–(d), test whether the body is a structured ID-addressed command. Strip leading/trailing whitespace; match case-insensitively on the command keyword:
 
 - `add <ID> to TODO: <text>` — `<ID>` is a SPEC sub-item ID (e.g. `3.1`). Resolve it against the chosen project's open `[ ]` items in `docs/SPEC.md`: if found, copy that item's difficulty label for the new TODO entry; otherwise default to `[medium]`. Append to `docs/TODO.md > ## Next up` as in outcome (a). Reply outcome label: `ID-add`.
-- `remove <ID>` — resolve `<ID>` first against open `[ ]` items in SPEC, then against `## Next up` lines in TODO. If found open, delete the matching line. If `<ID>` names a closed `[x]` item, refuse via Telegram: `Cannot remove closed item <ID>; closed items are the permanent record.` Reply outcome label: `ID-remove`.
+- `remove <ID>` — resolve `<ID>` first against open `[ ]` items in SPEC. If found, delete the SPEC line AND scan `docs/TODO.md > ## Next up` for any line whose text contains `<ID>` (as a whole word or bracketed token) and delete those lines too — a TODO queue entry referencing a removed SPEC item is stale and must not survive to send the next dev cycle chasing a non-existent item. If `<ID>` is not found in SPEC, resolve against `## Next up` lines in TODO alone and delete the matching line there. If `<ID>` names a closed `[x]` item in SPEC, refuse via Telegram: `Cannot remove closed item <ID>; closed items are the permanent record.` Reply outcome label: `ID-remove`.
 - `modify <ID>: <delta>` — resolve `<ID>` against open `[ ]` items in SPEC only. If found, rewrite the description (the text after the ID + difficulty bracket) with `<delta>`. If `<ID>` names a closed `[x]` item, refuse: `Cannot modify closed item <ID>; it is part of the permanent record.` Reply outcome label: `ID-modify`.
 
 If the body does not match any command pattern, OR `<ID>` does not resolve to any open item in SPEC or TODO, skip this pre-check and fall through to (a)–(d). For `ID-add`, `ID-remove`, and `ID-modify`, substitute the outcome label into §C's reply format and set "Where it landed" to the target file + section.
