@@ -152,6 +152,49 @@ def validate_chain(path: Path, schema: dict) -> list[str]:
     return errors
 
 
+SPEC_PATH = REPO_ROOT / "docs" / "SPEC.md"
+_SPEC_BULLET_ID_RE = re.compile(r"^- \[[ x]\] (\d+)\.(\d+[a-z]*)[\s:]")
+_PHASE_HEADER_RE = re.compile(r"^### Phase (\d+)")
+
+
+def validate_spec_ids(spec_path: Path = SPEC_PATH) -> list[str]:
+    """Check SPEC.md: sub-item IDs must be unique within each phase block.
+
+    Gaps (void IDs from removed/closed items) are valid and not flagged.
+    """
+    if not spec_path.exists():
+        return []
+    errors: list[str] = []
+    current_phase: int | None = None
+    seen: dict[int, set[str]] = {}
+    for lineno, line in enumerate(spec_path.read_text(encoding="utf-8").splitlines(), 1):
+        phase_m = _PHASE_HEADER_RE.match(line)
+        if phase_m:
+            current_phase = int(phase_m.group(1))
+            seen.setdefault(current_phase, set())
+            continue
+        if current_phase is None:
+            continue
+        id_m = _SPEC_BULLET_ID_RE.match(line)
+        if not id_m:
+            continue
+        item_phase = int(id_m.group(1))
+        item_id = f"{id_m.group(1)}.{id_m.group(2)}"
+        if item_phase != current_phase:
+            errors.append(
+                f"{spec_path}:{lineno}: ID {item_id!r} is under Phase {current_phase} "
+                f"header but references Phase {item_phase}"
+            )
+        if item_id in seen.get(current_phase, set()):
+            errors.append(
+                f"{spec_path}:{lineno}: duplicate sub-item ID {item_id!r} "
+                f"within Phase {current_phase}"
+            )
+        else:
+            seen.setdefault(current_phase, set()).add(item_id)
+    return errors
+
+
 def main() -> int:
     if not SCHEMA_PATH.exists():
         print(f"schema not found: {SCHEMA_PATH}", file=sys.stderr)
@@ -192,6 +235,10 @@ def main() -> int:
             for e in validate_chain(path, chain_schema):
                 print(e, file=sys.stderr)
                 total_errors += 1
+
+    for e in validate_spec_ids():
+        print(e, file=sys.stderr)
+        total_errors += 1
 
     n_total = len(skill_targets) + len(chain_targets)
     if total_errors:

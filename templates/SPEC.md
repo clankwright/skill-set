@@ -74,6 +74,24 @@ Format examples:
 
 A consuming project's dev skill (`sst-dev-cycle` or any `<project>-dev-cycle` proprietary counterpart) reads the label of the picked item before any tool call and emits `[picked-difficulty: <tier>]` on a single stdout line; the chain runner captures that as the authoritative tier for any skill that runs after the dev. If the picked item is missing a label, the dev skill warns with `[bad-label] item missing difficulty; defaulting to medium` and proceeds with `[picked-difficulty: medium]` (graceful degradation during the contract-bump rollout window). When the framework upgrades to hard-fail, that warn becomes a non-zero exit; in the meantime, treat unlabeled items as a queue-hygiene gap to fix opportunistically.
 
+### Sub-item IDs
+
+Every open `- [ ]` and closed `- [x]` item in `SPEC.md` carries a stable sub-item ID of the form `<phase>.<n>` prepended before the difficulty bracket:
+
+```markdown
+- [ ] 3.1 [hard] **Design the new schema**
+- [x] 3.2 Add frontmatter validator
+```
+
+Rules:
+- IDs are 1-indexed within each phase block and assigned once. They are never renumbered when an item is closed or removed — the void ID is intentional, gaps are valid.
+- New items appended at the end of a phase get the next sequential number (`<phase>.<n+1>`).
+- Inserts between existing items use letter suffixes (`<phase>.<n>a`, `<phase>.<n>b`, …).
+- Closed `[x]` items keep their IDs in place; `## Just shipped` entries and prose paragraphs do not use IDs.
+- When citing a SPEC item in a `## Next up` entry, a commit message, or any external reference, prefer the ID (e.g. `3.1`) over "Phase 3 sub-item 1" for concision and durability across renames.
+
+`bin/validate-frontmatter.py` checks that IDs within each phase block are unique (duplicate IDs are a contract violation; gaps from removed items are not).
+
 ### Empty-queue bail (steady state)
 
 When `TODO.md`'s "Next up" is empty AND every `- [ ]` in this spec has been flipped to `[x]` AND the user gave no specific task, a dev-cycle skill (`sst-dev-cycle` or any `<project>-dev-cycle` proprietary counterpart) MUST exit 0 cleanly without picking an item, writing tests, or committing. Before exiting it prints exactly one line on stdout:

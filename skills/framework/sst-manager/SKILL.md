@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Two modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.7.0
+version: 1.7.1
 ---
 
 # Manager
@@ -282,12 +282,22 @@ The point of this mode is to use the manager's full context (objectives.md, ever
 3. Source the Telegram env file as in §0.3.
 4. Read `objectives-path`. This is the canonical north star — every routing decision must trace to one or more objective bullets (or be refused for falling outside).
 5. **For each watched project**, read `<project>/docs/SPEC.md` and `<project>/docs/TODO.md` end-to-end. The TODO's `## Next up` section is the queue an outcome (a) appends to; SPEC phase blocks are what outcome (b) appends under. Multi-project scope: when the feedback names a specific project ("the dev cycle on project-a is over-batching"), narrow to that project; when it's project-agnostic ("supervisor should weigh cost more"), the manager picks the most-relevant project (typically the one with the most recent run touching that surface).
+
+   **Spec sub-item IDs.** Every open `- [ ]` item in `docs/SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 3.1 [medium] **description**`). IDs are 1-indexed per phase and never renumbered; gaps from removed items are valid. When the user's feedback references an item by ID (e.g. `add 3.1 to TODO`, `modify 3.1: …`), resolve the ID against the SPEC before routing; see §B ID-addressed pre-check.
 6. Read the most recent run log under `<chosen-project>/.skill-runs/<latest>/` — `MANIFEST.json` plus any `supervisor_verdict.md` — for "what just happened" context. If no recent run exists, that's fine; some feedback is forward-looking.
 7. Read `~/.claude/state/manager-notes.md` if present, primarily to detect duplicates: if a `<!-- src: <basename> -->` for THIS queue file already appears, the on-demand routing already happened (race with the chain-runner pre-iter drain or a prior on-demand spawn). Reply `Already routed (entry exists in manager-notes.md); ignoring duplicate.` and exit 0.
 
 ### B. Decide the outcome
 
 Pick exactly ONE outcome. The four outcomes are mutually exclusive; bundling (e.g. SPEC addition AND TODO append for the same feedback) is forbidden and surfaces as scope creep on review.
+
+**ID-addressed pre-check.** Before routing to (a)–(d), test whether the body is a structured ID-addressed command. Strip leading/trailing whitespace; match case-insensitively on the command keyword:
+
+- `add <ID> to TODO: <text>` — `<ID>` is a SPEC sub-item ID (e.g. `3.1`). Resolve it against the chosen project's open `[ ]` items in `docs/SPEC.md`: if found, copy that item's difficulty label for the new TODO entry; otherwise default to `[medium]`. Append to `docs/TODO.md > ## Next up` as in outcome (a). Reply outcome label: `ID-add`.
+- `remove <ID>` — resolve `<ID>` first against open `[ ]` items in SPEC, then against `## Next up` lines in TODO. If found open, delete the matching line. If `<ID>` names a closed `[x]` item, refuse via Telegram: `Cannot remove closed item <ID>; closed items are the permanent record.` Reply outcome label: `ID-remove`.
+- `modify <ID>: <delta>` — resolve `<ID>` against open `[ ]` items in SPEC only. If found, rewrite the description (the text after the ID + difficulty bracket) with `<delta>`. If `<ID>` names a closed `[x]` item, refuse: `Cannot modify closed item <ID>; it is part of the permanent record.` Reply outcome label: `ID-modify`.
+
+If the body does not match any command pattern, OR `<ID>` does not resolve to any open item in SPEC or TODO, skip this pre-check and fall through to (a)–(d). For `ID-add`, `ID-remove`, and `ID-modify`, substitute the outcome label into §C's reply format and set "Where it landed" to the target file + section.
 
 **(a) Direct queue item — append to `docs/TODO.md > Next up`.** Use when the feedback maps to a discrete, single-cycle work item that fits an objective bullet AND has clear acceptance: "tighten the supervisor's batch-window check so under-50% findings are batched", "add a `--dry-run` flag to install-skills.sh", "raise the [easy] band's lower edge from 100k to 130k". Append a single line to the chosen project's `<project>/docs/TODO.md` under `## Next up`:
 

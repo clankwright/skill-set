@@ -23,6 +23,8 @@ On close of every substantive change:
 - Any follow-up work discovered during the cycle goes to `Next up`, not the SPEC directly.
 - `SPEC.md`, `TODO.md`, and the code change ship in a **single commit**. Do not split them.
 
+**Sub-item IDs.** Every `- [ ]` and `- [x]` item in `SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 26.1 [medium] **description**`). IDs are assigned once and never renumbered; closed or removed items leave their ID void — gaps are valid. New items append at the end as `<phase>.<n+1>`; inserts between existing items use letter suffixes (`<phase>.<n>a`, …). When filing a `## Next up` entry or commit message, prefer the ID over "Phase N sub-item text." The validator checks for duplicates within each phase block.
+
 ## Use the framework's own tools
 
 - Validate any change to a skill or chain YAML with `bin/validate-frontmatter.py`.

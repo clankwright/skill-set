@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.4.2
+version: 1.4.3
 model-floor: sonnet
 effort-floor: high
 ---
@@ -33,6 +33,8 @@ Contract for every cycle:
 3. **Mid-cycle**: append a single `## In flight` line at the start of work in this format: `- [<skill-name> @ <utc-iso>] <one-line>`. Rewrite (don't append again) as the work narrows. Do not commit mid-cycle "In flight" updates; they live unstaged until the close commit.
 4. **Close** (see §5–6 below): clear the in-flight line; write the new Just-shipped line (`- <one-line summary> — by <skill-name> at <utc-iso>`, no SHA); if the cycle uncovered new work that doesn't belong in the spec, append it to "Next up"; trim "Just shipped" to the most recent 10 entries. Then commit everything in one commit.
 5. `SPEC.md`, `TODO.md`, and the code change ship as one commit — never as multiple commits. The Just-shipped line does NOT include the commit's own SHA (impossible without an amend-then-rewrite hack that produces stale SHAs); readers correlate entries to commits by the one-line summary, not by hash.
+
+**Spec sub-item IDs.** Every `- [ ]` item in `docs/SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 3.1 [hard] **description**`). IDs are assigned once per phase in 1-indexed order and never renumbered — closed or removed items leave their ID void (gaps are valid). Inserts between existing items use letter suffixes (`<phase>.<n>a`, …). When filing a `## Next up` entry or writing a commit message, prefer the ID (e.g. `3.1`) over "Phase 3 sub-item 1" for concision.
 
 ## 0. Pre-flight
 

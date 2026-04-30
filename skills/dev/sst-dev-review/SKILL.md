@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.4.7
+version: 1.4.8
 model-floor: sonnet
 effort-floor: high
 ---
@@ -33,6 +33,8 @@ Before filing any finding, ask: *would this actually hurt a user, cause a real b
 ## Handoff docs
 
 This skill reads `docs/SPEC.md` and `docs/TODO.md` end-to-end on open and may write to both on close (under §4). Severity bar and process are unchanged from the rest of this skill; the only addition is that every blocker/should-fix you file in the spec also gets mirrored as a one-line entry in `TODO.md`'s `## Next up` so the next `/sst-dev-cycle` picks it up without re-scanning the spec. Both files commit together in §5 if anything was added.
+
+**Spec sub-item IDs.** Every `- [ ]` item in `docs/SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 3.1 [hard] **description**`). IDs are assigned once and never renumbered — gaps from closed/removed items are valid. When filing follow-ups to `## Next up` in §4, prefer citing the SPEC item by its ID (e.g. `reason: spec 3.1`) over "Phase 3 sub-item" for durability.
 
 ## 0. Pre-flight
 
