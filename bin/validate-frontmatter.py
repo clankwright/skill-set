@@ -154,11 +154,13 @@ def validate_chain(path: Path, schema: dict) -> list[str]:
 
 SPEC_PATH = REPO_ROOT / "docs" / "SPEC.md"
 _SPEC_BULLET_ID_RE = re.compile(r"^- \[[ x]\] (\d+)\.(\d+[a-z]*)[\s:]")
+_SPEC_CHECKBOX_RE = re.compile(r"^- \[[ x]\] ")
 _PHASE_HEADER_RE = re.compile(r"^### Phase (\d+)")
 
 
 def validate_spec_ids(spec_path: Path = SPEC_PATH) -> list[str]:
-    """Check SPEC.md: sub-item IDs must be unique within each phase block.
+    """Check SPEC.md: sub-item IDs must be unique within each phase block,
+    and every checkbox bullet must carry a stable ID.
 
     Gaps (void IDs from removed/closed items) are valid and not flagged.
     """
@@ -177,6 +179,11 @@ def validate_spec_ids(spec_path: Path = SPEC_PATH) -> list[str]:
             continue
         id_m = _SPEC_BULLET_ID_RE.match(line)
         if not id_m:
+            if _SPEC_CHECKBOX_RE.match(line):
+                errors.append(
+                    f"{spec_path}:{lineno}: checkbox bullet missing sub-item ID "
+                    f"(expected `- [ ] <phase>.<n> ...` or `- [x] <phase>.<n> ...`)"
+                )
             continue
         item_phase = int(id_m.group(1))
         item_id = f"{id_m.group(1)}.{id_m.group(2)}"
