@@ -153,8 +153,8 @@ def validate_chain(path: Path, schema: dict) -> list[str]:
 
 
 SPEC_PATH = REPO_ROOT / "docs" / "SPEC.md"
-_SPEC_BULLET_ID_RE = re.compile(r"^- \[[ x]\] (\d+)\.(\d+[a-z]*)[\s:]")
-_SPEC_CHECKBOX_RE = re.compile(r"^- \[[ x]\] ")
+_SPEC_BULLET_ID_RE = re.compile(r"^- \[[ xX]\] (\d+)\.(\d+[a-z]*)[\s:]")
+_SPEC_CHECKBOX_RE = re.compile(r"^- \[[ xX]\] ")
 _PHASE_HEADER_RE = re.compile(r"^### Phase (\d+)")
 
 

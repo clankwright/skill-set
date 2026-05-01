@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.4.8
+version: 1.4.9
 model-floor: sonnet
 effort-floor: high
 ---
@@ -235,11 +235,11 @@ If the finding's fix straddles two tiers, pick the higher one — under-routing 
 **TODO.md.** Open `docs/TODO.md`. For each finding you just filed in the spec, append a corresponding line to `## Next up`:
 
 ```markdown
-- [<difficulty>] [blocker] <one-line restating the spec entry, with file:line> — review of <commit-sha-short>
-- [<difficulty>] [should-fix] <one-line restating the spec entry, with file:line> — review of <commit-sha-short>
+- [<difficulty>] [blocker] <spec-ID> <one-line restating the spec entry, with file:line> — review of <commit-sha-short>
+- [<difficulty>] [should-fix] <spec-ID> <one-line restating the spec entry, with file:line> — review of <commit-sha-short>
 ```
 
-Use the same `<difficulty>` token you assigned in the spec entry; the two surfaces stay in lockstep.
+Use the same `<difficulty>` token you assigned in the spec entry; the two surfaces stay in lockstep. Include the spec item's `<phase>.<n>` ID as the first token after the severity bracket so that `remove <ID>` commands in the manager's ID-addressed pre-check can match and purge the entry atomically.
 
 **Same-root tagging.** If two or more findings share a single root cause (the same constant needs propagating to multiple surfaces; the same missing guard appears across sibling modules; the same discovery surface is stale in both a manifest AND a README), append `(group with <root-keyword>)` to each TODO.md line, where `<root-keyword>` is a short token that names the shared cause. Pick a token that's specific enough to disambiguate from unrelated work (e.g. `(group with input-bound-propagation)`, `(group with manifest-readme-sync)`, `(group with auth-helper-migration)`) and reuse the exact same token across every entry in the group — `sst-dev-cycle` §1's same-root bundling rule keys on string-equality of the tag. Tag only when the bundling is real: disjoint files, cohesive change, plausibly under ~300 LoC combined. Spec entries do NOT get the tag — the spec is a longer-lived record and bundling is a TODO-level scheduling concern; the spec's filing rule of "one checkbox per finding, do not bundle" is unchanged. If only one finding is on the shared root, do not tag (a `(group with X)` of size 1 is just noise).
 
