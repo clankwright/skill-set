@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Two modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.7.2
+version: 1.8.0
 ---
 
 # Manager
@@ -64,6 +64,43 @@ State files this skill reads / writes:
 - `## <utc-iso> manager observation` — patterns the manager derived from observing run logs (soft steering).
 
 Conflict resolution between the three kinds is the supervisor's job. The general rule: **user feedback (verbatim) ≥ manager-translated user feedback > manager observation**, and chain `auto-promote` mode beats any entry. The manager's job is to capture, source-tag, and trim. Earlier framework versions split these into `manager-feedback.md` + `manager-guidance.md`; on first invocation the manager merges any legacy entries into `manager-notes.md` (interleaved by UTC, source-tagged by origin file) and renames each legacy file to `~/.claude/state/.archive/<name>.<utc-iso>.md`. Subsequent runs see only `manager-notes.md`.
+
+## Score-against-objectives
+
+The proprietary counterpart's `objectives-path` file holds the bar this manager scores progress against. It is higher-level than the project's SPEC phases — these are reasons-to-exist, not in-flight todos. The schema is two-tier: scored bullets carry a 3-line continuation block; prose-only bullets remain legal as untracked goals.
+
+**Schema for a scored objective:**
+
+```
+- [ ] <slug>: <one-line description>
+      check: <shell-expr OR count(<glob>) <op> <value>>
+      target: <value-or-bound, e.g. "== 0", "<= 0.50", ">= 30">
+      since: <utc-iso when this criterion was added>
+```
+
+`<slug>` is kebab-case, unique within the file, and never renumbered (the `--plan` mode in §Planner mode uses the slug to identify the criterion in `Next up` rationale lines + idempotency markers). The 3-line block is recognized by 6-space indentation under the bullet line; any other indentation is treated as ordinary continuation text.
+
+**Two `check:` forms:**
+
+1. **shell check** — anything not starting with `count(`. The manager runs the expression in `/bin/bash -c` from the watched project's root (`cwd = <watched-project>/path`). Either stdout (parsed as a number, leading/trailing whitespace stripped) OR exit code is compared to `target:`; if stdout is non-numeric the exit code is used. Examples:
+   - `check: grep -c '^- \[ \]' docs/SPEC.md` + `target: == 0` — the SPEC has zero open items.
+   - `check: ls -dt .skill-runs/*/iter_*/supervisor_verdict.md 2>/dev/null | head -1 | xargs -I{} grep -c '^Outcome.*escalate' {} 2>/dev/null` + `target: == 0` — the most recent supervisor verdict is not an escalate.
+2. **metric check** — `count(<glob>) <op> <value>`. The manager expands `<glob>` from the watched project's root using Python's `pathlib.Path.glob` (or shell `compgen -G` equivalent), counts matches, and compares to `target:`. Example: `check: count(skills/**/SKILL.md) >= 30`. The metric form is preferred for file-shape assertions because it sidesteps shell-quoting subtleties.
+
+**`target:` operators:** `==`, `!=`, `<`, `<=`, `>`, `>=`. The right-hand side is a literal numeric value (integer or float). For boolean-shaped checks where exit code 0 = pass, use `target: == 0`.
+
+**`since:`** is the UTC ISO timestamp when this criterion was added. Used by `--plan` mode to compute a gap-age — an open criterion older than another outranks it when picking the highest-gap items to draft. Set `since:` once on creation and never rewrite it.
+
+**Reading + scoring (called by both periodic mode §3 and on-demand §B):**
+
+1. Parse `objectives-path` block-by-block: a bullet with no continuation block is prose-only (untracked); a bullet followed by 6-space-indented `check:` + `target:` + `since:` lines is scored.
+2. For each scored criterion that is still `[ ]`, run the check. Treat any non-zero exit code from a shell check as "criterion not met" without failing the manager run; log the failure to stderr and continue. (A check expression that crashes shouldn't take the whole tick down.)
+3. Compare the result to `target:` per the operator. If the comparison passes, the criterion is "met-this-tick"; the periodic mode §3 may flip `[ ]` → `[x]` (only when the conditions in §3 also hold: clean supervisor verdict, diff touches files the criterion names, unambiguous wording).
+4. For criteria still unmet, gap = `(now - since)` in hours/days. The planner mode (a follow-up extension of this skill, invoked as `--plan`) uses this for prioritization.
+
+**Prose-only bullets** are visible in digests under "Goals" but appear without the `✓ / →` evidence cell — instead a `?` or "(unscored)" marker. They never auto-flip; only the user edits them by hand. Use this form when a criterion is genuinely qualitative.
+
+**Anti-objectives section** (a level-2 heading typically named `## Anti-objectives` near the bottom) is read for steering only — the manager must NOT propose work that pushes toward an anti-objective in `--plan` mode, and must NOT escalate progress against one in a digest. Anti-objective bullets are prose-only by construction (they have no `check:` block).
 
 ## Process
 
@@ -145,9 +182,15 @@ Update `manager-cursors.json[path]` to the latest processed run dir name.
 
 ### 3. Toggle objectives when warranted
 
-Only flip `[ ]` → `[x]` for an objective bullet when:
+For each open `[ ]` objective bullet in `objectives-path`, decide whether to flip to `[x]`. The schema (see §Score-against-objectives) determines the path:
 
-- A run's `supervisor_verdict.md` is `clean`, AND
+**Scored bullet (has a `check:` continuation block).** Flip ONLY when ALL of:
+- The most recent run's `supervisor_verdict.md` is `clean`, AND
+- The shipped commit's diff touches files the bullet names (or the check-expression itself reads, e.g. `docs/SPEC.md`), AND
+- The bullet's `check:` evaluates against `target:` per §Score-against-objectives.
+
+**Prose-only bullet (no `check:` block).** Flip ONLY when ALL of:
+- The most recent run's `supervisor_verdict.md` is `clean`, AND
 - The shipped commit's diff touches files the bullet names, AND
 - The bullet's text is unambiguous about completion criteria (no "ongoing" / "until further notice" wording).
 
