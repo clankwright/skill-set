@@ -78,7 +78,7 @@ The proprietary counterpart's `objectives-path` file holds the bar this manager 
       since: <utc-iso when this criterion was added>
 ```
 
-`<slug>` is kebab-case, unique within the file, and never renumbered (the `--plan` mode in §Planner mode uses the slug to identify the criterion in `Next up` rationale lines + idempotency markers). The 3-line block is recognized by 6-space indentation under the bullet line; any other indentation is treated as ordinary continuation text.
+`<slug>` is kebab-case, unique within the file, and never renumbered (the planner extension's `--plan` mode uses the slug to identify the criterion in `Next up` rationale lines + idempotency markers). The 3-line block is recognized by 6-space indentation under the bullet line; any other indentation is treated as ordinary continuation text.
 
 **Two `check:` forms:**
 
