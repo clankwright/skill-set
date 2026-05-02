@@ -2,7 +2,7 @@
 name: sst-wiki-curator
 description: "Build and maintain LLM-curated knowledge wikis for prose domains (legal/regulatory tracking, scientific literature, market intelligence, product taxonomies, personal research notes, etc.). Two modes. (a) Scaffold — create a new wiki at a chosen path, picking one of three variants (minimal — hand-curated markdown only; middle — raw dumps plus curated subdirs plus lint report, no scripts; scripted — full sources.json plus download/convert/index/lint/licenses pipeline with YAML front matter). Writes the schema spec (AGENTS.md or CLAUDE.md), README, append-only log, root index.md, plus the variant's standard subdirs and any scripts. (b) Ingest/maintain — read an existing wiki's schema spec, add a new source (or run a lint pass), generate or update the relevant pages with proper YAML front matter and cross-references in the wiki's chosen wikilink convention, refresh the root index.md catalog, append to log.md, and (for scripted variants) re-run the index/lint pipeline. Not for code repos, tabular data, or single-document summarization — those have better tools."
 user-invocable: true
-version: 1.0.0
+version: 1.0.1
 argument-hint: "scaffold <wiki-root> [--variant minimal|middle|scripted] | ingest <wiki-root> <source-url-or-file> | maintain <wiki-root> [--lint]"
 ---
 
@@ -466,11 +466,20 @@ Fix every error before declaring the ingest done. Common fixes: add a missing to
 YYYY-MM-DD INGEST: <slug> added; linked into <topic-1>, <topic-2>; license=<license>.
 ```
 
-### B.9 — commit
+### B.9 — commit (mandatory; do not skip or defer)
 
-One commit covering: `sources.json` (scripted), the new raw source (minimal/middle, if license permits), the new paper page, every modified topic page, `wiki/index.md`, `log.md`, and any regenerated build artifacts (scripted, if you commit them — most don't).
+**The ingest is not complete until this commit lands. Do not output "ingest complete" before running this step.**
 
-Commit message: `<wiki-name>: ingest <slug> — <one-line of what it adds>`.
+Stage and commit everything that changed:
+
+```bash
+cd <wiki-root>
+git add raw/<slug>.md wiki/papers/<slug>.md wiki/topics/ wiki/index.md log.md
+# scripted variant also: git add sources.json wiki/build/ LICENSES.md
+git commit -m "<wiki-name>: ingest <slug> — <one-line of what it adds>"
+```
+
+Verify with `git log --oneline | head -1` that a new commit exists before declaring done. If not, diagnose and retry.
 
 ## Mode C: maintain (lint pass)
 
