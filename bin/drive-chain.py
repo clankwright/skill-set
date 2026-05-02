@@ -515,13 +515,13 @@ def _any_other_driver_using_persona(persona: str, my_pid: int) -> bool:
     persona's telegram-env file.  Used to detect stale refcounts left by
     crashed drivers so the last live driver still cleans up.
 
-    Linux-only (/proc scan).  Returns False conservatively on non-Linux or
+    Linux-only (/proc scan).  Returns True conservatively on non-Linux or
     on any read error, which means: assume other drivers might still be
     running (don't stop the worker prematurely).
     """
     proc_dir = Path("/proc")
     if not proc_dir.exists():
-        return False
+        return True
     env_pattern = f"{persona}-telegram.env"
     for entry in proc_dir.iterdir():
         if not entry.name.isdigit():
@@ -831,16 +831,34 @@ def main() -> int:
             session = f"{persona}-bot"
             existing = _probe_worker(session)
             if existing is not None and _is_worker_stale(existing):
-                print(
-                    f"[chain-driver] stale worker detected "
-                    f"({existing.get('kind')}: "
-                    f"{existing.get('name') or existing.get('pid')}); "
-                    f"manager-bot.py was updated since the worker started — "
-                    f"recycling session.",
-                    file=sys.stderr, flush=True,
-                )
-                _stop_worker(existing)  # also resets WORKER_REFCOUNT_FILE
-                existing = None
+                # Read refcount under WORKER_LOCK_FILE before recycling.
+                # _stop_worker wipes WORKER_REFCOUNT_FILE, which drops
+                # concurrent drivers' slots and causes them to kill the
+                # freshly-started worker when they finish.  If count > 0,
+                # defer the recycle; all current drivers share the stale
+                # worker until the last one exits naturally.
+                current_count = _refcount_op(0)
+                if current_count > 0:
+                    print(
+                        f"[chain-driver] stale worker detected "
+                        f"({existing.get('kind')}: "
+                        f"{existing.get('name') or existing.get('pid')}) "
+                        f"but {current_count} driver(s) registered — "
+                        f"deferring recycle until refcount clears.",
+                        file=sys.stderr, flush=True,
+                    )
+                    # Don't clear existing; fall through to adopt the worker.
+                else:
+                    print(
+                        f"[chain-driver] stale worker detected "
+                        f"({existing.get('kind')}: "
+                        f"{existing.get('name') or existing.get('pid')}); "
+                        f"manager-bot.py was updated since the worker started — "
+                        f"recycling session.",
+                        file=sys.stderr, flush=True,
+                    )
+                    _stop_worker(existing)  # also resets WORKER_REFCOUNT_FILE
+                    existing = None
             if existing is None:
                 worker_descriptor = _start_worker(
                     persona=persona, env_file=args.telegram_env.resolve(),
