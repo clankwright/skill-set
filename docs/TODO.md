@@ -10,6 +10,7 @@
   Rewrite (don't append) as the focus narrows. Empty when no skill is running.
 -->
 
+
 ## Just shipped (last cycle)
 
 <!--
@@ -23,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- 23.4 [easy] [should-fix] `sst-wiki-curator/SKILL.md` retroactive `sst-sanitize-transferable` run: must-fix=0, should-fix=0, nit=1 (Karpathy citation retained); audit trail closed — by skill-set-dev at 2026-05-02T13:03:36Z
 - 18.11 [hard] [should-fix] `bin/drive-chain.py` stale-recycle TOCTOU closed: new `_recycle_stale_worker_if_unused(descriptor)` helper holds `WORKER_LOCK_FILE` across refcount-read + tmux-kill + state-file unlinks; `main()` stale-recycle branch calls it in place of the prior `_refcount_op(0)` + `_stop_worker` pair (which released the lock between check and stop, letting a concurrent `_start_worker` write count=1 and launch a fresh persona-named session that the deferred kill would destroy). Returns `(True, 0)` when recycled, `(False, count)` when deferred. Smoke-tested four refcount states (no file, count=0 explicit, count=1, count=2) against a tmp state dir. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T07:45:55Z
 - 23.2 [medium] sst-wiki-curator acceptance passed: scaffold (a–d) + ingest (e–j) all confirmed against a throwaway dir; B.9 commit-gate prose fixed (v1.0.0→v1.0.1) after first ingest run skipped the commit step. — by skill-set-dev at 2026-05-02T07:22:27Z
 - 18.10 [medium] [should-fix] `bin/drive-chain.py` stale-recycle path now reads refcount via `_refcount_op(0)` under lock before calling `_stop_worker`; defers recycle with a stderr notice when count > 0, protecting concurrent drivers' refcount slots. — by skill-set-dev at 2026-05-02T06:45:12Z
@@ -32,7 +34,6 @@
 - [supervisor] [medium] archived fully-closed SPEC phases (1–7, 9–13, 15–16, 21, 26) to docs/SPEC-archive.md; SPEC.md reduced from 31,844 tokens to ~23,900 tokens (fits single Read call). Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T02:34:19Z
 - 25.5 [easy] [should-fix] `objectives.md:cycles-clean check` glob extended to cover root-level `supervisor_verdict.md` (single-iter runs write verdict at run root, not `iter_*/`); both glob forms now unioned in the `ls -dt` call. SPEC 25.5 `[ ]` → `[x]`. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T02:08:55Z
 - 25.4 [medium] [should-fix] `objectives.md:cycles-clean check` rewritten from broken `grep -c '^Outcome.*escalate'` (always returns 0) to self-contained awk that skips the `## Outcome` header + blank line and prints 1/0 for escalate/clean; no-file edge handled via `${f:-/dev/null}`; SPEC 25.4 `[ ]` → `[x]`. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T01:39:56Z
-- 25.3 [easy] [should-fix] `sst-manager` SKILL.md:81 dangling §Planner mode reference replaced with capability prose; inline sanitize must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-01T06:29:15Z
 
 ## Next up (queued for next cycle)
 
@@ -43,7 +44,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 23.4 `skills/research/sst-wiki-curator/SKILL.md` — inline sanitize used for B.9 edit instead of `sst-sanitize-transferable`; no leak but bypasses audit trail — review of d94ff24
 - [easy] Phase 24 sub-item: end-to-end acceptance test of the four `/feedback` outcomes (concrete change → TODO Next-up; shape-ish → manager-notes.md; refuse → Telegram explanation; ambiguous → clarifying question) plus crash-recovery via the chain-runner pre-iter drain fallback. Reason: spec Phase 24 acceptance item; sub-items 3+4 shipped this cycle, so the acceptance test is now unblocked.
 - [medium] Phase 18 `acceptance check on chain-bound worker lifecycle`. Reason: spec Phase 18 item 5; the implementation landed this cycle (item 4 `[x]`) but acceptance requires a real `/skill-set-chain-driver` round-trip with Telegram. Confirm: (a) chain driver starts the `skill-set-bot` tmux session at session-start and the user can `/ping → pong` during the run; (b) chain driver kills the tmux session at session-end; (c) re-run with the worker pre-started by hand (e.g. `tmux new-session -d -s skill-set-bot ...`): chain driver detects the pre-existing worker, does NOT start a second one, does NOT kill it at session-end; (d) two simultaneous chain-driver runs against different chains: only one tries to start the worker (flock); (e) manager invocation while no chain is running succeeds with an empty inbound queue and a digest body that does NOT re-notify any currently-paused job.
 - [easy] Phase 17 `acceptance check on empty-queue bail`. Reason: spec Phase 17 item 4; the steady-state run requires `Next up` empty AND every SPEC `[ ]` flipped `[x]` (this cycle didn't reach that state, so item 4 stayed `[ ]`). When the queue eventually empties, invoke `/skill-set-chain-driver` and confirm: (a) `skill-set-dev` exits 0 with `[no-work] ...` printed and no commit; (b) chain runner aborts the loop after the first empty iter (no second iter starts; `MANIFEST.loop.terminated_by == "no_work_bail"`); (c) iter MANIFEST records `no_work_bail` with the sentinel line; (d) cumulative cost is bounded by the dev skill's pre-flight reads (~$0.10-0.30) rather than a full ~$8 iter; (e) chain-driver session-end Telegram body labels the stop "no-work bail".
