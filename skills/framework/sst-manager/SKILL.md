@@ -1,19 +1,20 @@
 ---
 name: sst-manager
 description: |
-  Two modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
+  Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.8.0
+version: 1.9.0
 ---
 
 # Manager
 
-The manager is the third-and-final loop. It runs in two modes:
+The manager is the third-and-final loop. It runs in three modes:
 
 1. **Periodic oversight** — fires on a cadence (cron / `/loop 6h`), walks the watched projects, decides whether a status digest or an escalation is warranted, sends it over Telegram, drains the inbound bot queue, and shapes the supervisor's next-run inputs via `manager-notes.md`. This is the default invocation (`/<persona>-manager` with no extra args).
 2. **On-demand feedback routing** — fires immediately when the bot writes a `/feedback` queue file, invoked as `/<persona>-manager --process-feedback <queue-file>`. The manager reads the feedback body alongside its full context (objectives, SPEC, TODO, recent run log) and *decides* where the feedback lands instead of routing the body verbatim. Four legal outcomes; see §On-demand feedback routing.
+3. **Planner** — invoked as `/<persona>-manager --plan`, OR auto-triggered in-process at the end of periodic mode §3 when the chosen project's `Next up` is empty AND every SPEC `[ ]` is `[x]` AND those conditions held for ≥1 prior tick (cursor-tracked). The manager scores gap on each measurable objective in `objectives-path`, picks the 1-3 highest-gap criteria, and drafts `[unconfirmed:<id>]` candidate items into `docs/TODO.md > Next up`. The user clears the `[unconfirmed:`-prefix manually before the dev cycle picks the item. See §Planner mode.
 
-Both modes are the same skill, same single-process invocation. The mode is determined by whether `--process-feedback <queue-file>` appears in the input. The manager talks to the user proactively (status digests, escalations, on-demand replies) but is read-only across watched projects with one scoped exception for `docs/TODO.md > Next up` and `docs/SPEC.md` appends (on-demand mode only; see §Hard rules).
+All three modes are the same skill, same single-process invocation. Mode is determined by parsing the input: `--process-feedback <queue-file>` → on-demand; else `--plan` → planner; else periodic. Periodic mode may transition into planner-mode in-process when its auto-trigger fires (the digest §4 then reports the planner output as part of the same tick). The manager talks to the user proactively (status digests, escalations, on-demand replies, planner announcements) but is read-only across watched projects with two scoped exceptions: `docs/TODO.md > Next up` and `docs/SPEC.md` appends in on-demand mode, and `docs/TODO.md > Next up` appends of `[unconfirmed:*]` lines in planner mode (see §Hard rules).
 
 The manager NEVER:
 - edits a `SKILL.md` (that's `/sst-promote-skill-proposal`).
@@ -78,7 +79,7 @@ The proprietary counterpart's `objectives-path` file holds the bar this manager 
       since: <utc-iso when this criterion was added>
 ```
 
-`<slug>` is kebab-case, unique within the file, and never renumbered (the planner extension's `--plan` mode uses the slug to identify the criterion in `Next up` rationale lines + idempotency markers). The 3-line block is recognized by 6-space indentation under the bullet line; any other indentation is treated as ordinary continuation text.
+`<slug>` is kebab-case, unique within the file, and never renumbered (§Planner mode uses the slug to identify the criterion in `Next up` rationale lines + idempotency markers). The 3-line block is recognized by 6-space indentation under the bullet line; any other indentation is treated as ordinary continuation text.
 
 **Two `check:` forms:**
 
@@ -96,20 +97,21 @@ The proprietary counterpart's `objectives-path` file holds the bar this manager 
 1. Parse `objectives-path` block-by-block: a bullet with no continuation block is prose-only (untracked); a bullet followed by 6-space-indented `check:` + `target:` + `since:` lines is scored.
 2. For each scored criterion that is still `[ ]`, run the check. Treat any non-zero exit code from a shell check as "criterion not met" without failing the manager run; log the failure to stderr and continue. (A check expression that crashes shouldn't take the whole tick down.)
 3. Compare the result to `target:` per the operator. If the comparison passes, the criterion is "met-this-tick"; the periodic mode §3 may flip `[ ]` → `[x]` (only when the conditions in §3 also hold: clean supervisor verdict, diff touches files the criterion names, unambiguous wording).
-4. For criteria still unmet, gap = `(now - since)` in hours/days. The planner mode (a follow-up extension of this skill, invoked as `--plan`) uses this for prioritization.
+4. For criteria still unmet, gap-age = `(now - since)` in days; gap-magnitude is the numeric distance between the check result and the target boundary (zero if the target is satisfied; for `target: == 0` with a positive count, magnitude is the count itself; for `target: <= X` magnitude is `max(0, current - X)`; for `target: >= X` magnitude is `max(0, X - current)`). §Planner mode uses both axes for prioritization.
 
 **Prose-only bullets** are visible in digests under "Goals" but appear without the `✓ / →` evidence cell — instead a `?` or "(unscored)" marker. They never auto-flip; only the user edits them by hand. Use this form when a criterion is genuinely qualitative.
 
-**Anti-objectives section** (a level-2 heading typically named `## Anti-objectives` near the bottom) is read for steering only — the manager must NOT propose work that pushes toward an anti-objective in `--plan` mode, and must NOT escalate progress against one in a digest. Anti-objective bullets are prose-only by construction (they have no `check:` block).
+**Anti-objectives section** (a level-2 heading typically named `## Anti-objectives` near the bottom) is read for steering only — the manager must NOT propose work that pushes toward an anti-objective in §Planner mode, and must NOT escalate progress against one in a digest. Anti-objective bullets are prose-only by construction (they have no `check:` block).
 
 ## Process
 
 ### 0. Pre-flight
 
-1. If `~/.claude/state/manager-paused` exists, exit silently (no log, no message). The user toggles this via the bot's `/pause` and `/resume`.
-2. Read the proprietary counterpart's frontmatter / body for the configuration above. If anything required is missing, write to stderr and exit non-zero — the manager cannot run without knowing what to watch.
-3. Source the Telegram env file: `set -a; . "$telegram_env"; set +a`. The `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` exports are now available for `bin/notify-telegram.sh`.
-4. Read or create `~/.claude/state/manager-cursors.json` (default: `{}`).
+1. **Mode dispatch.** Parse the input for mode tokens. If `--process-feedback <queue-file>` is present, jump to §On-demand feedback routing and skip §1–§6. Else if `--plan` is present (with no `--process-feedback`), jump to §Planner mode and skip §1–§6. Else continue with periodic mode below; periodic mode's §3 may auto-transition into planner-mode in-process when conditions hold.
+2. If `~/.claude/state/manager-paused` exists, exit silently (no log, no message). The user toggles this via the bot's `/pause` and `/resume`.
+3. Read the proprietary counterpart's frontmatter / body for the configuration above. If anything required is missing, write to stderr and exit non-zero — the manager cannot run without knowing what to watch.
+4. Source the Telegram env file: `set -a; . "$telegram_env"; set +a`. The `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` exports are now available for `bin/notify-telegram.sh`.
+5. Read or create `~/.claude/state/manager-cursors.json` (default: `{}`).
 
 ### 1. Process inbound bot commands first
 
@@ -195,6 +197,15 @@ For each open `[ ]` objective bullet in `objectives-path`, decide whether to fli
 - The bullet's text is unambiguous about completion criteria (no "ongoing" / "until further notice" wording).
 
 When in doubt, don't flip. The user always wins.
+
+**Planner auto-trigger (end of §3, before §4).** For each watched project, evaluate whether to transition into planner-mode in-process for THIS tick:
+
+1. Read the project's `docs/TODO.md > ## Next up` section. Count list items — entries beginning `^- ` between the `## Next up` header and the next `^## ` header. If non-zero, skip planner-trigger for this project; reset the cursor field below to null and continue.
+2. Read the project's `docs/SPEC.md`. Count open `^- \[ \]` items across all phase blocks. If non-zero, skip planner-trigger for this project; reset the cursor field below to null and continue.
+3. Read `manager-cursors.json[<project-path>].planner.queue_empty_since_tick` (extending the cursors file with a `planner` sub-object per project). If absent or null, set it to the current `<utc-iso>` and skip planner-trigger this tick (planner needs ≥1 prior tick of empty-state to confirm steady state, not a transient empty between dev cycles). Persist the cursor change.
+4. If the cursor is already set (a prior tick observed empty-state) AND the current tick still observes empty-state, the auto-trigger fires: scan `## Next up` for any line containing `[unconfirmed:` AND a `<!-- planner-id: ` marker; if any such line exists, skip planner-trigger silently (one outstanding batch at a time per §Planner mode re-entry rule). Otherwise transition into §Planner mode in-process for THIS project, then resume periodic mode at §4 with the planner output included in the digest.
+
+The cursor field stays set across ticks until the queue or SPEC re-fills, at which point step 1 or 2 resets it to null. This guarantees one auto-trigger per empty-state stretch, not one per tick.
 
 ### 4. Compose the digest
 
@@ -322,7 +333,7 @@ The point of this mode is to use the manager's full context (objectives.md, ever
 
 1. Read the queue file (`<queue-file>`). Required JSON fields: `body` (user's message text), `from_chat_id`, `received_at`. If the file is malformed, missing, or already in `processed/` (helper idempotency caught it), reply via Telegram `Already processed (or queue file missing); ignoring.` and exit 0.
 2. Read the proprietary counterpart's frontmatter / body for the same configuration the periodic mode reads (watched-projects, objectives-path, telegram-env). Fail fast with a stderr message if any required field is absent.
-3. Source the Telegram env file as in §0.3.
+3. Source the Telegram env file as in §0.4.
 4. Read `objectives-path`. This is the canonical north star — every routing decision must trace to one or more objective bullets (or be refused for falling outside).
 5. **For each watched project**, read `<project>/docs/SPEC.md` and `<project>/docs/TODO.md` end-to-end. The TODO's `## Next up` section is the queue an outcome (a) appends to; SPEC phase blocks are what outcome (b) appends under. Multi-project scope: when the feedback names a specific project ("the dev cycle on project-a is over-batching"), narrow to that project; when it's project-agnostic ("supervisor should weigh cost more"), the manager picks the most-relevant project (typically the one with the most recent run touching that surface).
 
@@ -399,15 +410,113 @@ If any input read fails (queue file gone, telegram-env missing, project paths un
 
 The on-demand mode runs INSIDE one `claude --print` already. Recursing would multiply harness load and break the bot's "one spawn per /feedback" contract. If decision-making requires reading more state than is available in this single run (e.g. stepping into a watched project to re-read code that has changed since the run log), instead route the feedback as outcome (a) "investigate <X>" or outcome (c) "supervisor should re-examine <X>"; the dev or supervisor cycle will do the read with proper context.
 
+## Planner mode (`--plan`)
+
+This mode runs INSTEAD OF the periodic Process loop §1–§6 when invoked explicitly as `/<persona>-manager --plan`. It also runs IN-PROCESS as part of a periodic-mode tick when the §3 auto-trigger fires; in that case, periodic mode resumes at §4 (digest) once the planner output is recorded so the user gets one consolidated message rather than two.
+
+The point of this mode is to keep the dev loop making progress when the user has not authored a queued item recently. Without it, a chain run started against an empty `Next up` + fully-checked SPEC produces a `[no-work]` bail and burns no further compute, but also makes no progress toward the user's stated objectives. Planner mode reads `objectives-path`, scores gap on each measurable criterion, and drafts 1-3 candidate `Next up` items targeting the highest-gap criteria. The candidates carry an `[unconfirmed:<id>]` prefix the user clears manually before the dev cycle picks the item, so the planner cannot silently broaden the agenda.
+
+### α. Read the inputs
+
+1. Read the proprietary counterpart's frontmatter / body for the same configuration the periodic mode reads (watched-projects, objectives-path, telegram-env). Fail fast with a stderr message if any required field is absent.
+2. Source the Telegram env file as in §0.4.
+3. Read or create `~/.claude/state/manager-cursors.json` (extending it with a `planner` sub-object per project; see §3 auto-trigger).
+4. **For each watched project**, read `<project>/docs/TODO.md` and `<project>/docs/SPEC.md`. The TODO's `## Next up` section is what planner mode appends to; SPEC is read only to confirm fully-checked state and to gather context for tier judgment. When the watched-projects list contains more than one project, planner mode picks the project with the most-recent `.skill-runs/<utc>_<chain>/` activity AND a fully-checked SPEC AND an empty `## Next up` — that is the project most likely to benefit from a fresh batch. If multiple projects qualify, pick the one with the oldest `since:` on its top-gap objective; if none qualify, exit cleanly with stdout `planner: no project in steady state; nothing to draft`.
+5. Read `objectives-path`. This is the canonical north star — every candidate draft must trace to one or more open `[ ]` measurable bullet (see §Score-against-objectives for the schema).
+6. Read the chosen project's `<project>/.skill-runs/<latest>/MANIFEST.json` plus any `supervisor_verdict.md` for "what just happened" context. The planner uses this to bias rationale wording (e.g. note when a recent supervisor verdict already escalated something the planner is about to draft).
+
+### β. Re-entry guard
+
+Scan the chosen project's `docs/TODO.md > ## Next up` for any line containing `[unconfirmed:` AND a `<!-- planner-id: ` marker. If at least one such line exists, exit cleanly without drafting: stdout `planner: <K> outstanding [unconfirmed:*] item(s); no new batch this tick`, send a single Telegram body `Planner skipped — <K> [unconfirmed:*] item(s) still in queue; clear or convert them before the next batch.`, and return. **One outstanding batch at a time** is a hard invariant — proposing fresh candidates while prior ones await user confirmation is the failure mode the `[unconfirmed:*]` prefix exists to prevent.
+
+The `<!-- planner-id: <id> -->` marker is the discoverable token (the visible `[unconfirmed:<id>]` prefix may be edited by the user during conversion to a non-planner item; the comment marker survives prose edits as long as the line itself survives, and disappears with the line on `remove`).
+
+### γ. Score gaps + pick the top 1-3
+
+Run §Score-against-objectives §1–§4 against `objectives-path`. For each open `[ ]` scored bullet that is currently unmet, record:
+
+- `slug` — the bullet's kebab-case slug.
+- `description` — the bullet's one-line description (after the slug + colon).
+- `check_result` — the numeric value (or exit code) the check produced.
+- `target_op` + `target_value` — the operator + RHS from `target:`.
+- `gap_magnitude` — per §Score-against-objectives §4 (numeric distance to target boundary).
+- `gap_age_days` — `(now - since) / 86400` rounded to whole days.
+
+Rank candidates by composite gap, lexicographically: (a) `gap_magnitude > 0` outranks `gap_magnitude == 0`; (b) within each magnitude tier, larger `gap_age_days` wins; (c) ties broken by slug alphabetical for determinism. Pick the top **K = min(3, candidate_count)**.
+
+Prose-only bullets (no `check:` block) are NOT eligible for planner drafting — the planner can only score what `check:` makes measurable. They remain visible in periodic-mode digests under "Goals" with the unscored marker but never produce a candidate.
+
+Anti-objective bullets (under `## Anti-objectives`, prose-only by construction) are read for steering only — when drafting a candidate, the planner MUST verify the candidate description does not push toward any anti-objective; if it does, skip that candidate and pick the next-ranked one.
+
+### δ. Draft each candidate
+
+For each picked criterion, compose ONE candidate line in this exact format:
+
+```
+- [unconfirmed:<id>] [<tier>] <one-line description> — planner: targets objective <slug>; gap: <gap-summary>; reason: <one-sentence rationale> <!-- planner: <utc-iso> --> <!-- planner-id: <id> -->
+```
+
+Field rules:
+
+- `<id>` — `<slug>-<YYYYMMDD>` where `<YYYYMMDD>` is today's UTC date with no separators (e.g. `spec-empty-20260502`). Stable for the lifetime of this draft; the `<!-- planner-id: -->` marker carries the same value for re-entry detection.
+- `<tier>` — judgment-based: `[easy]` for mechanical / single-file / well-bounded work, `[medium]` for substantial multi-step reasoning, `[hard]` for cross-file or architectural design. Default `[medium]` when uncertain. The user's manual confirmation step (clearing the `[unconfirmed:`-prefix) is the safety net for tier mistakes; the dev cycle's normal pick-and-route then runs against the chosen tier.
+- `<one-line description>` — actionable verb-led phrasing, e.g. "Author end-to-end smoke test exercising the full chain", "Compress oversized closed-phase blocks to ≤30 lines per anti-bloat objective". Avoid bare reformulation of the objective text (the rationale field carries the link); name a concrete shippable change.
+- `<gap-summary>` — terse: `<check_result> <target_op> <target_value>, age <gap_age_days>d` (e.g. `7 != 0, age 12d`).
+- `<one-sentence rationale>` — why THIS candidate moves THIS objective forward. One sentence; saving the longer "what does the user need to know" reasoning for the Telegram announcement below.
+
+Append all K candidates to the END of `<project>/docs/TODO.md > ## Next up` (after any pre-existing user-authored entries; existing queued items keep their order). Do NOT touch any other section. Do NOT commit; the change is left in the working tree, the dev cycle's normal §1 pick will see the candidates only after the user clears at least one `[unconfirmed:`-prefix.
+
+### ε. Persist planner state
+
+Update `~/.claude/state/manager-cursors.json[<project-path>].planner`:
+
+- `last_proposed_at` — current `<utc-iso>`.
+- `last_proposed_ids` — list of the K `<id>` values just drafted.
+- `queue_empty_since_tick` — leave as-is (the appended `[unconfirmed:*]` items now occupy `Next up`, so the next periodic tick will see non-empty-state and reset this field to null via §3 step 1).
+
+Atomicity: read-modify-write the cursors file via tempfile + fsync + rename to keep state consistent across crash points.
+
+### ζ. Announce via Telegram
+
+Send ONE Telegram body summarizing the batch. Format:
+
+```
+🧠 Planner update — <Month D, YYYY>
+
+Queue empty + spec fully checked across <N> tick(s); drafted <K> candidate(s) targeting highest-gap objectives:
+
+  • [unconfirmed:<id>] [<tier>] <description>
+    targets: <slug> (<gap-summary>)
+    rationale: <one-sentence rationale>
+
+Clear the `[unconfirmed:`-prefix in <project>/docs/TODO.md > Next up to release a candidate for the next dev cycle. Refuse a candidate by deleting its line. The planner will not draft a new batch until every [unconfirmed:*] item is cleared, converted, or deleted.
+```
+
+Apply the periodic-mode digest's language rules (translate tool names to role words, drop framework jargon, keep concrete specifics — see §4).
+
+When auto-triggered from periodic mode §3, the planner output is appended to the §4 digest body under a new "Planner update" section rather than sent as a separate Telegram body, so the user receives one consolidated message per tick.
+
+### η. Exit cleanly
+
+Stdout: `planner: drafted <K> candidate(s) for <project> targeting <slug-list>` for explicit `--plan` invocation; auto-triggered runs continue to §4 (digest) and report there. Exit 0.
+
+If any input read fails (objectives-path missing, project paths unreachable, telegram-env missing), exit non-zero with a stderr message naming the missing input. The cursor field is left untouched on failure so the next tick retries.
+
+### θ. Never invoke another `claude --print` / harness from planner mode
+
+Same constraint as §On-demand E. Planner mode runs inside one harness invocation; recursing would multiply load and confuse downstream tooling. If picking a candidate would benefit from reading more code than the run log + TODO + SPEC + objectives expose, draft the candidate as a `[medium]` "investigate <X>" entry rather than reading the code itself; the dev cycle will do the read with proper context.
+
 ## Hard rules
 
-- **No `git commit` / `git push` / SSH / curl-against-prod.** The manager never commits, pushes, or talks to live services. Write surface is bounded to: its own state files (`manager-cursors.json`, `manager-notes.md`, `manager-digests/`), the Telegram outbound, `<objectives-path>` `[ ]` ↔ `[x]` toggles, AND (on-demand mode only) `docs/TODO.md > Next up` appends + `docs/SPEC.md` appends in watched projects. The TODO/SPEC scoped exception is APPENDS ONLY (modeled on the existing `objectives.md` `[ ]` ↔ `[x]` exception): never edits an existing item, never deletes, never renumbers, never modifies `## In flight` or `## Just shipped` or any phase heading text, never reorders phases, never commits or stages the change. The dev cycle's normal §1 pick is what eventually ships the queued item; the manager just inserts the line.
+- **No `git commit` / `git push` / SSH / curl-against-prod.** The manager never commits, pushes, or talks to live services. Write surface is bounded to: its own state files (`manager-cursors.json`, `manager-notes.md`, `manager-digests/`), the Telegram outbound, `<objectives-path>` `[ ]` ↔ `[x]` toggles, on-demand mode's `docs/TODO.md > Next up` appends + `docs/SPEC.md` appends in watched projects, AND planner-mode's `docs/TODO.md > Next up` appends of `[unconfirmed:*]` lines (with a `<!-- planner-id: <id> -->` marker) only. All TODO/SPEC scoped exceptions are APPENDS ONLY (modeled on the existing `objectives.md` `[ ]` ↔ `[x]` exception): never edits an existing item, never deletes, never renumbers, never modifies `## In flight` or `## Just shipped` or any phase heading text, never reorders phases, never commits or stages the change. The dev cycle's normal §1 pick is what eventually ships the queued item; the manager just inserts the line. **Planner-mode appends** are further bounded by §Planner mode β re-entry guard (one outstanding `[unconfirmed:*]` batch at a time per project) and by the `[unconfirmed:`-prefix that the user must clear manually before the dev cycle picks the item — the planner cannot silently broaden the agenda.
 - **No `claude -p` / harness invocation.** The manager runs INSIDE a single skill invocation (one `claude -p`), which the cron / `/loop` / bot-spawn triggers. It does not spawn more — even in on-demand mode where re-reading state in a fresh harness might tempt it (see §On-demand feedback routing E).
 - **Telegram messages capped at 4000 chars.** Truncate with `... [truncated; run /status for full digest]` if needed; the full digest is always in `manager-digests/<utc>.txt`.
 - **Never write a token, preimage, or chat ID into the digest body.** The CHAT_ID allowlist is enforced by the bot, not by message content.
 - **Never re-notify on persistent paused-job state.** A rate-limited or otherwise paused job is reported ONCE at the pause edge (via the chain driver) and ONCE at resume. The manager's periodic digest may MENTION currently-paused jobs in the consolidated status block, but MUST NOT fire a separate Telegram body per tick for the same paused job. If a job stays paused across multiple manager ticks, treat that as steady state, not a new event.
 - **On-demand mode is single-feedback-per-invocation.** `--process-feedback` accepts exactly one queue-file path and routes exactly one outcome. Batch routing (multiple queue files in one invocation) is a separate concern that belongs to the periodic-mode drain, not on-demand.
 - **On-demand mode never touches digests.** The on-demand mode does NOT compose or send a status digest, regardless of whether `manager-digests/` is stale. Digests are a periodic-mode concern; the bot-spawned on-demand path is for single-message routing only.
+- **Planner mode never proposes while a prior batch is outstanding.** §Planner mode β's re-entry guard is a hard invariant: any line under `## Next up` containing `[unconfirmed:` AND a `<!-- planner-id: -->` marker blocks new drafts for that project, including auto-trigger transitions from periodic mode. The user converts a candidate by clearing the `[unconfirmed:`-prefix (releasing it for the dev cycle), or refuses it by deleting the line.
+- **Planner mode never invents prose-only objectives.** Candidates may only target open `[ ]` measurable bullets (with a `check:` continuation block). Prose-only and anti-objective bullets are never the source of a planner draft.
 
 ## Worker-lifecycle expectation
 
