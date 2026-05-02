@@ -11,6 +11,7 @@
 -->
 
 
+
 ## Just shipped (last cycle)
 
 <!--
@@ -24,6 +25,7 @@
   phase blocks and `git log`.
 -->
 
+- 27 [medium] FUTURE-WORK.md contract: 4 transferables (sst-dev-cycle v1.4.4, sst-dev-review v1.5.0, sst-supervisor v1.11.0, sst-manager v1.10.0) + 4 proprietary mirrors + templates/FUTURE-WORK.md (new) + templates/SPEC.md + CLAUDE.md updated; inline sanitize verdict must-fix=0 — by skill-set-dev at 2026-05-02T14:31:10Z
 - 23.4 [easy] [should-fix] `sst-wiki-curator/SKILL.md` retroactive `sst-sanitize-transferable` run: must-fix=0, should-fix=0, nit=1 (Karpathy citation retained); audit trail closed — by skill-set-dev at 2026-05-02T13:03:36Z
 - 18.11 [hard] [should-fix] `bin/drive-chain.py` stale-recycle TOCTOU closed: new `_recycle_stale_worker_if_unused(descriptor)` helper holds `WORKER_LOCK_FILE` across refcount-read + tmux-kill + state-file unlinks; `main()` stale-recycle branch calls it in place of the prior `_refcount_op(0)` + `_stop_worker` pair (which released the lock between check and stop, letting a concurrent `_start_worker` write count=1 and launch a fresh persona-named session that the deferred kill would destroy). Returns `(True, 0)` when recycled, `(False, count)` when deferred. Smoke-tested four refcount states (no file, count=0 explicit, count=1, count=2) against a tmp state dir. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T07:45:55Z
 - 23.2 [medium] sst-wiki-curator acceptance passed: scaffold (a–d) + ingest (e–j) all confirmed against a throwaway dir; B.9 commit-gate prose fixed (v1.0.0→v1.0.1) after first ingest run skipped the commit step. — by skill-set-dev at 2026-05-02T07:22:27Z
@@ -33,7 +35,6 @@
 - 25.2 [hard] **`sst-manager --plan` mode**: added §Planner mode (α–θ) to `sst-manager` (v1.8.0→v1.9.0) — explicit `--plan` invocation OR auto-trigger from periodic mode §3 when `Next up` empty + SPEC fully checked across ≥1 prior tick (cursor-tracked via `manager-cursors.json[<project>].planner.queue_empty_since_tick`); β re-entry guard (one outstanding `[unconfirmed:*]` batch at a time, discoverable via `<!-- planner-id: -->` marker); γ ranking by gap-magnitude × gap-age across open `[ ]` measurable bullets; δ candidate format `- [unconfirmed:<id>] [<tier>] ... <!-- planner: <utc> --> <!-- planner-id: <id> -->`; ε cursor persistence; ζ Telegram announcement (consolidated with periodic digest on auto-trigger); §Hard rules tightened with two new bullets (never propose while batch outstanding, never invent prose-only objective candidates). Mode dispatch hoisted to §0.1 covering all three modes; §Score-against-objectives §4 enriched with gap-magnitude/gap-age axes; forward-references to "the planner extension" replaced with concrete `§Planner mode` cross-refs. Proprietary mirror `skill-set-manager` v1.4.0→v1.5.0 with `transferable-version: ">=1.9.0"` adds a Cadence paragraph naming the auto-trigger conditions against this single-project repo. Inline sanitize judgment on the transferable touch: must-fix=0, should-fix=0, nit=0 (two `Phase NN` internal-number leaks stripped from new prose during the cycle; banned-terms scan zero hits). Validator clean (25 skills + 7 chains; 5 proprietary skills + 2 proprietary chains). — by skill-set-dev at 2026-05-02T03:03:36Z
 - [supervisor] [medium] archived fully-closed SPEC phases (1–7, 9–13, 15–16, 21, 26) to docs/SPEC-archive.md; SPEC.md reduced from 31,844 tokens to ~23,900 tokens (fits single Read call). Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T02:34:19Z
 - 25.5 [easy] [should-fix] `objectives.md:cycles-clean check` glob extended to cover root-level `supervisor_verdict.md` (single-iter runs write verdict at run root, not `iter_*/`); both glob forms now unioned in the `ls -dt` call. SPEC 25.5 `[ ]` → `[x]`. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T02:08:55Z
-- 25.4 [medium] [should-fix] `objectives.md:cycles-clean check` rewritten from broken `grep -c '^Outcome.*escalate'` (always returns 0) to self-contained awk that skips the `## Outcome` header + blank line and prints 1/0 for escalate/clean; no-file edge handled via `${f:-/dev/null}`; SPEC 25.4 `[ ]` → `[x]`. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T01:39:56Z
 
 ## Next up (queued for next cycle)
 
@@ -44,6 +45,3 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] Update the dev/review/supervisor/manager skills (transferable + proprietary mirrors) to recognize `docs/FUTURE-WORK.md` as the parking lot for items needing manual/human verification, deferred work, or future items the user wants visible but not queued. Contract additions: (1) `sst-dev-review` MUST file acceptance / smoke-test follow-ups directly to `FUTURE-WORK.md` instead of `Next up` (since the dev cycle cannot self-verify them); (2) `sst-supervisor` MAY suggest an item belongs in `FUTURE-WORK.md` rather than queueing it; (3) `sst-dev-cycle` reads `FUTURE-WORK.md` end-to-end on start (alongside SPEC + TODO) so it sees parked work but DOES NOT pick from it; (4) `sst-manager` planner mode skips `FUTURE-WORK.md` when scoring gap (parked = intentionally not active). Update `templates/` (FUTURE-WORK.md template + SPEC.md preamble naming the third handoff doc) and `CLAUDE.md` "Handoff docs" section to match. Reason: user directive 2026-05-02; closes the contract fork created by adding the doc this cycle.
-
-The following are now tracked in [docs/FUTURE-WORK.md](FUTURE-WORK.md). A human flips an entry back into `Next up` (with the right `[easy|medium|hard]` label) when ready: Phase 8.6 end-to-end smoke; Phase 14.6 kill -TERM acceptance; Phase 17.4 empty-queue bail acceptance; Phase 18.5 chain-bound worker lifecycle acceptance; Phase 19.11 model-tier routing acceptance; Phase 22.9 batch-window acceptance; Phase 24.6 `/feedback` four-outcome acceptance; Phase 20 `goose-cerebras` harness (deferred).

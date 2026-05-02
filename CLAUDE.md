@@ -8,6 +8,7 @@ Before any non-trivial edit:
 
 1. Read `docs/SPEC.md` end-to-end. This is the canonical plan for the framework itself.
 2. Read `docs/TODO.md` end-to-end. Three sections: `In flight`, `Just shipped (last cycle)`, `Next up (queued for next cycle)`.
+3. If `docs/FUTURE-WORK.md` exists, read it end-to-end. Do not pick from it — it is the project's parking lot for deferred work and acceptance tests requiring human verification. Only humans move entries from here into `Next up`.
 
 Pick work this way:
 

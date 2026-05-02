@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.4.9
+version: 1.5.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -32,7 +32,7 @@ Before filing any finding, ask: *would this actually hurt a user, cause a real b
 
 ## Handoff docs
 
-This skill reads `docs/SPEC.md` and `docs/TODO.md` end-to-end on open and may write to both on close (under §4). Severity bar and process are unchanged from the rest of this skill; the only addition is that every blocker/should-fix you file in the spec also gets mirrored as a one-line entry in `TODO.md`'s `## Next up` so the next `/sst-dev-cycle` picks it up without re-scanning the spec. Both files commit together in §5 if anything was added.
+This skill reads `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` (if present) end-to-end on open. It may write to `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` on close (under §4). Severity bar and process are unchanged from the rest of this skill; the only addition is that every blocker/should-fix you file in the spec also gets mirrored as a one-line entry in `TODO.md`'s `## Next up` so the next `/sst-dev-cycle` picks it up without re-scanning the spec. Both files commit together in §5 if anything was added.
 
 **Spec sub-item IDs.** Every `- [ ]` item in `docs/SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 3.1 [hard] **description**`). IDs are assigned once and never renumbered — gaps from closed/removed items are valid. When filing follow-ups to `## Next up` in §4, prefer citing the SPEC item by its ID (e.g. `reason: spec 3.1`) over "Phase 3 sub-item" for durability.
 
@@ -206,6 +206,13 @@ Count findings after you've applied the "no nitpicks" bar.
 A clean report with no findings is a success signal, not a failure to find work. Don't pad.
 
 ## 4. Append follow-ups to the spec + TODO.md
+
+**Route first: FUTURE-WORK.md vs spec + TODO.md.** Before filing any finding, decide the destination:
+
+- **`docs/FUTURE-WORK.md`** (acceptance and smoke-test findings only): findings whose resolution requires a real chain-driver round-trip, Telegram message exchange, human-verified end-to-end smoke, or any check the dev cycle cannot perform autonomously from inside its own iteration. Append under `## Manual / human verification > ### <Phase context>` (create the sub-section if absent). One line per finding. Do NOT also mirror to spec or `## Next up` — these items sit in FUTURE-WORK.md until a human flips them back when external verification is ready.
+- **Spec + `docs/TODO.md`** (all other findings): code corrections, prose edits, schema additions, contract clarifications — work a future dev cycle can execute autonomously. File in the spec and mirror to `## Next up` per the rules below.
+
+Signs a finding belongs in FUTURE-WORK.md: the proposed fix is "run an acceptance test", "verify via a Telegram bot", "confirm with a live chain-driver run", "observe in production", or "exercise end-to-end by hand" — any fix the dev cycle cannot self-verify from inside the chain. Signs it belongs in spec + TODO: the proposed fix is a code change, a prose edit, a schema addition, or any other autonomous development task.
 
 **Spec.** Open the project's spec file (same one `/sst-dev-cycle` updates). Under the sub-section the cycle touched, append a **Review follow-ups** subsection. Format:
 

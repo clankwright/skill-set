@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.9.0
+version: 1.10.0
 ---
 
 # Manager
@@ -57,6 +57,7 @@ State files this skill reads / writes:
 | `<objectives-path>`                           | yes  | yes (only `[ ]` ↔ `[x]` toggles; periodic mode only) |
 | `<watched-project>/docs/TODO.md`              | yes  | yes (on-demand mode only; APPENDS to `## Next up` only) |
 | `<watched-project>/docs/SPEC.md`              | yes  | yes (on-demand mode only; APPENDS new sub-items or new phase blocks only) |
+| `<watched-project>/docs/FUTURE-WORK.md`       | yes (read-only, if present) | no |
 
 `manager-notes.md` is the single state file the supervisor reads for cross-run steering. It carries THREE source-tagged entry kinds, interleaved newest-first:
 
@@ -174,7 +175,7 @@ Filter to dirs whose timestamp is strictly newer than `manager-cursors.json[path
 
 1. Read `MANIFEST.json` (chain name, harness, exit code, per-skill records, git SHA before/after).
 2. Read `supervisor_verdict.md` if present.
-3. Read the project's `docs/SPEC.md` (or the path the project's `CLAUDE.md` declares) and `docs/TODO.md` to see what state the project is in NOW.
+3. Read the project's `docs/SPEC.md` (or the path the project's `CLAUDE.md` declares), `docs/TODO.md`, and `docs/FUTURE-WORK.md` (if present) to see what state the project is in NOW. **Items in `FUTURE-WORK.md` are intentionally parked and MUST NOT be counted as open work** when scoring progress or checking for steady state.
 4. Score the run against `objectives-path`:
    - **Advance**: this run's commit closes a spec item that maps to an objective bullet.
    - **Drift**: the run shipped to an area not on the objectives list (acceptable, common — most cycles do).
@@ -201,7 +202,7 @@ When in doubt, don't flip. The user always wins.
 **Planner auto-trigger (end of §3, before §4).** For each watched project, evaluate whether to transition into planner-mode in-process for THIS tick:
 
 1. Read the project's `docs/TODO.md > ## Next up` section. Count list items — entries beginning `^- ` between the `## Next up` header and the next `^## ` header. If non-zero, skip planner-trigger for this project; reset the cursor field below to null and continue.
-2. Read the project's `docs/SPEC.md`. Count open `^- \[ \]` items across all phase blocks. If non-zero, skip planner-trigger for this project; reset the cursor field below to null and continue.
+2. Read the project's `docs/SPEC.md`. Count open `^- \[ \]` items across all phase blocks. If non-zero, skip planner-trigger for this project; reset the cursor field below to null and continue. **Do NOT read or count items in `docs/FUTURE-WORK.md`** — parked items are intentionally not active and must not prevent the planner-trigger from recognizing steady state.
 3. Read `manager-cursors.json[<project-path>].planner.queue_empty_since_tick` (extending the cursors file with a `planner` sub-object per project). If absent or null, set it to the current `<utc-iso>` and skip planner-trigger this tick (planner needs ≥1 prior tick of empty-state to confirm steady state, not a transient empty between dev cycles). Persist the cursor change.
 4. If the cursor is already set (a prior tick observed empty-state) AND the current tick still observes empty-state, the auto-trigger fires: scan `## Next up` for any line containing `[unconfirmed:` AND a `<!-- planner-id: ` marker; if any such line exists, skip planner-trigger silently (one outstanding batch at a time per §Planner mode re-entry rule). Otherwise transition into §Planner mode in-process for THIS project, then resume periodic mode at §4 with the planner output included in the digest.
 
@@ -335,7 +336,7 @@ The point of this mode is to use the manager's full context (objectives.md, ever
 2. Read the proprietary counterpart's frontmatter / body for the same configuration the periodic mode reads (watched-projects, objectives-path, telegram-env). Fail fast with a stderr message if any required field is absent.
 3. Source the Telegram env file as in §0.4.
 4. Read `objectives-path`. This is the canonical north star — every routing decision must trace to one or more objective bullets (or be refused for falling outside).
-5. **For each watched project**, read `<project>/docs/SPEC.md` and `<project>/docs/TODO.md` end-to-end. The TODO's `## Next up` section is the queue an outcome (a) appends to; SPEC phase blocks are what outcome (b) appends under. Multi-project scope: when the feedback names a specific project ("the dev cycle on project-a is over-batching"), narrow to that project; when it's project-agnostic ("supervisor should weigh cost more"), the manager picks the most-relevant project (typically the one with the most recent run touching that surface).
+5. **For each watched project**, read `<project>/docs/SPEC.md`, `<project>/docs/TODO.md`, and `<project>/docs/FUTURE-WORK.md` (if present) end-to-end. The TODO's `## Next up` section is the queue an outcome (a) appends to; SPEC phase blocks are what outcome (b) appends under. FUTURE-WORK.md is read for context only; on-demand routing never writes to it. Multi-project scope: when the feedback names a specific project ("the dev cycle on project-a is over-batching"), narrow to that project; when it's project-agnostic ("supervisor should weigh cost more"), the manager picks the most-relevant project (typically the one with the most recent run touching that surface).
 
    **Spec sub-item IDs.** Every open `- [ ]` item in `docs/SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 3.1 [medium] **description**`). IDs are 1-indexed per phase and never renumbered; gaps from removed items are valid. When the user's feedback references an item by ID (e.g. `add 3.1 to TODO`, `modify 3.1: …`), resolve the ID against the SPEC before routing; see §B ID-addressed pre-check.
 6. Read the most recent run log under `<chosen-project>/.skill-runs/<latest>/` — `MANIFEST.json` plus any `supervisor_verdict.md` — for "what just happened" context. If no recent run exists, that's fine; some feedback is forward-looking.
@@ -445,6 +446,8 @@ Run §Score-against-objectives §1–§4 against `objectives-path`. For each ope
 Rank candidates by composite gap, lexicographically: (a) `gap_magnitude > 0` outranks `gap_magnitude == 0`; (b) within each magnitude tier, larger `gap_age_days` wins; (c) ties broken by slug alphabetical for determinism. Pick the top **K = min(3, candidate_count)**.
 
 Prose-only bullets (no `check:` block) are NOT eligible for planner drafting — the planner can only score what `check:` makes measurable. They remain visible in periodic-mode digests under "Goals" with the unscored marker but never produce a candidate.
+
+**`docs/FUTURE-WORK.md` items are excluded from gap scoring.** Parked items are intentionally not active; counting them as open work would misrepresent the project's actual gap against its objectives. The planner's gap calculation operates against `docs/TODO.md > Next up` and `docs/SPEC.md` open items only.
 
 Anti-objective bullets (under `## Anti-objectives`, prose-only by construction) are read for steering only — when drafting a candidate, the planner MUST verify the candidate description does not push toward any anti-objective; if it does, skip that candidate and pick the next-ranked one.
 

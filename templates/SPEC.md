@@ -43,6 +43,7 @@
 - A skill closes an item by flipping `- [ ]` → `- [x]` in the same commit as the code change.
 - When all items in a phase are checked, append a "completed" block to that phase: 1-paragraph result + bulleted file citations + test-count delta. Don't delete the phase's checklist; it's the historical record.
 - New work surfaced mid-cycle goes to `TODO.md`'s "Next up", not directly here. The next cycle decides whether it merits a new spec phase or was actually a follow-up to the current one.
+- Items requiring manual verification, blocked on an external prerequisite, or intentionally parked go to `FUTURE-WORK.md` (if the project uses it), not here or in `Next up`. A human flips them back to `TODO.md > Next up` when ready.
 
 ### Difficulty labels (model + effort routing)
 

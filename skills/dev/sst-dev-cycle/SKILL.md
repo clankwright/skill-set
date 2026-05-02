@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.4.3
+version: 1.4.4
 model-floor: sonnet
 effort-floor: high
 ---
@@ -25,6 +25,7 @@ Two canonical files per project carry cross-cycle state. Default location `<proj
 
 - **`SPEC.md`** (or the project's existing primary spec — `docs/<project>_SPEC.md` is common) — long-lived phase checklists, closed-phase change logs.
 - **`TODO.md`** — three sections: `## In flight` (one line per running skill), `## Just shipped (last cycle)` (newest-first, max 10), `## Next up (queued for next cycle)` (one line per item, ordered by impact).
+- **`FUTURE-WORK.md`** (optional, at `docs/FUTURE-WORK.md` if the project uses it) — parking lot for deferred work, acceptance tests requiring human or chain-level verification, and items the user wants visible but not queued. **Read on open; never pick from.** The pick order is unchanged: `TODO.md > Next up` first, then the spec's next unchecked item.
 
 Contract for every cycle:
 
@@ -43,6 +44,8 @@ Contract for every cycle:
 3. Confirm `git status` is clean. If there are staged or modified files from a prior aborted run, inspect them and either commit them (if they represent finished work) or stash/discard them before starting — do not silently include them in this cycle's commit. **Exception:** the project's supervisor (when the project runs `sst-supervisor` or a `<project>-supervisor` proprietary counterpart) routinely leaves direct-overwritten edits to peer SKILL.md files uncommitted in `<cwd>/.claude/skills/*/`. Per the supervisor's contract, those files are NOT part of any dev cycle and must NOT trigger a stop. Concretely: if `git status --porcelain` shows ONLY paths under `.claude/skills/`, proceed without stashing or checking out. Any other modified or untracked files (project code, tests, docs, configs) — apply the original rule.
 4. Read `docs/SPEC.md` (or the project's primary spec — see §1) end-to-end.
 5. Read `docs/TODO.md` end-to-end. If missing, create it from `~/Dev/skill-set/templates/TODO.md` and stage it for inclusion in this cycle's single commit; do NOT make a separate "create TODO" commit.
+
+   If `docs/FUTURE-WORK.md` exists, also read it end-to-end. **Do not pick from it** — it is the project's parking lot for deferred work and acceptance tests requiring human verification; the pick order is unchanged.
 
 6. **Empty-queue bail.** If ALL three conditions hold, exit 0 immediately without picking any item, writing any test, or making any commit:
    - `TODO.md`'s `## Next up (queued for next cycle)` section contains no `- ` entries (only the `<!-- ... -->` template comment, or empty); AND
