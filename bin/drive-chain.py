@@ -510,6 +510,70 @@ def _refcount_op(delta: int) -> int:
         os.close(lock_fd)
 
 
+def _recycle_stale_worker_if_unused(descriptor: dict) -> tuple[bool, int]:
+    """Read the refcount and recycle the (stale) worker atomically under
+    WORKER_LOCK_FILE.  When count == 0, kill the tmux session and unlink the
+    PID + refcount state files INSIDE the same flock; when count > 0, leave
+    everything alone so concurrent drivers continue to share the still-running
+    worker until the last one exits.
+
+    Closes the TOCTOU window the prior `_refcount_op(0)` + `_stop_worker`
+    pair left open: between releasing the lock after the read and acquiring
+    tmux to kill the session, a concurrent `_start_worker` could write
+    count=1 and launch a fresh persona-named tmux session, which the
+    deferred kill would then destroy (same session name) — also unlinking
+    the refcount slot the new owner just wrote.
+
+    Returns (recycled, count_observed).  recycled=True means the worker was
+    killed and refcount/PID files were cleared; the caller should treat the
+    worker as gone and call `_start_worker`.  recycled=False means count
+    was > 0; the caller should adopt the (still-running) stale worker.
+    """
+    WORKER_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    WORKER_LOCK_FILE.touch(exist_ok=True)
+    try:
+        lock_fd = os.open(str(WORKER_LOCK_FILE), os.O_RDWR)
+    except OSError:
+        return (False, 0)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        count = 0
+        if WORKER_REFCOUNT_FILE.exists():
+            try:
+                count = int(WORKER_REFCOUNT_FILE.read_text(encoding="utf-8").strip())
+            except (ValueError, OSError):
+                count = 0
+        if count > 0:
+            return (False, count)
+        # Inline the kill + unlinks (mirrors _stop_worker) so they happen
+        # under the same flock that observed count == 0.  A concurrent
+        # _start_worker waiting on this lock will probe AFTER we release
+        # and find no session, then start a fresh worker cleanly.
+        if descriptor.get("kind") == "tmux":
+            name = descriptor.get("name")
+            if name:
+                try:
+                    subprocess.run(
+                        ["tmux", "kill-session", "-t", name],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass
+        for state_file in (WORKER_PID_FILE, WORKER_REFCOUNT_FILE):
+            if state_file.exists():
+                try:
+                    state_file.unlink()
+                except OSError:
+                    pass
+        return (True, 0)
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(lock_fd)
+
+
 def _any_other_driver_using_persona(persona: str, my_pid: int) -> bool:
     """Return True if another live drive-chain.py process is using the same
     persona's telegram-env file.  Used to detect stale refcounts left by
@@ -831,14 +895,16 @@ def main() -> int:
             session = f"{persona}-bot"
             existing = _probe_worker(session)
             if existing is not None and _is_worker_stale(existing):
-                # Read refcount under WORKER_LOCK_FILE before recycling.
-                # _stop_worker wipes WORKER_REFCOUNT_FILE, which drops
-                # concurrent drivers' slots and causes them to kill the
-                # freshly-started worker when they finish.  If count > 0,
-                # defer the recycle; all current drivers share the stale
-                # worker until the last one exits naturally.
-                current_count = _refcount_op(0)
-                if current_count > 0:
+                # Atomic check-and-recycle under WORKER_LOCK_FILE: the helper
+                # holds the flock across BOTH the refcount read and the
+                # tmux kill + state-file unlinks, closing the TOCTOU window
+                # where a concurrent _start_worker could write count=1 and
+                # launch a fresh persona-named session in the gap between
+                # check and stop (which the kill would then destroy).
+                # Returns (True, 0) when the recycle ran; (False, count) when
+                # other drivers are registered and the recycle was deferred.
+                recycled, current_count = _recycle_stale_worker_if_unused(existing)
+                if not recycled:
                     print(
                         f"[chain-driver] stale worker detected "
                         f"({existing.get('kind')}: "
@@ -857,7 +923,6 @@ def main() -> int:
                         f"recycling session.",
                         file=sys.stderr, flush=True,
                     )
-                    _stop_worker(existing)  # also resets WORKER_REFCOUNT_FILE
                     existing = None
             if existing is None:
                 worker_descriptor = _start_worker(
