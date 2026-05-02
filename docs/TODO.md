@@ -12,7 +12,6 @@
 
 
 
-
 ## Just shipped (last cycle)
 
 <!--
@@ -26,6 +25,7 @@
   phase blocks and `git log`.
 -->
 
+- 18.8 [hard] [should-fix] `bin/drive-chain.py` simultaneous-driver refcount fix: `WORKER_REFCOUNT_FILE` (`manager-bot.refcount`) tracks active driver count; `_refcount_op` atomically ±1 under `WORKER_LOCK_FILE`; `_start_worker` writes count=1 inside its existing flock to avoid re-entrancy deadlock; adopting drivers increment via `_refcount_op(+1)`; session-end decrements and stops only when count→0; `_any_other_driver_using_persona` /proc scan catches stale counts from crashed drivers; `_stop_worker` now cleans both PID and refcount files. Validator clean. — by skill-set-dev at 2026-05-02T03:24:16Z
 - 25.2 [hard] **`sst-manager --plan` mode**: added §Planner mode (α–θ) to `sst-manager` (v1.8.0→v1.9.0) — explicit `--plan` invocation OR auto-trigger from periodic mode §3 when `Next up` empty + SPEC fully checked across ≥1 prior tick (cursor-tracked via `manager-cursors.json[<project>].planner.queue_empty_since_tick`); β re-entry guard (one outstanding `[unconfirmed:*]` batch at a time, discoverable via `<!-- planner-id: -->` marker); γ ranking by gap-magnitude × gap-age across open `[ ]` measurable bullets; δ candidate format `- [unconfirmed:<id>] [<tier>] ... <!-- planner: <utc> --> <!-- planner-id: <id> -->`; ε cursor persistence; ζ Telegram announcement (consolidated with periodic digest on auto-trigger); §Hard rules tightened with two new bullets (never propose while batch outstanding, never invent prose-only objective candidates). Mode dispatch hoisted to §0.1 covering all three modes; §Score-against-objectives §4 enriched with gap-magnitude/gap-age axes; forward-references to "the planner extension" replaced with concrete `§Planner mode` cross-refs. Proprietary mirror `skill-set-manager` v1.4.0→v1.5.0 with `transferable-version: ">=1.9.0"` adds a Cadence paragraph naming the auto-trigger conditions against this single-project repo. Inline sanitize judgment on the transferable touch: must-fix=0, should-fix=0, nit=0 (two `Phase NN` internal-number leaks stripped from new prose during the cycle; banned-terms scan zero hits). Validator clean (25 skills + 7 chains; 5 proprietary skills + 2 proprietary chains). — by skill-set-dev at 2026-05-02T03:03:36Z
 - [supervisor] [medium] archived fully-closed SPEC phases (1–7, 9–13, 15–16, 21, 26) to docs/SPEC-archive.md; SPEC.md reduced from 31,844 tokens to ~23,900 tokens (fits single Read call). Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T02:34:19Z
 - 25.5 [easy] [should-fix] `objectives.md:cycles-clean check` glob extended to cover root-level `supervisor_verdict.md` (single-iter runs write verdict at run root, not `iter_*/`); both glob forms now unioned in the `ls -dt` call. SPEC 25.5 `[ ]` → `[x]`. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T02:08:55Z
@@ -35,7 +35,6 @@
 - 26.5+26.6 [easy] `bin/validate-frontmatter.py` uppercase-`[X]` bypass fixed (`[ x]` → `[ xX]` in both `_SPEC_BULLET_ID_RE` + `_SPEC_CHECKBOX_RE`); `sst-dev-review` v1.4.8→v1.4.9 + `skill-set-dev-review` v1.2.7→v1.2.8 §4 TODO template now embeds `<spec-ID>` leading token so `remove <ID>` purge can match review-generated Next-up entries. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-01T05:30:53Z
 - 26.4 [medium] `sst-manager v1.7.1→v1.7.2` §B `remove <ID>`: rewritten to atomically purge matching TODO `## Next up` entries alongside SPEC deletion so stale queue items cannot survive to misdirect the next dev cycle. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-30T05:37:14Z
 - 26.3 [easy] `bin/validate-frontmatter.py:validate_spec_ids` presence check: added `_SPEC_CHECKBOX_RE` + error branch so any phase-scoped checkbox bullet missing a `<phase>.<n>` ID fails validation. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-30T05:21:06Z
-- Phase 26.1+26.2 [medium] **stable sub-item IDs + ID-addressable feedback**: retro-numbered all SPEC.md checkboxes as `<phase>.<n>`; updated `templates/SPEC.md` §Sub-item IDs, `CLAUDE.md` §Sub-item IDs, `sst-dev-cycle` v1.4.3, `sst-dev-review` v1.4.8, `sst-supervisor` v1.10.1, `sst-manager` v1.7.1 (+ ID-addressed pre-check for `add/remove/modify <ID>` commands); `bin/validate-frontmatter.py` SPEC ID uniqueness check; `skill-set-manager` v1.3.1. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-30T05:03:28Z
 
 ## Next up (queued for next cycle)
 

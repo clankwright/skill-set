@@ -96,6 +96,10 @@ PROFILE_KEYS = (
 WORKER_STATE_DIR = Path.home() / ".claude" / "state"
 WORKER_PID_FILE = WORKER_STATE_DIR / "manager-bot.pid"
 WORKER_LOCK_FILE = WORKER_STATE_DIR / "manager-bot.pid.lock"
+# Refcount for simultaneous chain-driver runs sharing the same worker.
+# Each driver that "owns" the worker (starter or registered adopter) holds one
+# slot; the last to exit stops the session.
+WORKER_REFCOUNT_FILE = WORKER_STATE_DIR / "manager-bot.refcount"
 
 # Legacy default tmux session name from README "Worker management" (always-on
 # pattern). Probed alongside the persona-derived name so an externally-managed
@@ -431,6 +435,14 @@ def _start_worker(*, persona: str, env_file: Path) -> dict | None:
             except OSError:
                 pass
 
+        # Initialize refcount to 1 for the starting driver.  Written inside
+        # the existing flock so _refcount_op (which acquires the same lock)
+        # never races with this initialization.
+        try:
+            WORKER_REFCOUNT_FILE.write_text("1\n", encoding="utf-8")
+        except OSError:
+            pass
+
         return {"kind": "tmux", "name": session, "pid": pid, "ours": True}
     finally:
         try:
@@ -442,8 +454,8 @@ def _start_worker(*, persona: str, env_file: Path) -> dict | None:
 
 def _stop_worker(descriptor: dict) -> None:
     """Stop a worker started by this chain driver. Idempotent: safe to call
-    even if the tmux session has already exited. Removes the PID file when
-    we wrote it."""
+    even if the tmux session has already exited. Cleans up the PID and
+    refcount state files."""
     if descriptor.get("kind") == "tmux":
         name = descriptor.get("name")
         if name:
@@ -454,11 +466,79 @@ def _stop_worker(descriptor: dict) -> None:
                 )
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 pass
-    if WORKER_PID_FILE.exists():
+    for state_file in (WORKER_PID_FILE, WORKER_REFCOUNT_FILE):
+        if state_file.exists():
+            try:
+                state_file.unlink()
+            except OSError:
+                pass
+
+
+def _refcount_op(delta: int) -> int:
+    """Atomically increment or decrement the worker refcount under
+    WORKER_LOCK_FILE.  Returns the new count (clamped to >= 0).
+
+    NOTE: do NOT call this from inside _start_worker's flock block — the same
+    process opening the lock file twice causes a deadlock on Linux.  _start_worker
+    writes the initial count=1 directly before releasing its lock.
+    """
+    WORKER_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    WORKER_LOCK_FILE.touch(exist_ok=True)
+    try:
+        lock_fd = os.open(str(WORKER_LOCK_FILE), os.O_RDWR)
+    except OSError:
+        return max(0, delta)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        count = 0
+        if WORKER_REFCOUNT_FILE.exists():
+            try:
+                count = int(WORKER_REFCOUNT_FILE.read_text(encoding="utf-8").strip())
+            except (ValueError, OSError):
+                count = 0
+        new_count = max(0, count + delta)
         try:
-            WORKER_PID_FILE.unlink()
+            WORKER_REFCOUNT_FILE.write_text(f"{new_count}\n", encoding="utf-8")
         except OSError:
             pass
+        return new_count
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(lock_fd)
+
+
+def _any_other_driver_using_persona(persona: str, my_pid: int) -> bool:
+    """Return True if another live drive-chain.py process is using the same
+    persona's telegram-env file.  Used to detect stale refcounts left by
+    crashed drivers so the last live driver still cleans up.
+
+    Linux-only (/proc scan).  Returns False conservatively on non-Linux or
+    on any read error, which means: assume other drivers might still be
+    running (don't stop the worker prematurely).
+    """
+    proc_dir = Path("/proc")
+    if not proc_dir.exists():
+        return False
+    env_pattern = f"{persona}-telegram.env"
+    for entry in proc_dir.iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid == my_pid:
+            continue
+        try:
+            cmdline = (entry / "cmdline").read_bytes().decode("utf-8", errors="replace")
+            parts = cmdline.split("\x00")
+            if not any("drive-chain.py" in p for p in parts):
+                continue
+            if any(env_pattern in p for p in parts):
+                return True
+        except (OSError, PermissionError):
+            continue
+    return False
 
 
 def _find_profile_skill(persona: str, cwd: str) -> Path | None:
@@ -733,13 +813,18 @@ def main() -> int:
 
     # Phase 18: chain-bound worker lifecycle. Start the manager-bot worker iff
     # Telegram is enabled, an env file was provided (so we have a chat-id to
-    # ack), and no existing worker is running. Pre-existing workers
-    # (persona-suffixed, legacy, or PID-file-tracked) are left untouched and
-    # `worker_started_by_us` stays False so session-end cleanup is a no-op,
-    # UNLESS the existing worker is stale (manager-bot.py updated since it
-    # started), in which case it is recycled before starting a fresh one.
-    worker_started_by_us = False
+    # ack), and no existing worker is running.
+    #
+    # Simultaneous-driver refcount (Phase 18.8 fix): every driver that "owns"
+    # the worker holds one slot in WORKER_REFCOUNT_FILE.  The starter writes
+    # count=1 inside _start_worker's flock.  A concurrent driver that finds the
+    # persona-bot session already running increments to count=2 (or higher) via
+    # _refcount_op.  At session-end each driver decrements; only the last
+    # (count→0) kills the session.  Truly external workers (legacy tmux name,
+    # PID-only, or non-persona-prefixed) are never registered and never stopped.
+    worker_registered = False     # True when we hold a refcount slot
     worker_descriptor: dict | None = None
+    persona: str | None = None    # promoted to outer scope for session-end use
     if not args.no_telegram and args.telegram_env is not None:
         persona = _persona_from_env_file(args.telegram_env)
         if persona:
@@ -754,14 +839,14 @@ def main() -> int:
                     f"recycling session.",
                     file=sys.stderr, flush=True,
                 )
-                _stop_worker(existing)
+                _stop_worker(existing)  # also resets WORKER_REFCOUNT_FILE
                 existing = None
             if existing is None:
                 worker_descriptor = _start_worker(
                     persona=persona, env_file=args.telegram_env.resolve(),
                 )
                 if worker_descriptor is not None:
-                    worker_started_by_us = True
+                    worker_registered = True  # _start_worker wrote refcount=1
                     print(
                         f"[chain-driver] worker started: tmux session "
                         f"'{worker_descriptor.get('name')}' "
@@ -775,12 +860,27 @@ def main() -> int:
                         "not found); chain will run without an inbound worker.",
                         file=sys.stderr, flush=True,
                     )
+            elif existing.get("kind") == "tmux" and existing.get("name") == session:
+                # Our persona's worker is already up — register so we hold a
+                # refcount slot.  This prevents a concurrent driver that started
+                # the session from killing it when it finishes first.
+                new_count = _refcount_op(+1)
+                worker_registered = True
+                worker_descriptor = existing
+                print(
+                    f"[chain-driver] worker already running "
+                    f"(tmux: {session}); registered (refcount now {new_count}); "
+                    f"will release on session-end.",
+                    file=sys.stderr, flush=True,
+                )
             else:
+                # Legacy session name, PID-only, or different persona: truly
+                # external — leave untouched, no refcount slot taken.
                 print(
                     f"[chain-driver] worker already running "
                     f"({existing.get('kind')}: "
                     f"{existing.get('name') or existing.get('pid')}); "
-                    f"leaving externally-managed worker untouched.",
+                    f"externally-managed — leaving untouched.",
                     file=sys.stderr, flush=True,
                 )
         else:
@@ -1007,15 +1107,36 @@ def main() -> int:
     if last_iter_seen > iters_finalized:
         _finalize_iteration(last_iter_seen)
 
-    # Phase 18: stop the worker iff we started it. Externally-managed workers
-    # (probe found one at session-start) are left running.
-    if worker_started_by_us and worker_descriptor is not None:
-        _stop_worker(worker_descriptor)
-        print(
-            f"[chain-driver] worker stopped: tmux session "
-            f"'{worker_descriptor.get('name')}'",
-            file=sys.stderr, flush=True,
-        )
+    # Phase 18 + 18.8 fix: release our refcount slot; stop the worker only when
+    # this is the last registered driver (refcount drops to 0).  Belt-and-
+    # suspenders: if the count is still >0 but no other drive-chain.py for this
+    # persona is alive in /proc, the previous owner crashed and left a stale
+    # count — we stop anyway and log the anomaly.
+    if worker_registered and worker_descriptor is not None:
+        remaining = _refcount_op(-1)
+        should_stop = remaining <= 0
+        if not should_stop and persona is not None:
+            if not _any_other_driver_using_persona(persona, os.getpid()):
+                should_stop = True
+                print(
+                    f"[chain-driver] stale refcount ({remaining}); "
+                    f"no other drive-chain.py for persona '{persona}' alive — "
+                    f"stopping worker.",
+                    file=sys.stderr, flush=True,
+                )
+        if should_stop:
+            _stop_worker(worker_descriptor)
+            print(
+                f"[chain-driver] worker stopped: tmux session "
+                f"'{worker_descriptor.get('name')}'",
+                file=sys.stderr, flush=True,
+            )
+        else:
+            print(
+                f"[chain-driver] worker left running: "
+                f"{remaining} other registered driver(s) still active.",
+                file=sys.stderr, flush=True,
+            )
 
     # Read top-level manifest for the session-end summary.
     top_manifest_path = log_dir / "MANIFEST.json" if log_dir else None
