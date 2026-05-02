@@ -45,3 +45,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 27.8 `skills/dev/sst-dev-review/SKILL.md:§5` — §5 git add not updated for FUTURE-WORK.md; findings routed there by §4 are silently unstaged — review of f915596
+- [medium] [should-fix] 27.9 `skills/dev/sst-dev-cycle/SKILL.md` — inline sanitize reused in Phase 27 despite 23.4 proposing formal requirement; sanitize-gate rule never added to dev contract — review of f915596
+
