@@ -11,6 +11,7 @@
 -->
 
 
+
 ## Just shipped (last cycle)
 
 <!--
@@ -24,6 +25,7 @@
   phase blocks and `git log`.
 -->
 
+- [supervisor] [medium] archived fully-closed SPEC phases (1–7, 9–13, 15–16, 21, 26) to docs/SPEC-archive.md; SPEC.md reduced from 31,844 tokens to ~23,900 tokens (fits single Read call). Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T02:34:19Z
 - 25.5 [easy] [should-fix] `objectives.md:cycles-clean check` glob extended to cover root-level `supervisor_verdict.md` (single-iter runs write verdict at run root, not `iter_*/`); both glob forms now unioned in the `ls -dt` call. SPEC 25.5 `[ ]` → `[x]`. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T02:08:55Z
 - 25.4 [medium] [should-fix] `objectives.md:cycles-clean check` rewritten from broken `grep -c '^Outcome.*escalate'` (always returns 0) to self-contained awk that skips the `## Outcome` header + blank line and prints 1/0 for escalate/clean; no-file edge handled via `${f:-/dev/null}`; SPEC 25.4 `[ ]` → `[x]`. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T01:39:56Z
 - 25.3 [easy] [should-fix] `sst-manager` SKILL.md:81 dangling §Planner mode reference replaced with capability prose; inline sanitize must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-01T06:29:15Z
@@ -33,8 +35,6 @@
 - 26.3 [easy] `bin/validate-frontmatter.py:validate_spec_ids` presence check: added `_SPEC_CHECKBOX_RE` + error branch so any phase-scoped checkbox bullet missing a `<phase>.<n>` ID fails validation. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-30T05:21:06Z
 - Phase 26.1+26.2 [medium] **stable sub-item IDs + ID-addressable feedback**: retro-numbered all SPEC.md checkboxes as `<phase>.<n>`; updated `templates/SPEC.md` §Sub-item IDs, `CLAUDE.md` §Sub-item IDs, `sst-dev-cycle` v1.4.3, `sst-dev-review` v1.4.8, `sst-supervisor` v1.10.1, `sst-manager` v1.7.1 (+ ID-addressed pre-check for `add/remove/modify <ID>` commands); `bin/validate-frontmatter.py` SPEC ID uniqueness check; `skill-set-manager` v1.3.1. Inline sanitize: must-fix=0. Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-04-30T05:03:28Z
 - [easy] [fix] `bin/manager-bot.py:170-184` `spawn_on_demand_manager` fd leak: wrapped `open(log_path)` in a `with` block enclosing `Popen` so parent fd closes immediately after spawn returns; child retains its dup'd fd. Phase 26 spec (26.1 + 26.2 sub-items) + TODO Next-up entries committed from manager-authored working-tree dirt. — by skill-set-dev at 2026-04-30T04:26:55Z
-- Phase 24 [hard]+[medium] **smart-manager routing pipeline**: `sst-manager` v1.6.2→v1.7.0 + `sst-supervisor` v1.9.0→v1.10.0 + proprietary mirrors v1.2.0→v1.3.0 (supervisor `transferable-version` floor lifted to `>=1.10.0`). New `--process-feedback <queue-file>` on-demand mode in sst-manager: 4-outcome decision tree (TODO Next-up append / SPEC append / `manager-translated user feedback` entry / Telegram refuse-or-clarify) + hard-rule scoped exception for `docs/TODO.md > Next up` and `docs/SPEC.md` appends. sst-supervisor §Inputs gained third entry kind + 4-row conflict-resolution table. `bin/manager-write-state.py` grew `--source manager-translated --src-file <queue.json>` mode (smoke-tested + idempotency belt verified). `bin/manager-bot.py` `/feedback` handler now spawns `claude --print '/<persona>-manager --process-feedback <queue-file>'` via `subprocess.Popen(start_new_session=True)`; configurable via `MANAGER_SKILL_NAME` + `CLAUDE_BIN` env vars; spawn-stdout captured to `~/.claude/state/manager-bot-spawn-log/<queue-stem>.log`; queue file persists for chain-runner-pre-iter / cron fallback if spawn fails. Inline sanitize on the two transferable touches: must-fix=0, should-fix=0, nit=0 (banned-terms scan: zero hits). Validator clean (25 skills + 7 chains; 5 proprietary + 2 chains). — by skill-set-dev at 2026-04-30T04:04:45Z
-
 ## Next up (queued for next cycle)
 
 <!--
@@ -44,7 +44,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [supervisor] [medium] downsize handoff doc(s) so dev's Read fits the 25k-token limit. SPEC.md is 31,638 tokens (~6× the limit; dev hits `exceeds maximum allowed tokens` and chunk-reads via `[offset=N limit=M]` every cycle); TODO.md is 11KB / ~3k tokens (well under). User feedback 2026-05-01T06:28:07Z (`manager-notes.md:11-14`) named TODO ("TODO has grown too long to fit in Read context, add item to downsize it") but SPEC is the binding constraint; pick the actionable file. Strategy candidates: archive closed phase blocks to `docs/SPEC-archive.md` and leave `docs/SPEC.md` as live phases only, or split into `docs/spec/<phase>.md` + index. — supervisor verdict 2026-05-02T01-34-05Z_skill-set-cycle/iter_01
 - [hard] Phase 25 sub-item 2: `sst-manager --plan` mode. When `Next up` empty + every SPEC `[ ]` is `[x]` (or invoked explicitly), score each measurable criterion, pick the 1-3 highest-gap, draft `[unconfirmed:<id>]` items at the top of `Next up` with `<!-- planner: <utc> --> <!-- planner-id: <id> -->` markers and a one-paragraph rationale per item. Re-entry rule: never propose a new batch while a prior `[unconfirmed:*]` item is still outstanding. Hard-rule expansion: scoped exception for `Next up` appends of `[unconfirmed:*]` lines only (modeled on Phase 24's exception). Reason: spec Phase 25 sub-item 2; depends on sub-item 1 landing first.
 - [easy] Phase 24 sub-item: end-to-end acceptance test of the four `/feedback` outcomes (concrete change → TODO Next-up; shape-ish → manager-notes.md; refuse → Telegram explanation; ambiguous → clarifying question) plus crash-recovery via the chain-runner pre-iter drain fallback. Reason: spec Phase 24 acceptance item; sub-items 3+4 shipped this cycle, so the acceptance test is now unblocked.
 - [medium] Phase 23 acceptance: invoke `/sst-wiki-curator scaffold <test-path> --variant minimal` against a throwaway dir and confirm directory tree, schema-spec self-containment, `INIT` log line, git-init + first commit; then `/sst-wiki-curator ingest <test-path> <test-source-md>` and confirm raw drop, paper page with full front matter, topic page(s) created/updated, `index.md` updated, `INGEST` log line, one-commit close. Reason: spec Phase 23 acceptance item.
