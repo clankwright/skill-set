@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.4.5
+version: 1.4.6
 model-floor: sonnet
 effort-floor: high
 ---
@@ -52,6 +52,8 @@ Contract for every cycle:
    - `docs/SPEC.md` (or the project's primary spec) contains no remaining `- [ ]` checkboxes (every checkable item is `[x]`); AND
    - The user's prompt to this skill carries no specific task or item to work on (no override).
 
+   **Priority is not a bail criterion.** If `## Next up` contains any `- ` line — including entries tagged `[low]` — the first condition above is false and the bail MUST NOT fire. `[low]`-priority items are work in the queue, not steady state. Priority affects the order in which items are picked, not whether the queue is non-empty. Do not bail when only `[low]` entries remain.
+
    Print exactly one line on stdout BEFORE exiting:
 
    ```
@@ -68,7 +70,7 @@ Find the project's spec or roadmap. Common locations: `docs/SPEC.md`, `docs/ROAD
 
 ### Pick the primary
 
-1. **`TODO.md`'s `## Next up`** — top entry first. These are queued items already vetted by the previous cycle, supervisor, manager, or user. Treat the source/reason annotation on the entry as the authority for *why* you're doing it.
+1. **`TODO.md`'s `## Next up`** — top entry first, including `[low]`-priority entries when nothing higher is queued. Priority controls ordering within the queue, not actionability. These are queued items already vetted by the previous cycle, supervisor, manager, or user. Treat the source/reason annotation on the entry as the authority for *why* you're doing it.
 2. If `## Next up` is empty: first open `- [ ]` in the latest active SPEC section. If the spec uses non-checkbox flagging conventions ("V1 Status", "Known Issues", "Open"), pick the next listed item there.
 3. If everything checkable is `[x]`: look at any "Deferred / Out of scope" list for items whose blocking reason no longer applies.
 4. **User directive** — if the user handed you a specific request, that overrides the above; still append it to `## Next up` first so the audit trail is intact.

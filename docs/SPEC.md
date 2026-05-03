@@ -149,7 +149,9 @@ A mature framework reaches steady state (`Next up` empty AND every SPEC `[ ]` is
 - [x] 17.2 **Chain runner sentinel recognition**: `NO_WORK_SENTINEL_RE` line-anchored regex; `handle_event` scans assistant-text only; first-match-wins per skill; tool inputs/results bypassed (supervisor reading example sentinels does not false-trigger). `run_iteration` skips remaining skills, `main()` sets `manifest["loop"]["terminated_by"] = "no_work_bail"` and breaks the outer loop.
 - [x] 17.3 **Documentation** in README "Loop mode" + CLAUDE.md "Choosing a chain" + `templates/SPEC.md` "Empty-queue bail" appendix.
 
-Phase 17.4 (empty-queue bail acceptance) moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-174--empty-queue-bail-acceptance).
+Phase 17.4 (empty-queue bail acceptance) removed from FUTURE-WORK.md; superseded by 17.5 below.
+
+- [x] 17.5 [easy] [should-fix] `sst-dev-cycle/SKILL.md §0 step 6` + `§1 step 1` — bail fired incorrectly when `## Next up` had only `[low]`-priority entries; model treated "only low items left" as steady state. Fix: added explicit **Priority is not a bail criterion** paragraph to §0 step 6 (bail requires ZERO `- ` entries regardless of priority bracket); added `[low]`-priority mention to §1 step 1 ("top entry first, including `[low]`-priority entries when nothing higher is queued; priority controls ordering, not actionability"). `sst-dev-cycle` v1.4.5→v1.4.6; `skill-set-dev` v1.3.5→v1.3.6.
 
 ### Phase 18: chain-bound bot worker lifecycle + manager no-spam
 

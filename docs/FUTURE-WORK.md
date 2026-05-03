@@ -22,10 +22,6 @@ Mirror the SPEC item ID where one exists (the items below were moved out of `SPE
 
 - [medium] **Acceptance**: kill -TERM mid-supervisor + verify self-heal (one combined test for the four mechanisms shipped under Phase 14.1–14.5).
 
-### Phase 17.4 — empty-queue bail acceptance
-
-- [easy] **Acceptance**: real steady-state run; `[no-work]` printed, no commit, loop aborts after first empty iter, `MANIFEST.loop.terminated_by == "no_work_bail"`, cumulative cost bounded by pre-flight reads (~$0.10–0.30) rather than full ~$8 iter, chain-driver session-end Telegram labels stop as "no-work bail".
-
 ### Phase 18.5 — chain-bound worker lifecycle acceptance
 
 - [medium] **Acceptance**: real `/skill-set-chain-driver` round-trip with Telegram. Confirm: (a) chain driver starts the `skill-set-bot` tmux session at session-start and the user can `/ping → pong` during the run; (b) chain driver kills the tmux session at session-end; (c) re-run with the worker pre-started by hand (e.g. `tmux new-session -d -s skill-set-bot ...`): chain driver detects the pre-existing worker, does NOT start a second one, does NOT kill it at session-end; (d) two simultaneous chain-driver runs against different chains: only one tries to start the worker (flock); (e) manager invocation while no chain is running succeeds with an empty inbound queue and a digest body that does NOT re-notify any currently-paused job.
