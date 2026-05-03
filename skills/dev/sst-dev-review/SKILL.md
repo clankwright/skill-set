@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.5.0
+version: 1.5.1
 model-floor: sonnet
 effort-floor: high
 ---
@@ -42,7 +42,7 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` (if p
 2. Git state check: **note and proceed**. Run `git status --porcelain` and capture the output verbatim. The review runs against the just-shipped cycle commit (HEAD by default, or the cumulative surface when the cycle shipped >1 commit) regardless of working-tree dirt; the dirt is captured as a "Working-tree state at review start" note in the §6 report and (when §4 fires) in the §5 commit body, then ignored. Rationale: the project's supervisor (when the project runs `sst-supervisor` or a `<project>-supervisor` proprietary counterpart) routinely leaves direct-overwritten edits to peer SKILL.md files uncommitted in `<cwd>/.claude/skills/*/` as its contract; parallel agent sessions and the user's own concurrent edits can also legitimately touch project source while a review runs. Halting on either case wastes the cycle's commit and forces the user to babysit the working tree. Concrete rules:
    - Capture the porcelain output. If non-empty, surface it as the "Working-tree state at review start" note in the §6 report and (when §4 fires) include it in the §5 commit body. Surfacing what wasn't part of the just-shipped commit is the value-add; reviewer-side rather than dev-side because the dev cycle has already committed (and pushed) by the time the review starts.
    - Do NOT stash, checkout, or modify any of the dirty files. They are out-of-scope for the review.
-   - The §5 stage-narrowly rule is the structural guard: stage only the spec file (plus `docs/TODO.md` if a Next-up entry was added), never `git add -A` or `git add .`. Working-tree dirt cannot accidentally ride into the review commit if §5 is followed.
+   - The §5 stage-narrowly rule is the structural guard: stage only the spec file (plus `docs/TODO.md` if a Next-up entry was added, plus `docs/FUTURE-WORK.md` if §4 routed findings there), never `git add -A` or `git add .`. Working-tree dirt cannot accidentally ride into the review commit if §5 is followed.
    - One exception still halts: if a dirty file is the spec file itself or `docs/TODO.md` (the two files this skill writes to in §4), stop. Concurrent writers on the same files is the one collision the note-and-proceed pattern doesn't survive; surface to the user and exit.
 3. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported summary (no SHA in that format — a commit cannot contain its own hash; correlate the top Just-shipped line to HEAD, or to the matching commit via `git log --oneline --grep`).
 4. Identify the commit under review:
@@ -257,7 +257,7 @@ Order: blockers first, then should-fix, then any pre-existing entries (push pre-
 **Commit-message rule (read BEFORE composing the heredoc):** never append a `Co-Authored-By: Claude ... <noreply@anthropic.com>` trailer (or any AI-coauthor trailer variant). The heredoc body below ends at `EOF` — nothing else goes after the closing paragraph. Empirical placement-below-heredoc was being skipped by models reading top-down, so the rule lives ABOVE the template now.
 
 ```bash
-git add <spec-file> docs/TODO.md  # plus any status-index file you corrected
+git add <spec-file> docs/TODO.md docs/FUTURE-WORK.md  # TODO.md only if you wrote a Next-up entry; FUTURE-WORK.md only if §4 routed findings there; plus any status-index file you corrected
 git commit -m "$(cat <<'EOF'
 Review: follow-ups from <scope>: <one-line reference to cycle>
 
