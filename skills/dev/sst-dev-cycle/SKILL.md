@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.4.4
+version: 1.4.5
 model-floor: sonnet
 effort-floor: high
 ---
@@ -32,7 +32,7 @@ Contract for every cycle:
 1. **Open**: read both end-to-end before any other action. If `TODO.md` is missing, create it from `~/Dev/skill-set/templates/TODO.md` as the very first action; commit that creation as part of this cycle's single commit. Do not invent a different shape.
 2. **Decide** (see §1 below): pick from `TODO.md`'s "Next up" if non-empty, else from the spec's next unchecked item.
 3. **Mid-cycle**: append a single `## In flight` line at the start of work in this format: `- [<skill-name> @ <utc-iso>] <one-line>`. Rewrite (don't append again) as the work narrows. Do not commit mid-cycle "In flight" updates; they live unstaged until the close commit.
-4. **Close** (see §5–6 below): clear the in-flight line; write the new Just-shipped line (`- <one-line summary> — by <skill-name> at <utc-iso>`, no SHA); if the cycle uncovered new work that doesn't belong in the spec, append it to "Next up"; trim "Just shipped" to the most recent 10 entries. Then commit everything in one commit.
+4. **Close** (see §6–7 below): clear the in-flight line; write the new Just-shipped line (`- <one-line summary> — by <skill-name> at <utc-iso>`, no SHA); if the cycle uncovered new work that doesn't belong in the spec, append it to "Next up"; trim "Just shipped" to the most recent 10 entries. Then commit everything in one commit.
 5. `SPEC.md`, `TODO.md`, and the code change ship as one commit — never as multiple commits. The Just-shipped line does NOT include the commit's own SHA (impossible without an amend-then-rewrite hack that produces stale SHAs); readers correlate entries to commits by the one-line summary, not by hash.
 
 **Spec sub-item IDs.** Every `- [ ]` item in `docs/SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 3.1 [hard] **description**`). IDs are assigned once per phase in 1-indexed order and never renumbered — closed or removed items leave their ID void (gaps are valid). Inserts between existing items use letter suffixes (`<phase>.<n>a`, …). When filing a `## Next up` entry or writing a commit message, prefer the ID (e.g. `3.1`) over "Phase 3 sub-item 1" for concision.
@@ -170,7 +170,19 @@ If the project has known-flaky test files that are separately tracked, explicitl
 
 For UI changes, also verify in a real browser (Playwright MCP against a local dev server). Target zero console errors. Stop the local dev server when you're done verifying.
 
-## 5. Update the spec + TODO.md (all updates in a single pass, no SHA in Just-shipped)
+## 5. Sanitize transferable edits (when applicable)
+
+If the cycle touched any transferable `SKILL.md` — any path matching `skills/<category>/<sst-*>/SKILL.md` — invoke the sanitization skill before committing:
+
+```
+/sst-sanitize-transferable <path-to-SKILL.md>
+```
+
+Read the resulting findings file. Any `must-fix` finding aborts the commit: rewrite the prose to remove the banned token, or confine the change to a proprietary skill only. Record the verdict in the commit message body as `Sanitize: must-fix=N` (e.g. `Sanitize: must-fix=0`).
+
+If no transferable `SKILL.md` was touched, skip this section entirely.
+
+## 6. Update the spec + TODO.md (all updates in a single pass, no SHA in Just-shipped)
 
 **`SPEC.md`**: flip `- [ ]` to `- [x]` for what you shipped. If this closes a sub-phase or milestone, add a section mirroring the format of the most recent completed one: 1-paragraph context, bulleted checklist of changes with file citations, test-count delta. Update any index / status summary file that the project keeps (e.g. a `CLAUDE.md` phase list).
 
@@ -181,7 +193,7 @@ For UI changes, also verify in a real browser (Playwright MCP against a local de
 3. If you uncovered new work that doesn't merit a spec edit (small follow-ups, adjacent fixes, deferred polish), append each to `## Next up (queued for next cycle)` with format `- <one-line> — <reason/source>`.
 4. Trim `## Just shipped (last cycle)` to the most recent 10 entries; older entries are reflected in `SPEC.md` checkboxes and `git log` already.
 
-## 6. Commit + push (single commit, no extras)
+## 7. Commit + push (single commit, no extras)
 
 Stage only the files you changed (by name — no `git add -A`, which sweeps up secrets and noise). Bundle implementation + tests + spec update + TODO.md update + any index-file update in ONE commit:
 
@@ -208,7 +220,7 @@ Scope tags match the project's convention (examples: `Auth:`, `UI:`, `Docs:`, `T
 
 Never commit `.env` files, credentials, or local scratch files. If the project gitignores config dirs (e.g. `deploy/`, `docs/` in some layouts), those changes won't reach the remote — you'll need the project's separate sync mechanism (scp, rsync, a sync script) for those.
 
-## 7. Deploy
+## 8. Deploy
 
 If the project has a deploy path (SSH to a VPS, CI workflow, `deploy/` script, container rebuild), run it. The specific command is project-specific and should be documented in the project's `CLAUDE.md`, `README.md`, or a deploy script — read it there, don't guess.
 
@@ -219,7 +231,7 @@ After the deploy completes, confirm:
 - The expected number of worker processes is running (if the project uses a worker model).
 - No stack traces in the most recent log entries.
 
-## 8. Verify production
+## 9. Verify production
 
 Exercise the specific thing you changed against the live environment:
 - API change: real HTTP call with real credentials, assert the response shape.
@@ -232,7 +244,7 @@ If verification fails:
 - Minor issue (copy, layout nit): fix forward in a new cycle.
 - Regression that breaks existing users: revert the deploy (`git revert HEAD; git push`, then re-run the deploy command) and file the proper fix as the next cycle's work.
 
-## 9. Done
+## 10. Done
 
 The cycle is complete when:
 - All new and existing tests pass locally.

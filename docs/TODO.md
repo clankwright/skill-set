@@ -11,7 +11,6 @@
 -->
 
 
-
 ## Just shipped (last cycle)
 
 <!--
@@ -25,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- 27.9 [medium] sst-dev-cycle §5 sanitize-gate added (new section, §5–§9 renumbered to §6–§10); skill-set-dev v1.3.4→v1.3.5 transferable-version bumped; inline sanitize must-fix=0 — by skill-set-dev at 2026-05-03T01:39:42Z
 - 27.8 [easy] sst-dev-review §5 git add updated to include docs/FUTURE-WORK.md; §0 stage-narrowly reference updated; proprietary mirror v1.2.9→v1.2.10; transferable v1.5.0→v1.5.1; inline sanitize must-fix=0 — by skill-set-dev at 2026-05-03T01:15:16Z
 - 27 [medium] FUTURE-WORK.md contract: 4 transferables (sst-dev-cycle v1.4.4, sst-dev-review v1.5.0, sst-supervisor v1.11.0, sst-manager v1.10.0) + 4 proprietary mirrors + templates/FUTURE-WORK.md (new) + templates/SPEC.md + CLAUDE.md updated; inline sanitize verdict must-fix=0 — by skill-set-dev at 2026-05-02T14:31:10Z
 - 23.4 [easy] [should-fix] `sst-wiki-curator/SKILL.md` retroactive `sst-sanitize-transferable` run: must-fix=0, should-fix=0, nit=1 (Karpathy citation retained); audit trail closed — by skill-set-dev at 2026-05-02T13:03:36Z
@@ -34,7 +34,6 @@
 - 18.9 [easy] [should-fix] `bin/drive-chain.py:_any_other_driver_using_persona` non-Linux guard changed `return False` → `return True` so the docstring's "don't stop the worker prematurely" intent matches the `if not ...` call site; docstring updated to "Returns True conservatively". — by skill-set-dev at 2026-05-02T06:45:12Z
 - 18.8 [hard] [should-fix] `bin/drive-chain.py` simultaneous-driver refcount fix: `WORKER_REFCOUNT_FILE` (`manager-bot.refcount`) tracks active driver count; `_refcount_op` atomically ±1 under `WORKER_LOCK_FILE`; `_start_worker` writes count=1 inside its existing flock to avoid re-entrancy deadlock; adopting drivers increment via `_refcount_op(+1)`; session-end decrements and stops only when count→0; `_any_other_driver_using_persona` /proc scan catches stale counts from crashed drivers; `_stop_worker` now cleans both PID and refcount files. Validator clean. — by skill-set-dev at 2026-05-02T03:24:16Z
 - 25.2 [hard] **`sst-manager --plan` mode**: added §Planner mode (α–θ) to `sst-manager` (v1.8.0→v1.9.0) — explicit `--plan` invocation OR auto-trigger from periodic mode §3 when `Next up` empty + SPEC fully checked across ≥1 prior tick (cursor-tracked via `manager-cursors.json[<project>].planner.queue_empty_since_tick`); β re-entry guard (one outstanding `[unconfirmed:*]` batch at a time, discoverable via `<!-- planner-id: -->` marker); γ ranking by gap-magnitude × gap-age across open `[ ]` measurable bullets; δ candidate format `- [unconfirmed:<id>] [<tier>] ... <!-- planner: <utc> --> <!-- planner-id: <id> -->`; ε cursor persistence; ζ Telegram announcement (consolidated with periodic digest on auto-trigger); §Hard rules tightened with two new bullets (never propose while batch outstanding, never invent prose-only objective candidates). Mode dispatch hoisted to §0.1 covering all three modes; §Score-against-objectives §4 enriched with gap-magnitude/gap-age axes; forward-references to "the planner extension" replaced with concrete `§Planner mode` cross-refs. Proprietary mirror `skill-set-manager` v1.4.0→v1.5.0 with `transferable-version: ">=1.9.0"` adds a Cadence paragraph naming the auto-trigger conditions against this single-project repo. Inline sanitize judgment on the transferable touch: must-fix=0, should-fix=0, nit=0 (two `Phase NN` internal-number leaks stripped from new prose during the cycle; banned-terms scan zero hits). Validator clean (25 skills + 7 chains; 5 proprietary skills + 2 proprietary chains). — by skill-set-dev at 2026-05-02T03:03:36Z
-- [supervisor] [medium] archived fully-closed SPEC phases (1–7, 9–13, 15–16, 21, 26) to docs/SPEC-archive.md; SPEC.md reduced from 31,844 tokens to ~23,900 tokens (fits single Read call). Validator clean (25 skills + 7 chains). — by skill-set-dev at 2026-05-02T02:34:19Z
 
 ## Next up (queued for next cycle)
 
@@ -45,5 +44,4 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] [should-fix] 27.9 `skills/dev/sst-dev-cycle/SKILL.md` — inline sanitize reused in Phase 27 despite 23.4 proposing formal requirement; sanitize-gate rule never added to dev contract — review of f915596
 
