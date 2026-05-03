@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.5.1
+version: 1.5.2
 model-floor: sonnet
 effort-floor: high
 ---
@@ -43,7 +43,7 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` (if p
    - Capture the porcelain output. If non-empty, surface it as the "Working-tree state at review start" note in the §6 report and (when §4 fires) include it in the §5 commit body. Surfacing what wasn't part of the just-shipped commit is the value-add; reviewer-side rather than dev-side because the dev cycle has already committed (and pushed) by the time the review starts.
    - Do NOT stash, checkout, or modify any of the dirty files. They are out-of-scope for the review.
    - The §5 stage-narrowly rule is the structural guard: stage only the spec file (plus `docs/TODO.md` if a Next-up entry was added, plus `docs/FUTURE-WORK.md` if §4 routed findings there), never `git add -A` or `git add .`. Working-tree dirt cannot accidentally ride into the review commit if §5 is followed.
-   - One exception still halts: if a dirty file is the spec file itself or `docs/TODO.md` (the two files this skill writes to in §4), stop. Concurrent writers on the same files is the one collision the note-and-proceed pattern doesn't survive; surface to the user and exit.
+   - One exception still halts: if a dirty file is the spec file itself, `docs/TODO.md`, or `docs/FUTURE-WORK.md` (the three files this skill writes to in §4), stop. Concurrent writers on the same files is the one collision the note-and-proceed pattern doesn't survive; surface to the user and exit.
 3. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported summary (no SHA in that format — a commit cannot contain its own hash; correlate the top Just-shipped line to HEAD, or to the matching commit via `git log --oneline --grep`).
 4. Identify the commit under review:
    ```bash
