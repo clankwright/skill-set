@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.4.6
+version: 1.4.7
 model-floor: sonnet
 effort-floor: high
 ---
@@ -179,6 +179,8 @@ If the cycle touched any transferable `SKILL.md` — any path matching `skills/<
 ```
 /sst-sanitize-transferable <path-to-SKILL.md>
 ```
+
+Inline assessment of the change does not satisfy this requirement; the sub-skill must be invoked even if the change appears obviously safe.
 
 Read the resulting findings file. Any `must-fix` finding aborts the commit: rewrite the prose to remove the banned token, or confine the change to a proprietary skill only. Record the verdict in the commit message body as `Sanitize: must-fix=N` (e.g. `Sanitize: must-fix=0`).
 
