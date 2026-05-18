@@ -475,6 +475,7 @@ class Harness:
         *,
         model: str | None = None,
         effort: str | None = None,
+        extra_prompt: str = "",
     ) -> list[str]:
         raise NotImplementedError
 
@@ -490,12 +491,15 @@ class ClaudeCodeHarness(Harness):
         *,
         model: str | None = None,
         effort: str | None = None,
+        extra_prompt: str = "",
     ) -> list[str]:
         prompt = (
             f"Use the Skill tool to invoke the '{skill_name}' skill and run it "
             f"to completion. Do not respond with anything else first; invoke the "
             f"skill immediately."
         )
+        if extra_prompt:
+            prompt = prompt + "\n\n" + extra_prompt
         # Phase 19 (4): model and effort are resolved by the runner from
         # max(item_difficulty_tier, skill_floor) and passed in. Fall back to
         # the conservative framework defaults (opus / high) when either is
@@ -794,20 +798,31 @@ def run_skill(
     *,
     model: str | None = None,
     effort: str | None = None,
+    extra_prompt: str = "",
+    log_stem_override: str | None = None,
 ) -> tuple[int, dict]:
     """Run one skill via the configured harness. Returns (exit_code, manifest_record).
 
     `model` and `effort` are the per-skill resolved tiers (Phase 19 routing);
     when omitted the harness applies its conservative defaults so direct
     `bin/skill-chain.py <skill>` invocations remain harness-shaped.
+
+    `extra_prompt` is appended to the harness's stock skill-invocation prompt
+    so callers can pass per-iteration context (e.g. an input file path in
+    --inputs batch mode).
+
+    `log_stem_override` lets the caller name the per-skill log files (default
+    is `<index:02d>_<skill_name>`). Useful in batch mode where the input
+    filename is more meaningful than the iteration index.
     """
-    cmd = harness.build_command(skill_name, model=model, effort=effort)
+    cmd = harness.build_command(skill_name, model=model, effort=effort,
+                                 extra_prompt=extra_prompt)
 
     txt_path: Path | None = None
     jsonl_path: Path | None = None
     if log_dir is not None:
         log_dir.mkdir(parents=True, exist_ok=True)
-        stem = f"{index:02d}_{skill_name}"
+        stem = log_stem_override or f"{index:02d}_{skill_name}"
         txt_path = log_dir / f"{stem}.txt"
         jsonl_path = log_dir / f"{stem}.jsonl"
 
@@ -899,6 +914,8 @@ def run_skill_with_retry(
     pause_records: list[dict],
     model: str | None = None,
     effort: str | None = None,
+    extra_prompt: str = "",
+    log_stem_override: str | None = None,
 ) -> tuple[int, dict]:
     """Run a skill with rate-limit pause-and-resume.
 
@@ -917,6 +934,7 @@ def run_skill_with_retry(
     while True:
         rc, record = run_skill(
             harness, skill_name, index, log_dir, model=model, effort=effort,
+            extra_prompt=extra_prompt, log_stem_override=log_stem_override,
         )
         if retry_count > 0:
             record["retry_count"] = retry_count
