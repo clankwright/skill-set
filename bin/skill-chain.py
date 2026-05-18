@@ -136,6 +136,11 @@ RATE_LIMIT_RESET_RE = re.compile(
 DEFAULT_ON_RATE_LIMIT = "pause"
 DEFAULT_MAX_RATE_LIMIT_PAUSE_SECONDS = 28800   # 8h, covers 5h rolling + headroom
 DEFAULT_MAX_PAUSES_PER_SESSION = 3
+# Inter-iteration human-like delay applied when neither CLI nor chain YAML
+# specifies loop-delay or loop-delay-random. 5-30min jitter keeps commit
+# cadence indistinguishable from a human workflow. Opt out per-run with
+# `--loop-delay 0` or per-chain with `loop-delay: 0` in YAML.
+DEFAULT_LOOP_DELAY_RANDOM = (300.0, 1800.0)
 RATE_LIMIT_JITTER_RANGE = (15, 60)              # extra seconds after parsed reset
 RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_time
 
@@ -511,10 +516,10 @@ class ClaudeCodeHarness(Harness):
             # Without it, supervisor runs that do proprietary overwrite +
             # transferable sanitize + transferable sidecar + verdict have
             # terminated cleanly at ~31 turns with `[ok]` status mid-workflow
-            # (server-side pause_turn). 100 buys headroom for multi-write
+            # (server-side pause_turn). 150 buys headroom for multi-write
             # cycles without burning cache on runaway agents. See
             # github.com/anthropics/claude-code/issues/16963.
-            "--max-turns", "100",
+            "--max-turns", "150",
             "--model",  model  or DEFAULT_MODEL_FLOOR,
             "--effort", effort or DEFAULT_EFFORT_FLOOR,
             "-p",
@@ -1148,12 +1153,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=str,
         default=None,
         metavar="MIN,MAX",
-        help="Per-iteration randomized delay; sampled uniformly from [MIN, MAX] "
-             "seconds (inclusive) after each iteration boundary. Format: "
-             "'<min>,<max>' (e.g. '60,3600' for 1-60min jitter). Overrides the "
-             "chain YAML's `loop-delay-random:` field. Mutually exclusive with "
-             "--loop-delay; setting both is an error. Makes a multi-iter run's "
-             "cadence look human-driven instead of clockwork-automated.",
+        help=f"Per-iteration randomized delay; sampled uniformly from [MIN, MAX] "
+             f"seconds (inclusive) after each iteration boundary. Format: "
+             f"'<min>,<max>' (e.g. '300,1800' for 5-30min jitter). Overrides the "
+             f"chain YAML's `loop-delay-random:` field. Mutually exclusive with "
+             f"--loop-delay; setting both is an error. Makes a multi-iter run's "
+             f"cadence look human-driven instead of clockwork-automated. When "
+             f"neither this nor --loop-delay nor any YAML delay field is set, "
+             f"the runner defaults to "
+             f"[{int(DEFAULT_LOOP_DELAY_RANDOM[0])},{int(DEFAULT_LOOP_DELAY_RANDOM[1])}] "
+             f"(5-30min). Opt out with --loop-delay 0.",
     )
     p.add_argument(
         "--on-rate-limit",
@@ -1476,7 +1485,11 @@ def main() -> int:
     elif chain_def is not None and "loop-delay" in chain_def:
         loop_delay = float(chain_def["loop-delay"])
     else:
+        # No CLI override, no YAML setting — fall back to the human-like
+        # default jitter so multi-iter runs never accidentally fire iterations
+        # back-to-back. Opt out with `--loop-delay 0` or YAML `loop-delay: 0`.
         loop_delay = 0.0
+        loop_delay_random = DEFAULT_LOOP_DELAY_RANDOM
     if loop_delay < 0:
         raise SystemExit("--loop-delay must be >= 0")
 
