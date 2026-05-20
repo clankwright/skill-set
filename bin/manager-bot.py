@@ -77,7 +77,47 @@ if not CHAT_ID_ALLOW:
 
 API = f"https://api.telegram.org/bot{TOKEN}"
 
-KNOWN_COMMANDS = {"status", "objectives", "proposals", "promote", "pause", "resume", "ping", "help", "feedback"}
+KNOWN_COMMANDS = {"status", "objectives", "proposals", "promote", "pause", "resume", "ping", "help", "feedback", "projects"}
+
+# Default root for persona discovery; override in tests.
+SKILLS_ROOT = Path.home() / ".claude" / "skills"
+
+
+def _discover_manager_personas(skills_root: Path | None = None) -> list[dict]:
+    """Scan skills_root/*-manager/SKILL.md and return persona + project info.
+
+    Each entry: {'persona': str, 'projects': [{'path': str, 'name': str}, ...]}.
+    Persona is derived by stripping the '-manager' suffix from the folder name.
+    The watched-projects block is parsed from a fenced yaml block in the body;
+    if absent, 'projects' is an empty list.
+    """
+    import re as _re
+    root = skills_root if skills_root is not None else SKILLS_ROOT
+    results = []
+    for skill_md in sorted(root.glob("*-manager/SKILL.md")):
+        folder = skill_md.parent.name  # e.g. "cm-manager"
+        if not folder.endswith("-manager"):
+            continue
+        persona = folder[: -len("-manager")]
+        body = skill_md.read_text(encoding="utf-8", errors="replace")
+        projects: list[dict] = []
+        # Find a fenced yaml block containing watched-projects:.
+        block_match = _re.search(
+            r"```yaml\s*\n(.*?)```", body, _re.DOTALL
+        )
+        if block_match:
+            block = block_match.group(1)
+            if "watched-projects:" in block:
+                # Parse path: / name: pairs under watched-projects:.
+                for m in _re.finditer(
+                    r"^\s+-\s+path:\s*(.+?)\s*$.*?(?:^\s+name:\s*(.+?)\s*$)?",
+                    block, _re.MULTILINE | _re.DOTALL
+                ):
+                    path_val = m.group(1).strip()
+                    name_val = (m.group(2) or "").strip() or Path(path_val).name
+                    projects.append({"path": path_val, "name": name_val})
+        results.append({"persona": persona, "projects": projects})
+    return results
 
 
 def _utc_iso() -> str:
@@ -241,7 +281,11 @@ def handle_command(text: str, chat_id: int) -> str:
             "/feedback <message> — steer the supervisor; on-demand manager spawns if configured, otherwise queues for next periodic run\n"
             "/pause — manager skips its next scheduled run\n"
             "/resume — manager runs again at next schedule\n"
+            "/projects — list known personas, project roots, and their tokens\n"
             "/ping — bot liveness check\n\n"
+            "Multi-project tip: commands that target a specific project accept a project\n"
+            "token as the first arg (e.g. `/status cm`, `/feedback cm <text>`).\n"
+            "Use `/projects` to see the live token-to-project registry.\n\n"
             "All commands except /ping and /help write a queue file at "
             f"`{QUEUE_DIR}` for the next manager-skill invocation to process.\n\n"
             "Replies are live only during chain runs; commands sent between runs "
@@ -255,6 +299,24 @@ def handle_command(text: str, chat_id: int) -> str:
         if len(digest) > 3500:
             digest = digest[:3450] + "\n\n... [truncated]"
         return digest
+
+    if cmd == "projects":
+        personas = _discover_manager_personas()
+        if not personas:
+            return (
+                "No manager personas found.\n"
+                f"Install a `*-manager/SKILL.md` under `{SKILLS_ROOT}` to register one."
+            )
+        lines = []
+        for entry in sorted(personas, key=lambda x: x["persona"]):
+            persona = entry["persona"]
+            projs = entry["projects"]
+            if projs:
+                for p in projs:
+                    lines.append(f"`{persona}` -> {p['path']} (token: `{persona}`)")
+            else:
+                lines.append(f"`{persona}` -> (no watched-projects configured)")
+        return "Registered personas:\n" + "\n".join(lines)
 
     if cmd in {"objectives", "proposals", "promote", "pause", "resume"}:
         if cmd == "promote" and len(args) < 2:

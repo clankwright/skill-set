@@ -874,6 +874,10 @@ def main() -> int:
 
     telegram = TelegramSink(enabled=not args.no_telegram, env=tg_env)
     label = args.label or args.chain
+    # Thread the label into the env so notify-telegram.sh prepends "[<label>]"
+    # to every outbound body automatically (SPEC 28.1).
+    if label:
+        tg_env["TELEGRAM_LABEL"] = label
 
     # Phase 18: chain-bound worker lifecycle. Start the manager-bot worker iff
     # Telegram is enabled, an env file was provided (so we have a chat-id to

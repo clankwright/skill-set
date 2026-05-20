@@ -194,13 +194,18 @@ Outbound (any script can fire a Telegram body):
 
 `notify-telegram.sh` reads stdin, truncates to 4000 chars, POSTs to `sendMessage`, and exits non-zero if Telegram does not ack. `TELEGRAM_PARSE_MODE=Markdown` (default) lets you bold / link / code-format the body.
 
+**Multi-project labeling:** when multiple personas share the same bot, set `TELEGRAM_LABEL=<persona>` before calling `notify-telegram.sh` and every outbound body will be prefixed with `[<persona>]` on its own line. `bin/drive-chain.py` sets this automatically from `--label` (or the chain name as fallback), so chain-driver bodies are already labeled when you run a named chain. Consuming projects whose proprietary `*-notify-telegram.sh` wrapper currently hard-codes a label prefix can collapse to a one-line passthrough that exports `TELEGRAM_LABEL=<persona>` and execs `bin/notify-telegram.sh`.
+
 Inbound (you talk to the bot in Telegram):
 
 ```
-/help    list commands
-/ping    liveness check (worker replies "pong")
-/status  paste back the most recent manager digest
+/help      list commands
+/ping      liveness check (worker replies "pong")
+/status    paste back the most recent manager digest
+/projects  list registered personas, their project roots, and their tokens
 ```
+
+Multi-project: when a single bot serves multiple personas, prefix commands with the project token (e.g. `/status cm`, `/feedback cm <text>`). Run `/projects` to see the live token-to-project registry; discovery is filesystem-driven from `~/.claude/skills/*-manager/SKILL.md`.
 
 The other commands (`/objectives`, `/proposals`, `/promote`, `/pause`, `/resume`) write a queue file to `~/.claude/state/manager-bot-queue/`; the next `<persona>-manager` invocation drains the queue.
 
