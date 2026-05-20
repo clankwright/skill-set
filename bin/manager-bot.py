@@ -79,6 +79,64 @@ API = f"https://api.telegram.org/bot{TOKEN}"
 
 KNOWN_COMMANDS = {"status", "objectives", "proposals", "promote", "pause", "resume", "ping", "help", "feedback", "projects"}
 
+# Commands that operate at the bot level and never target a specific persona.
+# They are always processed regardless of project token.
+PROJECT_AGNOSTIC_COMMANDS = {"ping", "help", "projects"}
+
+
+def route_queue_payload(
+    payload: dict,
+    my_persona: str,
+    known_personas: list[str],
+) -> tuple[str, str]:
+    """Route a queue file payload to this manager (or another) by project token.
+
+    For non-agnostic commands the project token is the FIRST whitespace-delimited
+    arg (`args[0]` for command payloads; `body.split()[0]` for feedback). The
+    project-token convention is anti-fork: this function never defaults to
+    `my_persona` when the token is missing — silently assuming would let a
+    skill-set-intended message corrupt cm's state file (and vice versa).
+
+    Returns (action, detail) where action is one of:
+      - "act": this manager should process the command.
+      - "skip": another known persona owns it; leave the queue file alone.
+      - "refuse-missing": no project token; refuse with usage detail.
+      - "refuse-unknown": token is not a known persona; refuse with usage detail.
+
+    `detail` is a one-line human-readable string for the refuse-* cases that
+    names the discovery surface (`/projects`) and lists known personas; empty
+    for act/skip.
+    """
+    command = (payload.get("command") or "").lower()
+    if command in PROJECT_AGNOSTIC_COMMANDS:
+        return ("act", "")
+
+    if command == "feedback":
+        body = payload.get("body") or ""
+        if not body.strip():
+            return ("refuse-missing", _refusal_detail(known_personas))
+        token = body.split()[0]
+    else:
+        args = payload.get("args") or []
+        if not args:
+            return ("refuse-missing", _refusal_detail(known_personas))
+        token = args[0]
+
+    if token == my_persona:
+        return ("act", "")
+    if token in known_personas:
+        return ("skip", "")
+    return ("refuse-unknown", _refusal_detail(known_personas))
+
+
+def _refusal_detail(known_personas: list[str]) -> str:
+    listing = ", ".join(sorted(known_personas)) if known_personas else "(none discovered)"
+    return (
+        f"Project token required as the first arg. "
+        f"Use /<command> <token> ... — known: {listing}. "
+        f"Send /projects for the live registry."
+    )
+
 # Default root for persona discovery; override in tests.
 SKILLS_ROOT = Path.home() / ".claude" / "skills"
 

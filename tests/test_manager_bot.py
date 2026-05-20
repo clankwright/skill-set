@@ -176,3 +176,109 @@ def test_help_mentions_token_convention():
     # Must mention that commands accept a project token as first arg
     lower = reply.lower()
     assert "token" in lower or "project" in lower
+
+
+# ── route_queue_payload (SPEC 28.3) ────────────────────────────────────────────
+
+def test_route_agnostic_ping():
+    """Project-agnostic commands (ping/help/projects) always act without a project token."""
+    payload = {"command": "ping", "args": [], "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "act"
+
+
+def test_route_agnostic_help():
+    payload = {"command": "help", "args": [], "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "act"
+
+
+def test_route_agnostic_projects():
+    payload = {"command": "projects", "args": [], "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "act"
+
+
+def test_route_status_matches_my_persona():
+    payload = {"command": "status", "args": ["cm"], "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "act"
+
+
+def test_route_status_for_other_persona_is_skipped():
+    """A queue file targeting another known persona must be left alone (the other manager will pick it up)."""
+    payload = {"command": "status", "args": ["skill-set"], "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "skip"
+
+
+def test_route_status_with_missing_token_refused():
+    """Missing project token must be refused (anti-fork: never default to my persona)."""
+    payload = {"command": "status", "args": [], "from_chat_id": 1}
+    action, detail = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "refuse-missing"
+    # The detail should suggest /projects so the user can discover known tokens.
+    assert "/projects" in detail or "projects" in detail.lower()
+
+
+def test_route_status_with_unknown_token_refused():
+    """An unrecognized first-arg string is a routing failure, not a cm-scoped action."""
+    payload = {"command": "status", "args": ["bogus"], "from_chat_id": 1}
+    action, detail = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "refuse-unknown"
+    assert "/projects" in detail or "projects" in detail.lower()
+
+
+def test_route_feedback_matches_my_persona_by_body_token():
+    """For /feedback, the project token is the leading whitespace-delimited token of body."""
+    payload = {"command": "feedback", "body": "cm The reviewer should weigh cost more.", "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "act"
+
+
+def test_route_feedback_for_other_persona_is_skipped():
+    payload = {"command": "feedback", "body": "skill-set tighten the supervisor batch-window check.", "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "skip"
+
+
+def test_route_feedback_with_no_body_token_refused():
+    payload = {"command": "feedback", "body": "Please fix the thing.", "from_chat_id": 1}
+    action, detail = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "refuse-unknown"
+    assert "/projects" in detail or "projects" in detail.lower()
+
+
+def test_route_feedback_with_empty_body_refused_missing():
+    payload = {"command": "feedback", "body": "", "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "refuse-missing"
+
+
+def test_route_promote_takes_project_as_first_arg():
+    """`/promote cm <skill>` — args[0] is the project token, args[1] is the skill name."""
+    payload = {"command": "promote", "args": ["cm", "my-skill"], "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "act"
+
+
+def test_route_promote_for_other_persona_skipped():
+    payload = {"command": "promote", "args": ["skill-set", "some-skill"], "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
+    assert action == "skip"
+
+
+def test_route_only_one_known_persona():
+    """When the bot serves a single persona, an unknown token still routes as refuse-unknown."""
+    payload = {"command": "status", "args": ["foo"], "from_chat_id": 1}
+    action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm"])
+    assert action == "refuse-unknown"
+
+
+def test_route_refusal_lists_known_personas():
+    """The refusal detail should list known personas so the user knows what tokens to try."""
+    payload = {"command": "status", "args": [], "from_chat_id": 1}
+    _, detail = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set", "dahrouge"])
+    # All known personas should be discoverable in the refusal text.
+    for persona in ("cm", "skill-set", "dahrouge"):
+        assert persona in detail
