@@ -17,14 +17,18 @@ _spec.loader.exec_module(mb)
 
 
 def _make_manager_skill(skills_root: Path, persona: str, projects: list[dict]) -> None:
-    """Write a minimal *-manager/SKILL.md with a watched-projects block."""
+    """Write a minimal proprietary *-manager/SKILL.md with a watched-projects block.
+
+    Includes transferable: sst-manager in frontmatter so _discover_manager_personas
+    recognises it as a real persona instance (not a transferable template).
+    """
     skill_dir = skills_root / f"{persona}-manager"
     skill_dir.mkdir(parents=True, exist_ok=True)
     projects_yaml = "\n".join(
         f"  - path: {p['path']}\n    name: {p['name']}" for p in projects
     )
     content = (
-        f"---\nname: {persona}-manager\nversion: 1.0.0\n---\n\n"
+        f"---\nname: {persona}-manager\nversion: 1.0.0\ntransferable: sst-manager\n---\n\n"
         f"```yaml\nwatched-projects:\n{projects_yaml}\n```\n"
     )
     (skill_dir / "SKILL.md").write_text(content)
@@ -72,11 +76,65 @@ def test_discover_no_watched_projects_block():
         root = Path(tmpdir)
         skill_dir = root / "x-manager"
         skill_dir.mkdir()
-        (skill_dir / "SKILL.md").write_text("---\nname: x-manager\n---\n\n# no projects block\n")
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: x-manager\ntransferable: sst-manager\ntransferable-version: \">=1.0.0\"\n---\n\n# no projects block\n"
+        )
         result = mb._discover_manager_personas(root)
     assert len(result) == 1
     assert result[0]["persona"] == "x"
     assert result[0]["projects"] == []
+
+
+def test_discover_skips_transferable_skill():
+    """Skills without transferable: in frontmatter (transferable templates, not real personas) must be skipped."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        skill_dir = root / "sst-manager"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: sst-manager\nversion: 1.10.0\n---\n\n"
+            "```yaml\nwatched-projects:\n  - path: ~/Dev/project-a\n    name: project-a\n  - path: ~/Dev/project-b\n    name: project-b\n```\n"
+        )
+        result = mb._discover_manager_personas(root)
+    assert result == [], "transferable sst-manager must not appear as a real persona"
+
+
+def test_discover_keeps_proprietary_skill():
+    """Skills WITH transferable: in frontmatter (real proprietary persona instances) must be returned."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        skill_dir = root / "cm-manager"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: cm-manager\ntransferable: sst-manager\ntransferable-version: \">=1.0.0\"\n---\n\n"
+            "```yaml\nwatched-projects:\n  - path: /home/rob/Dev/claim_management\n    name: claim_management\n```\n"
+        )
+        result = mb._discover_manager_personas(root)
+    assert len(result) == 1
+    assert result[0]["persona"] == "cm"
+
+
+def test_discover_mixed_transferable_and_proprietary():
+    """When both a transferable template and a real proprietary skill are present, only the proprietary is returned."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        # transferable — no transferable: key, should be skipped
+        t_dir = root / "sst-manager"
+        t_dir.mkdir()
+        (t_dir / "SKILL.md").write_text(
+            "---\nname: sst-manager\nversion: 1.10.0\n---\n\n"
+            "```yaml\nwatched-projects:\n  - path: ~/Dev/project-a\n    name: project-a\n```\n"
+        )
+        # proprietary — has transferable: key, should be returned
+        p_dir = root / "cm-manager"
+        p_dir.mkdir()
+        (p_dir / "SKILL.md").write_text(
+            "---\nname: cm-manager\ntransferable: sst-manager\n---\n\n"
+            "```yaml\nwatched-projects:\n  - path: /home/rob/Dev/cm\n    name: cm\n```\n"
+        )
+        result = mb._discover_manager_personas(root)
+    assert len(result) == 1
+    assert result[0]["persona"] == "cm"
 
 
 # ── handle_command /projects ────────────────────────────────────────────────────

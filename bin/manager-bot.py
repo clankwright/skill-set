@@ -90,6 +90,11 @@ def _discover_manager_personas(skills_root: Path | None = None) -> list[dict]:
     Persona is derived by stripping the '-manager' suffix from the folder name.
     The watched-projects block is parsed from a fenced yaml block in the body;
     if absent, 'projects' is an empty list.
+
+    Files without a `transferable:` key in their YAML frontmatter are skipped —
+    they are transferable template files (e.g. sst-manager), not real deployed
+    persona instances. Proprietary persona instances always declare
+    `transferable: sst-manager` (or similar) in their frontmatter.
     """
     import re as _re
     root = skills_root if skills_root is not None else SKILLS_ROOT
@@ -98,8 +103,16 @@ def _discover_manager_personas(skills_root: Path | None = None) -> list[dict]:
         folder = skill_md.parent.name  # e.g. "cm-manager"
         if not folder.endswith("-manager"):
             continue
-        persona = folder[: -len("-manager")]
         body = skill_md.read_text(encoding="utf-8", errors="replace")
+        # Extract the YAML frontmatter block (content between the first pair of ---).
+        fm_match = _re.match(r"^---\s*\n(.*?)\n---", body, _re.DOTALL)
+        if not fm_match:
+            continue  # no frontmatter at all; skip
+        frontmatter = fm_match.group(1)
+        # Skip transferable template files — they lack a transferable: key.
+        if not _re.search(r"^transferable\s*:", frontmatter, _re.MULTILINE):
+            continue
+        persona = folder[: -len("-manager")]
         projects: list[dict] = []
         # Find a fenced yaml block containing watched-projects:.
         block_match = _re.search(
