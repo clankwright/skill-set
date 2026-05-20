@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.10.0
+version: 1.11.0
 ---
 
 # Manager
@@ -27,7 +27,8 @@ The manager NEVER:
 - **Cursors prevent re-processing.** `~/.claude/state/manager-cursors.json` records the latest seen run dir per watched project. Only newer runs get analyzed.
 - **One digest per invocation.** Either a status digest (default) or an escalation. Never both. Escalations skip batching and fire immediately.
 - **Bounded shaping, not editing.** Updates to `~/.claude/state/manager-notes.md` are prepend-and-trim, capped at ~3KB. Each entry carries a source-tagged heading (`## <utc-iso> user feedback (chat <id>)` for verbatim user feedback routed from the bot, `## <utc-iso> manager observation` for manager-derived patterns). The supervisor reads the file as a preamble, never the manager's full history.
-- **Pause respect.** If `~/.claude/state/manager-paused` exists, the cycle is a no-op (no walk, no digest, no notes update). Reply silently to keep the cron quiet.
+- **Pause respect.** If `~/.claude/state/manager-paused` exists (global) OR `~/.claude/state/manager-paused-<persona>` exists (scoped to THIS persona, derived from the proprietary counterpart's name minus the `-manager` suffix), the cycle is a no-op (no walk, no digest, no notes update). Reply silently to keep the cron quiet. The global file is human-managed; the scoped file is toggled by `/pause <persona>` / `/resume <persona>` per §1 below.
+- **Project-token routing.** A shared Telegram bot may serve multiple personas in the same chat. Every non-agnostic inbound command MUST carry the target persona as its first whitespace-delimited token (`args[0]` for command payloads; `body.split()[0]` for `/feedback`). The manager only acts on queue files whose token matches this persona, leaves files for other known personas alone, and refuses files with missing or unknown tokens. **Never default the token to this persona when it is missing** — silently assuming would let one persona's message corrupt another persona's state file. The discovery surface for known tokens is the bot's `/projects` command. See §1 Project-token routing for the full rule.
 
 ## Inputs
 
@@ -109,14 +110,14 @@ The proprietary counterpart's `objectives-path` file holds the bar this manager 
 ### 0. Pre-flight
 
 1. **Mode dispatch.** Parse the input for mode tokens. If `--process-feedback <queue-file>` is present, jump to §On-demand feedback routing and skip §1–§6. Else if `--plan` is present (with no `--process-feedback`), jump to §Planner mode and skip §1–§6. Else continue with periodic mode below; periodic mode's §3 may auto-transition into planner-mode in-process when conditions hold.
-2. If `~/.claude/state/manager-paused` exists, exit silently (no log, no message). The user toggles this via the bot's `/pause` and `/resume`.
+2. If `~/.claude/state/manager-paused` exists (global pause) OR `~/.claude/state/manager-paused-<persona>` exists (where `<persona>` is the proprietary counterpart's name with the trailing `-manager` stripped), exit silently (no log, no message). The user toggles the scoped file via the bot's `/pause <persona>` and `/resume <persona>`; the global file is touched by hand for emergency multi-persona stops.
 3. Read the proprietary counterpart's frontmatter / body for the configuration above. If anything required is missing, write to stderr and exit non-zero — the manager cannot run without knowing what to watch.
 4. Source the Telegram env file: `set -a; . "$telegram_env"; set +a`. The `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` exports are now available for `bin/notify-telegram.sh`.
 5. Read or create `~/.claude/state/manager-cursors.json` (default: `{}`).
 
 ### 1. Process inbound bot commands first
 
-`~/.claude/state/manager-bot-queue/*.json` holds tasks the user fired from Telegram (the bot writes these but never executes anything). Two file shapes:
+`~/.claude/state/manager-bot-queue/*.json` holds tasks the user fired from Telegram (the bot writes these but never executes anything). A single bot may serve multiple personas, so every queue file is routed by project token before its command is acted on (see "Project-token routing" below). Two file shapes:
 
 ```json
 {
@@ -136,16 +137,46 @@ The proprietary counterpart's `objectives-path` file holds the bar this manager 
 }
 ```
 
-Handle in received-at order:
+**Project-token routing (applies to every queue file before any command handler runs).**
 
-- `pause` / `resume` → toggle `~/.claude/state/manager-paused` accordingly. Reply `paused` / `resumed` to the chat.
+The proprietary counterpart's `<persona>` is its skill folder name with the trailing `-manager` stripped (e.g. `<project>-manager` → persona `<project>`). Resolve once at §0.3 and keep it for the rest of the run.
+
+The set of `<known-personas>` is the live list of installed proprietary managers, discovered by scanning `~/.claude/skills/*-manager/SKILL.md` for files whose YAML frontmatter contains a `transferable:` key (transferable templates lack this key and are excluded; the bot's `_discover_manager_personas` helper applies the same rule). This is the same registry the bot exposes via `/projects`. Refresh on each tick.
+
+For each queue file, parse its payload and decide one of four routes:
+
+| Command class | Token source | Match rule | Action |
+| :--- | :--- | :--- | :--- |
+| Project-agnostic (`ping`, `help`, `projects`) | n/a | always | act (no token stripping) |
+| Feedback (`feedback`) | `body.split()[0]` | token == `<persona>` | strip token, route remainder per §1 feedback handler |
+| Feedback (`feedback`) | `body.split()[0]` | token in `<known-personas>` (and ≠ `<persona>`) | leave the queue file alone — another manager owns it |
+| Feedback (`feedback`) | `body.split()[0]` | body is empty | refuse-missing (see below) |
+| Feedback (`feedback`) | `body.split()[0]` | token is not a known persona | refuse-unknown (see below) |
+| All other commands | `args[0]` | token == `<persona>` | strip `args[0]`, route remainder per the handler list below |
+| All other commands | `args[0]` | token in `<known-personas>` (and ≠ `<persona>`) | leave the queue file alone — another manager owns it |
+| All other commands | `args[0]` | `args` is empty | refuse-missing |
+| All other commands | `args[0]` | token is not a known persona | refuse-unknown |
+
+**Anti-fork constraint.** Never default the token to `<persona>` when it is missing. Two personas sharing one chat is the failure mode this rule prevents; silently routing an ambiguous message would corrupt the other persona's `manager-notes.md`.
+
+**Refusal-reply format.** For `refuse-missing` and `refuse-unknown`, reply via Telegram with one line naming the discovery surface AND the live persona list, then move the queue file to `~/.claude/state/manager-bot-queue/processed/<basename>.no-project`:
+
+```
+[<persona>] Project token required as the first arg. Use /<command> <token> ... — known: <comma-separated known-personas>. Send /projects for the live registry.
+```
+
+Reuse the bot helper `route_queue_payload(payload, my_persona, known_personas)` (in `bin/manager-bot.py`) to compute the routing decision; it returns one of `("act", "")`, `("skip", "")`, `("refuse-missing", <detail>)`, `("refuse-unknown", <detail>)`. The `detail` already carries the refusal text in the canonical format; the manager just prepends the `[<persona>]` outbound label per its own outbound convention.
+
+After routing, handle the per-command behaviors in received-at order:
+
+- `pause <persona>` / `resume <persona>` → toggle `~/.claude/state/manager-paused-<persona>` accordingly (the scoped file; the global `manager-paused` is human-only). Reply `paused` / `resumed` to the chat. Bare `/pause` and `/resume` (no persona token) route to refuse-missing per the routing table above.
 - `status` → reply with the most recent digest from `manager-digests/`.
 - `objectives` → reply with the current `objectives.md` (truncate to 3500 chars to fit Telegram).
 - `proposals` → list pending proposals across all watched projects' `.skill-runs/*/proposals/` and the master repo's `proposals/`. Format: one line per proposal with severity, source, target.
-- `promote <project> <skill>` → write `~/.claude/state/manager-bot-queue/promote-task.txt` for the next user-driven `/sst-promote-skill-proposal` invocation (this skill does NOT execute Claude itself; it just queues). Reply `queued`.
+- `promote <skill>` (after the persona token is stripped) → write `~/.claude/state/manager-bot-queue/promote-task.txt` for the next user-driven `/sst-promote-skill-proposal` invocation (this skill does NOT execute Claude itself; it just queues). Reply `queued`.
 - `feedback` → route the user's body verbatim to the supervisor via `~/.claude/state/manager-notes.md` under a `user feedback (chat <id>)` source-tagged heading. See "Routing feedback to the supervisor" below. Reply confirming the body was routed onward (e.g. `Routed feedback (N chars) to the supervisor; it will read it on the next chain run.`).
 
-After processing, delete each task file. If a task fails, leave it and add a `.error` sibling with the failure reason.
+After processing, delete each task file. If a task fails, leave it and add a `.error` sibling with the failure reason. Files routed as `skip` are left untouched for another manager's tick; files routed as refuse are moved to `processed/<basename>.no-project` (one-shot, not retried).
 
 **Routing feedback to the supervisor.** When a `feedback` queue file is processed:
 
