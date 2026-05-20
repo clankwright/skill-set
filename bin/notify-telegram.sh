@@ -16,6 +16,10 @@
 #                          directly without a manual subshell pre-source. Explicit shell env
 #                          wins (auto-source is skipped if the caller already set the token).
 #   TELEGRAM_PARSE_MODE  — "Markdown" (default), "MarkdownV2", "HTML", or empty for plain.
+#   TELEGRAM_LABEL       — when set non-empty, prepends "[<label>]\n\n" to the body so the
+#                          recipient can distinguish messages from different personas sharing
+#                          the same chat. Empty / unset = legacy behavior unchanged.
+#                          bin/drive-chain.py sets this to --label / chain name automatically.
 #
 # Behavior:
 #   - Reads stdin, truncates to 4000 chars (Telegram cap is 4096; a small margin).
@@ -40,6 +44,10 @@ text="$(cat)"
 if [ -z "$text" ]; then
     echo "notify-telegram: empty stdin; nothing to send" >&2
     exit 1
+fi
+
+if [ -n "${TELEGRAM_LABEL:-}" ]; then
+    text="[${TELEGRAM_LABEL}]"$'\n\n'"${text}"
 fi
 
 # Truncate at 4000 chars to leave headroom for parse-mode escapes.
