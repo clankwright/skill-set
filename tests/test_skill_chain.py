@@ -74,3 +74,79 @@ def test_smoke_second_attempt_command_has_resume():
     idx = cmd_retry.index("--resume")
     assert cmd_retry[idx + 1] == captured_session_id
     assert cmd_retry[-1] == "continue"
+
+
+# ---- run_skill_with_retry integration tests (session-id threading) ----------
+
+run_skill_with_retry = sc.run_skill_with_retry
+
+
+def _make_fake_run_skill(call_kwargs_list, first_record, second_record=(0, {})):
+    """Return a fake run_skill that records kwargs and drives a two-call scenario."""
+    def fake(_harness, _skill_name, _index, _log_dir, **kwargs):
+        call_kwargs_list.append(kwargs.copy())
+        if len(call_kwargs_list) == 1:
+            return first_record
+        return second_record
+    return fake
+
+
+def test_run_skill_with_retry_threads_session_id_on_rate_limit():
+    """run_skill_with_retry passes the first call's session_id as resume_session_id on retry.
+
+    Patches run_skill to simulate: first call hits rate-limit and records a
+    session_id; second call succeeds. Asserts the second run_skill call receives
+    resume_session_id equal to the session_id from the first call's record.
+    """
+    h = ClaudeCodeHarness()
+    captured_session_id = "sess_integ_test_deadbeef"
+    pause_records: list = []
+    call_kwargs: list = []
+
+    first = (1, {
+        "session_id": captured_session_id,
+        "rate_limit_signal": {"type": "max_usage", "status": "rejected"},
+    })
+    fake = _make_fake_run_skill(call_kwargs, first)
+
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch("time.sleep"):
+        rc, _ = run_skill_with_retry(
+            h, "sst-dev-cycle", 0, None,
+            on_rate_limit="pause",
+            max_pause_seconds=3600,
+            max_pauses=3,
+            pause_records=pause_records,
+        )
+
+    assert rc == 0
+    assert len(call_kwargs) == 2, "run_skill should be called twice (first + one retry)"
+    assert call_kwargs[0].get("resume_session_id") is None, \
+        "first attempt must be a cold start with no resume_session_id"
+    assert call_kwargs[1].get("resume_session_id") == captured_session_id, \
+        "retry must carry the session_id captured from the first call's record"
+
+
+def test_run_skill_with_retry_cold_when_no_session_id_in_record():
+    """run_skill_with_retry falls back to cold start when first call records no session_id."""
+    h = ClaudeCodeHarness()
+    pause_records: list = []
+    call_kwargs: list = []
+
+    first = (1, {"rate_limit_signal": {"type": "max_usage", "status": "rejected"}})
+    fake = _make_fake_run_skill(call_kwargs, first)
+
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch("time.sleep"):
+        rc, _ = run_skill_with_retry(
+            h, "sst-dev-cycle", 0, None,
+            on_rate_limit="pause",
+            max_pause_seconds=3600,
+            max_pauses=3,
+            pause_records=pause_records,
+        )
+
+    assert rc == 0
+    assert len(call_kwargs) == 2
+    assert call_kwargs[1].get("resume_session_id") is None, \
+        "no session_id in first record means retry must fall back to cold start"
