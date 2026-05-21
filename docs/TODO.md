@@ -25,6 +25,7 @@
   phase blocks and `git log`.
 -->
 
+- 29.2 [medium] add run_skill_with_retry integration tests for session-id threading (rate-limit retry loop); +2 tests (55→57 green) — by sst-dev-cycle at 2026-05-21T22:15:00Z
 - 29.1 [medium] rate-limit retry now uses --resume <session_id> to restore prior session; continuation prompt "continue" replaces bootstrap; +6 tests (49→55 green) — by sst-dev-cycle at 2026-05-21T21:30:00Z
 - 28.8 [easy] fix sst-manager truncation hint to say "run /status <persona> for full digest"; also fix notify-telegram.sh; +2 tests (42→44 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-21T20:10:00Z
 - [easy] strip "Multi-project bot conventions" from cm-manager/SKILL.md; generic routing now lives in transferable sst-manager §1; v1.0.0→v1.0.1 — by sst-dev-cycle at 2026-05-21T18:10:00Z
@@ -45,6 +46,5 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] [should-fix] 29.2 `bin/skill-chain.py:run_skill_with_retry` session-id threading untested at retry-loop level; add integration test patching `run_skill` to simulate rate-limit hit and assert second call gets `resume_session_id` — review of e5350be
 
 
