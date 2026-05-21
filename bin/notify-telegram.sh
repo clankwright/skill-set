@@ -52,7 +52,7 @@ fi
 
 # Truncate at 4000 chars to leave headroom for parse-mode escapes.
 if [ "${#text}" -gt 4000 ]; then
-    text="${text:0:3950}"$'\n... [truncated; run /status for the full digest]'
+    text="${text:0:3950}"$'\n... [truncated; run /status <persona> for the full digest]'
 fi
 
 # Build JSON payload safely (using python's json.dumps to handle escaping).
