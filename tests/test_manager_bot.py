@@ -178,6 +178,57 @@ def test_help_mentions_token_convention():
     assert "token" in lower or "project" in lower
 
 
+def test_help_status_shows_project_token():
+    """SPEC 28.5: /help usage line for /status must show <project> as required."""
+    reply = mb.handle_command("/help", chat_id=1)
+    assert "/status <project>" in reply
+
+
+def test_help_pause_shows_project_token():
+    """SPEC 28.5: /help usage line for /pause must show <project> as required."""
+    reply = mb.handle_command("/help", chat_id=1)
+    assert "/pause <project>" in reply
+
+
+def test_help_resume_shows_project_token():
+    """SPEC 28.5: /help usage line for /resume must show <project> as required."""
+    reply = mb.handle_command("/help", chat_id=1)
+    assert "/resume <project>" in reply
+
+
+def test_help_feedback_shows_project_token():
+    """SPEC 28.5: /help usage line for /feedback must show <project> as required."""
+    reply = mb.handle_command("/help", chat_id=1)
+    assert "/feedback <project>" in reply
+
+
+def test_help_objectives_shows_project_token():
+    """SPEC 28.5: /help usage line for /objectives must show <project> as required."""
+    reply = mb.handle_command("/help", chat_id=1)
+    assert "/objectives <project>" in reply
+
+
+def test_help_proposals_shows_project_token():
+    """SPEC 28.5: /help usage line for /proposals must show <project> as required."""
+    reply = mb.handle_command("/help", chat_id=1)
+    assert "/proposals <project>" in reply
+
+
+def test_help_token_required_not_optional():
+    """SPEC 28.5: /help must state token is REQUIRED, not framed as a multi-persona tip."""
+    reply = mb.handle_command("/help", chat_id=1)
+    lower = reply.lower()
+    assert "required" in lower
+
+
+def test_help_exception_set_includes_all_three():
+    """SPEC 28.5: /help must name /ping, /help, and /projects as the token-exempt exception set."""
+    reply = mb.handle_command("/help", chat_id=1)
+    assert "/ping" in reply
+    assert "/help" in reply
+    assert "/projects" in reply
+
+
 # ── route_queue_payload (SPEC 28.3) ────────────────────────────────────────────
 
 def test_route_agnostic_ping():

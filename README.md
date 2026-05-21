@@ -162,7 +162,7 @@ The dev + review run on Sonnet+high (effort floor wins on the effort axis; model
 The framework ships a small Telegram bot (`bin/manager-bot.py` + `bin/notify-telegram.sh`) so two long-running loops can talk to you directly:
 
 - **`sst-chain-driver`** fires Telegram bodies at session start, every iteration boundary (commit + per-iter spend + cumulative), every rate-limit pause / resume, every halt request, and session end. Lets you walk away from a multi-hour `--loop N` run.
-- **`sst-manager`** drains inbound slash-commands (`/status`, `/objectives`, `/proposals`, `/promote <project> <skill>`, `/pause`, `/resume`) into a queue at `~/.claude/state/manager-bot-queue/`, which the next manager run picks up.
+- **`sst-manager`** drains inbound slash-commands (`/status <project>`, `/objectives <project>`, `/proposals <project>`, `/promote <project> <skill>`, `/pause <project>`, `/resume <project>`, `/feedback <project> <message>`) into a queue at `~/.claude/state/manager-bot-queue/`, which the next manager run picks up. A project token is required for all inbound commands except `/ping`, `/help`, and `/projects`.
 
 ### Setup
 
@@ -205,9 +205,9 @@ Inbound (you talk to the bot in Telegram):
 /projects  list registered personas, their project roots, and their tokens
 ```
 
-Multi-project: when a single bot serves multiple personas, prefix commands with the project token (e.g. `/status cm`, `/feedback cm <text>`). Run `/projects` to see the live token-to-project registry; discovery is filesystem-driven from `~/.claude/skills/*-manager/SKILL.md`.
+All commands except `/ping`, `/help`, and `/projects` REQUIRE a project token as the first argument (e.g. `/status cm`, `/feedback cm <text>`). Run `/projects` to see the live token-to-project registry; discovery is filesystem-driven from `~/.claude/skills/*-manager/SKILL.md`.
 
-The other commands (`/objectives`, `/proposals`, `/promote`, `/pause`, `/resume`) write a queue file to `~/.claude/state/manager-bot-queue/`; the next `<persona>-manager` invocation drains the queue.
+The token-required commands (`/status`, `/objectives`, `/proposals`, `/promote`, `/pause`, `/resume`, `/feedback`) write a queue file to `~/.claude/state/manager-bot-queue/`; the next `<persona>-manager` invocation drains the queue.
 
 **Replies are live only during chain runs.** The bot worker starts when a chain session begins and stops when it ends (chain-bound lifecycle). Commands you send between runs are queued to disk and acknowledged on the next session start — the bot going silent doesn't mean it's broken, it means no chain is currently running. Run `/ping` at the start of a chain session to confirm liveness before relying on inbound commands.
 
