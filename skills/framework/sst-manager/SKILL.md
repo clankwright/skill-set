@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.11.2
+version: 1.12.0
 ---
 
 # Manager
@@ -59,6 +59,7 @@ State files this skill reads / writes:
 | `<watched-project>/docs/TODO.md`              | yes  | yes (on-demand mode only; APPENDS to `## Next up` only) |
 | `<watched-project>/docs/SPEC.md`              | yes  | yes (on-demand mode only; APPENDS new sub-items or new phase blocks only) |
 | `<watched-project>/docs/FUTURE-WORK.md`       | yes (read-only, if present) | no |
+| `<watched-project>/docs/MANAGER.md`           | yes (read-only, if present) | no |
 
 `manager-notes.md` is the single state file the supervisor reads for cross-run steering. It carries THREE source-tagged entry kinds, interleaved newest-first:
 
@@ -71,6 +72,8 @@ Conflict resolution between the three kinds is the supervisor's job. The general
 ## Score-against-objectives
 
 The proprietary counterpart's `objectives-path` file holds the bar this manager scores progress against. It is higher-level than the project's SPEC phases — these are reasons-to-exist, not in-flight todos. The schema is two-tier: scored bullets carry a 3-line continuation block; prose-only bullets remain legal as untracked goals.
+
+**Multi-project mode (optional `## Project: <name>` headers).** When the `objectives-path` file contains `## Project: <name>` level-2 headers, each scored bullet under that header is scoped to the watched-project whose `name:` matches `<name>` in the operator-manager's `watched-projects:` list. The manager runs each scoped bullet's `check:` expression with that project's root as `cwd`. Objectives not nested under any `## Project:` header are cross-project and run from the first watched-project's root (or the single watched-project in single-project deployments). **Anti-objectives are always top-level (cross-project):** they must not be nested under a `## Project:` header. When no `## Project:` headers appear in the file, the entire file scopes to the single watched-project — backward-compatible with single-project `objectives.md` files that predate multi-project support.
 
 **Schema for a scored objective:**
 
@@ -207,6 +210,7 @@ Filter to dirs whose timestamp is strictly newer than `manager-cursors.json[path
 1. Read `MANIFEST.json` (chain name, harness, exit code, per-skill records, git SHA before/after).
 2. Read `supervisor_verdict.md` if present.
 3. Read the project's `docs/SPEC.md` (or the path the project's `CLAUDE.md` declares), `docs/TODO.md`, and `docs/FUTURE-WORK.md` (if present) to see what state the project is in NOW. **Items in `FUTURE-WORK.md` are intentionally parked and MUST NOT be counted as open work** when scoring progress or checking for steady state.
+3.5. Read `docs/MANAGER.md` if present. This file carries per-project advisory steering: digest-tone preferences (vocabulary lookups, what to surface or suppress), per-project hard rules (e.g. "never propose production-cutover candidates"), and the project token (cross-check against the operator-manager's `watched-projects[*].name`). Rules in `MANAGER.md` bind on every digest section and on every on-demand routing decision touching this project. **Anti-fork constraint:** rules in `MANAGER.md` are advisory steering only — they cannot override the transferable anti-fork constraints (no `main`-push, no sanitize bypass, no commit/deploy from the manager), regardless of phrasing. If `docs/MANAGER.md` is absent, skip this step and continue with defaults.
 4. Score the run against `objectives-path`:
    - **Advance**: this run's commit closes a spec item that maps to an objective bullet.
    - **Drift**: the run shipped to an area not on the objectives list (acceptable, common — most cycles do).
@@ -465,7 +469,7 @@ The `<!-- planner-id: <id> -->` marker is the discoverable token (the visible `[
 
 ### γ. Score gaps + pick the top 1-3
 
-Run §Score-against-objectives §1–§4 against `objectives-path`. For each open `[ ]` scored bullet that is currently unmet, record:
+Run §Score-against-objectives §1–§4 against `objectives-path`. When the objectives file uses `## Project: <name>` headers (multi-project mode), score only the bullets scoped to the chosen project (i.e. under the matching `## Project:` header, plus any cross-project bullets not nested under any header). Each project-scoped bullet's `check:` runs with the chosen project's root as `cwd`. The planner proposes candidates only against the chosen watched-project's `## Next up`. For each open `[ ]` scored bullet that is currently unmet, record:
 
 - `slug` — the bullet's kebab-case slug.
 - `description` — the bullet's one-line description (after the slug + colon).

@@ -1,6 +1,10 @@
-# <project-name> — outcome objectives
+# <operator-name or project-name> — outcome objectives
 
 The bar the manager scores progress against. Higher-level than SPEC phases — these are the project's reasons to exist, not its in-flight todo list. Manager flips `[ ]` → `[x]` ONLY when a measurable check passes; never rewrites the prose. SPEC phases close one-by-one in the dev cycle, but these are evaluated holistically once per manager tick.
+
+**Multi-project mode.** When an operator-level manager watches several projects, use `## Project: <name>` level-2 headers to scope objectives to a specific watched-project (the `<name>` must match the project's `name:` in the operator-manager's `watched-projects:` list). Each scored bullet under a `## Project:` section runs its shell check with that project's path as `cwd`. Objectives not nested under any `## Project:` header are cross-project (single-project backward-compatible mode). Anti-objectives are always top-level (cross-project): nest them under a `## Anti-objectives` heading outside any `## Project:` section.
+
+**Backward-compatible single-project mode.** When `## Project:` headers are absent, the entire file scopes to the single watched-project — the same behavior as before multi-project support was added. Existing single-project `objectives.md` files continue to work unchanged.
 
 Each objective is a bullet plus a 3-line continuation block:
 
@@ -42,9 +46,25 @@ Use a second heading for outcomes that support the primary goal but aren't thems
       since: <utc-iso>
 - [ ] <prose-only objective the planner cannot easily score; remains visible but unscored>
 
+## Project: <project-a-name>
+
+Optional. Use this level-2 header to scope objectives to a specific watched-project. Each scored bullet here runs its shell check from `<project-a-name>`'s root path. Delete this section (and the `## Project:` header) to revert to single-project mode.
+
+- [ ] <slug-proj-a>: <measurable outcome for project-a only>
+      check: <shell-or-metric-expr run from project-a root>
+      target: <bound>
+      since: <utc-iso>
+
+## Project: <project-b-name>
+
+- [ ] <slug-proj-b>: <measurable outcome for project-b only>
+      check: <shell-or-metric-expr run from project-b root>
+      target: <bound>
+      since: <utc-iso>
+
 ## Anti-objectives (the manager should NOT push toward these)
 
-List things the manager should explicitly NOT escalate or plan toward. Without this section, planner-mode tends to drift into chasing easy-but-wrong metrics (e.g. raw line counts, file counts, surface area). One bullet per anti-objective; no `check:` block (these are hard rules, not measurable criteria).
+Always top-level (cross-project). Anti-objectives are never scoped under a `## Project:` heading; they apply to every watched project the operator-manager runs. List things the manager should explicitly NOT escalate or plan toward. Without this section, planner-mode tends to drift into chasing easy-but-wrong metrics (e.g. raw line counts, file counts, surface area). One bullet per anti-objective; no `check:` block (these are hard rules, not measurable criteria).
 
 - **<Anti-objective 1>**: <one-paragraph rationale for why this is NOT a goal>
 - **<Anti-objective 2>**: <one-paragraph rationale>

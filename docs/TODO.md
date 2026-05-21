@@ -25,6 +25,7 @@
   phase blocks and `git log`.
 -->
 
+- 30.1+30.2 [medium] MANAGER.md preamble + sst-manager walk-time read + multi-project objectives.md ## Project: sections; sst-manager v1.11.2→v1.12.0; +13 tests (57→70 green); Sanitize: must-fix=0, should-fix=1 (self-fixed) — by sst-dev-cycle at 2026-05-21T23:15:00Z
 - 29.2 [medium] add run_skill_with_retry integration tests for session-id threading (rate-limit retry loop); +2 tests (55→57 green) — by sst-dev-cycle at 2026-05-21T22:15:00Z
 - 29.1 [medium] rate-limit retry now uses --resume <session_id> to restore prior session; continuation prompt "continue" replaces bootstrap; +6 tests (49→55 green) — by sst-dev-cycle at 2026-05-21T21:30:00Z
 - 28.8 [easy] fix sst-manager truncation hint to say "run /status <persona> for full digest"; also fix notify-telegram.sh; +2 tests (42→44 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-21T20:10:00Z
@@ -34,8 +35,6 @@
 - 28.5 [easy] /help text + README.md updated: per-command `<project>` token shown as required, "Multi-project tip" replaced with "REQUIRED...except /ping, /help, /projects"; +8 tests (28→36 green) — by sst-dev-cycle at 2026-05-21T14:10:00Z
 - 28.3 [hard] hoist multi-project routing from proprietary cm-manager into transferable sst-manager: project-token-as-first-arg routing table in §1, per-persona pause file `manager-paused-<persona>` honored in §0.2 + §Operating principles, refusal reply references `/projects` dynamic list; new `route_queue_payload` helper in `bin/manager-bot.py` with 15 tests (28→43 green); sst-manager v1.10.0→v1.11.0; Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-21T08:55:00Z
 - 28.4 [medium] fix _discover_manager_personas to skip transferable sst-manager (no transferable: in frontmatter); +4 tests; 15→18 tests green — by sst-dev-cycle at 2026-05-21T01:10:00Z
-- 28.1+28.2 [medium] TELEGRAM_LABEL env var on notify-telegram.sh + drive-chain.py coordination + /projects bot command + /help extension; 15 tests green — by skill-set-dev at 2026-05-21T00:10:00Z
-- 27.14 [easy] retroactive sst-sanitize-transferable on sst-dev-cycle/SKILL.md (7d7eb87): must-fix=0, should-fix=0, nit=0; findings file updated; audit trail closed — by skill-set-dev at 2026-05-04T00:22:15Z
 
 ## Next up (queued for next cycle)
 
@@ -46,5 +45,5 @@
   Order: blockers/highest-impact first.
 -->
 
-
+- [hard] 30.3 Migration guide + collapse cm-manager / dahrouge-manager / skill-set-manager into a single operator-level `<operator>-manager`. Move per-project facts to each project's `docs/MANAGER.md` (per 30.1); consolidate objectives with `## Project:` sections (per 30.2); replace N cron entries with one; archive (don't delete) the per-project manager skill dirs. Adjust `bin/manager-bot.py:_discover_manager_personas` to read project tokens from the operator-manager's `watched-projects[*].name` field. Coordinate: 30.1 + 30.2 ship first so 30.3 has the new schemas to migrate onto. — Reason: SPEC 30.3; closes the per-project-manager multiplication surfaced by the claim_management consumer (cm-manager is config-only; sst-manager already handles multi-project walks natively).
 
