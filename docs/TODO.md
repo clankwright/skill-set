@@ -45,4 +45,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [medium] [should-fix] 29.2 `bin/skill-chain.py:run_skill_with_retry` session-id threading untested at retry-loop level; add integration test patching `run_skill` to simulate rate-limit hit and assert second call gets `resume_session_id` — review of e5350be
+
 
