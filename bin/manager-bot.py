@@ -314,7 +314,7 @@ def handle_command(text: str, chat_id: int) -> str:
     if fb_match:
         body = (fb_match.group(1) or "").strip()
         if not body:
-            return "Usage: /feedback <message>\n(give the supervisor steering input or course corrections)"
+            return "Usage: /feedback <project> <message>\n(give the supervisor steering input or course corrections)"
         path = queue_feedback(body, chat_id)
         spawned = spawn_on_demand_manager(path)
         if spawned:

@@ -333,3 +333,11 @@ def test_route_refusal_lists_known_personas():
     # All known personas should be discoverable in the refusal text.
     for persona in ("cm", "skill-set", "dahrouge"):
         assert persona in detail
+
+
+# ── /feedback empty-body error (SPEC 28.6) ────────────────────────────────────
+
+def test_feedback_empty_body_error_includes_project_token():
+    """SPEC 28.6: empty /feedback must tell the user to supply a project token."""
+    reply = mb.handle_command("/feedback", chat_id=1)
+    assert "<project>" in reply
