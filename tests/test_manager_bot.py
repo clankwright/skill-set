@@ -422,3 +422,186 @@ def test_notify_telegram_truncation_hint_includes_project_token():
     assert "run /status <project>" in content or "run /status <persona>" in content, (
         "notify-telegram.sh truncation hint must say 'run /status <project>' or 'run /status <persona>'"
     )
+
+
+# ── SPEC 30.3: operator-level manager discovery ────────────────────────────────
+
+
+def _make_operator_manager_skill(
+    skills_root: Path, operator: str, projects: list[dict]
+) -> None:
+    """Write a minimal operator-level `<operator>-manager/SKILL.md`.
+
+    The yaml block carries `operator-level: true`, signalling to
+    `_discover_manager_personas` that each watched-project's `name:` field
+    is a persona token (not a project-directory basename).
+    """
+    skill_dir = skills_root / f"{operator}-manager"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    projects_yaml = "\n".join(
+        f"  - path: {p['path']}\n    name: {p['name']}" for p in projects
+    )
+    content = (
+        f"---\nname: {operator}-manager\nversion: 1.0.0\ntransferable: sst-manager\n---\n\n"
+        f"```yaml\noperator-level: true\nwatched-projects:\n{projects_yaml}\n```\n"
+    )
+    (skill_dir / "SKILL.md").write_text(content)
+
+
+def test_discover_operator_level_emits_one_persona_per_project():
+    """An operator-level manager with N watched-projects emits N personas,
+    each persona = the project's `name:` field. The folder-derived 'operator'
+    persona is NOT emitted (the operator name is just a file label, not a
+    routable token)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        _make_operator_manager_skill(
+            root,
+            "rob",
+            [
+                {"path": "/home/rob/Dev/claim_management", "name": "cm"},
+                {"path": "/home/rob/Dev/dahrouge.com", "name": "dahrouge"},
+                {"path": "/home/rob/Dev/skill-set", "name": "skill-set"},
+            ],
+        )
+        result = mb._discover_manager_personas(root)
+    personas = {r["persona"] for r in result}
+    assert personas == {"cm", "dahrouge", "skill-set"}, (
+        f"operator-level discovery must emit one persona per watched-project name, "
+        f"not the operator's folder name; got {personas!r}"
+    )
+    # Each emitted entry carries only its own project (not all of them).
+    for r in result:
+        assert len(r["projects"]) == 1, (
+            f"operator-level entries must scope to one project; persona "
+            f"{r['persona']!r} carries {len(r['projects'])} projects"
+        )
+        assert r["projects"][0]["name"] == r["persona"]
+
+
+def test_discover_operator_level_persona_path_matches_project():
+    """Each operator-level persona record's project path must match the
+    `path:` field from the corresponding watched-projects entry."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        _make_operator_manager_skill(
+            root,
+            "rob",
+            [
+                {"path": "/home/rob/Dev/claim_management", "name": "cm"},
+                {"path": "/home/rob/Dev/dahrouge.com", "name": "dahrouge"},
+            ],
+        )
+        result = mb._discover_manager_personas(root)
+    by_persona = {r["persona"]: r for r in result}
+    assert by_persona["cm"]["projects"][0]["path"] == "/home/rob/Dev/claim_management"
+    assert by_persona["dahrouge"]["projects"][0]["path"] == "/home/rob/Dev/dahrouge.com"
+
+
+def test_discover_operator_level_single_project():
+    """An operator-level manager watching just one project still emits one
+    persona (token = project.name), not the operator folder name. This is
+    the steady-state shape after the per-project managers are archived but
+    only one consuming project is configured."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        _make_operator_manager_skill(
+            root,
+            "rob",
+            [{"path": "/home/rob/Dev/claim_management", "name": "cm"}],
+        )
+        result = mb._discover_manager_personas(root)
+    assert len(result) == 1
+    assert result[0]["persona"] == "cm", (
+        "operator-level single-project must emit the project's name as the persona, "
+        "not the operator folder name"
+    )
+
+
+def test_discover_legacy_per_project_manager_unchanged():
+    """Backward compat: a legacy per-project `<persona>-manager` (no
+    `operator-level: true`) keeps emitting the folder-derived persona,
+    so deployed cm-manager instances continue to route via /feedback cm
+    until the operator migrates per docs/migration-single-manager.md."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        # Legacy shape: name= path-basename, no operator-level flag
+        _make_manager_skill(
+            root, "cm", [{"path": "/home/rob/Dev/claim_management", "name": "claim_management"}]
+        )
+        result = mb._discover_manager_personas(root)
+    assert len(result) == 1
+    assert result[0]["persona"] == "cm", "legacy folder-derived persona must remain"
+    assert result[0]["projects"][0]["name"] == "claim_management"
+
+
+def test_discover_mixed_legacy_and_operator_level():
+    """Transition state: a legacy cm-manager and a new rob-manager coexist.
+    The legacy emits persona `cm`; the operator-level emits one persona per
+    project. Tokens may collide (cm from legacy AND cm from operator-level);
+    `/projects` collapses duplicates by presenting all valid entries."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        _make_manager_skill(
+            root, "cm", [{"path": "/home/rob/Dev/claim_management", "name": "claim_management"}]
+        )
+        _make_operator_manager_skill(
+            root,
+            "rob",
+            [{"path": "/home/rob/Dev/dahrouge.com", "name": "dahrouge"}],
+        )
+        result = mb._discover_manager_personas(root)
+    personas = sorted(r["persona"] for r in result)
+    assert personas == ["cm", "dahrouge"], (
+        f"transition state must emit both legacy folder-derived and operator-level "
+        f"per-project personas; got {personas!r}"
+    )
+
+
+def test_discover_operator_level_skips_transferable_template():
+    """Even when a transferable template's yaml block contains
+    `operator-level: true` placeholder text, the missing `transferable:`
+    frontmatter key must still cause the file to be skipped."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        skill_dir = root / "sst-manager"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: sst-manager\nversion: 1.13.0\n---\n\n"
+            "```yaml\noperator-level: true\nwatched-projects:\n"
+            "  - path: ~/Dev/project-a\n    name: a\n"
+            "  - path: ~/Dev/project-b\n    name: b\n```\n"
+        )
+        result = mb._discover_manager_personas(root)
+    assert result == [], "transferable templates are skipped regardless of operator-level flag"
+
+
+def test_projects_reply_lists_operator_level_personas(monkeypatch):
+    """/projects must list each operator-level persona separately even when
+    they all originate from one operator manager file."""
+    fake_data = [
+        {"persona": "cm", "projects": [{"path": "/home/rob/Dev/claim_management", "name": "cm"}]},
+        {"persona": "dahrouge", "projects": [{"path": "/home/rob/Dev/dahrouge.com", "name": "dahrouge"}]},
+    ]
+    monkeypatch.setattr(mb, "_discover_manager_personas", lambda *a, **kw: fake_data)
+    reply = mb.handle_command("/projects", chat_id=1)
+    assert "cm" in reply
+    assert "dahrouge" in reply
+    assert "/home/rob/Dev/claim_management" in reply
+    assert "/home/rob/Dev/dahrouge.com" in reply
+
+
+def test_migration_guide_exists():
+    """SPEC 30.3: docs/migration-single-manager.md must exist."""
+    guide = _REPO_ROOT / "docs/migration-single-manager.md"
+    assert guide.exists(), "migration guide docs/migration-single-manager.md must exist (SPEC 30.3)"
+    body = guide.read_text()
+    # Spot-check the five operator runbook steps the spec calls out (a-e).
+    for needle in [
+        "operator-level",
+        "watched-projects",
+        "docs/MANAGER.md",
+        "objectives",
+        "cron",
+    ]:
+        assert needle in body, f"migration guide missing required guidance: {needle!r}"

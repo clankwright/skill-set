@@ -145,9 +145,19 @@ def _discover_manager_personas(skills_root: Path | None = None) -> list[dict]:
     """Scan skills_root/*-manager/SKILL.md and return persona + project info.
 
     Each entry: {'persona': str, 'projects': [{'path': str, 'name': str}, ...]}.
-    Persona is derived by stripping the '-manager' suffix from the folder name.
-    The watched-projects block is parsed from a fenced yaml block in the body;
-    if absent, 'projects' is an empty list.
+
+    Two emission shapes (SPEC 30.3):
+
+    1. **Legacy per-project manager** (no `operator-level: true` in the yaml
+       block). The folder name minus `-manager` is the persona token; all
+       watched-projects are attached to that single persona. This preserves
+       cm-manager and similar pre-collapse instances.
+    2. **Operator-level manager** (`operator-level: true` in the yaml block).
+       Each watched-project's `name:` field is a separate persona token; one
+       record is emitted per watched-project, scoped to that single project.
+       The folder name (e.g. `rob`) is treated as an operator label, not a
+       routable token, and is NOT emitted as a persona. This is the
+       post-migration shape documented in docs/migration-single-manager.md.
 
     Files without a `transferable:` key in their YAML frontmatter are skipped —
     they are transferable template files (e.g. sst-manager), not real deployed
@@ -162,32 +172,62 @@ def _discover_manager_personas(skills_root: Path | None = None) -> list[dict]:
         if not folder.endswith("-manager"):
             continue
         body = skill_md.read_text(encoding="utf-8", errors="replace")
-        # Extract the YAML frontmatter block (content between the first pair of ---).
         fm_match = _re.match(r"^---\s*\n(.*?)\n---", body, _re.DOTALL)
         if not fm_match:
-            continue  # no frontmatter at all; skip
+            continue
         frontmatter = fm_match.group(1)
-        # Skip transferable template files — they lack a transferable: key.
         if not _re.search(r"^transferable\s*:", frontmatter, _re.MULTILINE):
             continue
-        persona = folder[: -len("-manager")]
+        folder_persona = folder[: -len("-manager")]
         projects: list[dict] = []
-        # Find a fenced yaml block containing watched-projects:.
-        block_match = _re.search(
-            r"```yaml\s*\n(.*?)```", body, _re.DOTALL
-        )
+        operator_level = False
+        block_match = _re.search(r"```yaml\s*\n(.*?)```", body, _re.DOTALL)
         if block_match:
             block = block_match.group(1)
+            if _re.search(r"^operator-level\s*:\s*true\s*$", block, _re.MULTILINE):
+                operator_level = True
             if "watched-projects:" in block:
-                # Parse path: / name: pairs under watched-projects:.
-                for m in _re.finditer(
-                    r"^\s+-\s+path:\s*(.+?)\s*$.*?(?:^\s+name:\s*(.+?)\s*$)?",
-                    block, _re.MULTILINE | _re.DOTALL
-                ):
-                    path_val = m.group(1).strip()
-                    name_val = (m.group(2) or "").strip() or Path(path_val).name
-                    projects.append({"path": path_val, "name": name_val})
-        results.append({"persona": persona, "projects": projects})
+                # Walk the block line-by-line: each `- path: <val>` starts a
+                # project record; an immediately-following `  name: <val>`
+                # (any deeper-indented continuation lines, in practice) sets
+                # the explicit name. Falls back to the path's basename when
+                # name: is omitted.
+                in_wp = False
+                cur: dict | None = None
+                for raw in block.splitlines():
+                    line = raw.rstrip()
+                    if not line:
+                        continue
+                    if _re.match(r"^watched-projects\s*:", line):
+                        in_wp = True
+                        continue
+                    if in_wp and _re.match(r"^\S", line):
+                        # Left the watched-projects block (next top-level key).
+                        if cur is not None:
+                            projects.append(cur)
+                            cur = None
+                        in_wp = False
+                        continue
+                    if not in_wp:
+                        continue
+                    m_path = _re.match(r"^\s+-\s+path\s*:\s*(.+?)\s*$", line)
+                    if m_path:
+                        if cur is not None:
+                            projects.append(cur)
+                        path_val = m_path.group(1).strip()
+                        cur = {"path": path_val, "name": Path(path_val).name}
+                        continue
+                    m_name = _re.match(r"^\s+name\s*:\s*(.+?)\s*$", line)
+                    if m_name and cur is not None:
+                        cur["name"] = m_name.group(1).strip()
+                        continue
+                if cur is not None:
+                    projects.append(cur)
+        if operator_level and projects:
+            for proj in projects:
+                results.append({"persona": proj["name"], "projects": [proj]})
+        else:
+            results.append({"persona": folder_persona, "projects": projects})
     return results
 
 

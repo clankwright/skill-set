@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.12.0
+version: 1.13.0
 ---
 
 # Manager
@@ -45,6 +45,13 @@ telegram-env: ~/.config/manager-telegram.env  # exports TELEGRAM_BOT_TOKEN + TEL
 ```
 
 (The proprietary's body lists these as a fenced ```yaml block; this skill greps for them.)
+
+**Deployment shape (legacy vs operator-level).** Two shapes are supported in parallel:
+
+1. **Legacy per-project manager.** One `<persona>-manager/` folder per project; the folder name (minus `-manager`) is the persona token; `watched-projects:` has one entry whose `name:` is conventionally the project's directory basename. Persona tokens for inbound bot routing come from the folder name.
+2. **Operator-level manager** (preferred for multi-project deployments). One `<operator>-manager/` folder (e.g. `ops-manager` or `<your-handle>-manager`) lists every project in `watched-projects:`. The yaml block carries an explicit `operator-level: true` line; with that flag, the bot's `_discover_manager_personas` emits one persona per `watched-projects[*].name`. The folder name (`<operator>`) is an operator label, not a routable token. Inbound `/feedback <project-a> <text>`, `/status <project-b>`, etc. resolve to the matching project.
+
+Both shapes coexist during transition; the discovery code does not require a flag-day cutover. To migrate, see [`docs/migration-single-manager.md`](../../../docs/migration-single-manager.md) for the runbook (operator-level skill creation, per-project `docs/MANAGER.md` adoption, consolidated `objectives.md` with `## Project:` sections, cron consolidation, legacy archive).
 
 State files this skill reads / writes:
 
