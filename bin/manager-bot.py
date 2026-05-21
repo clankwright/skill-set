@@ -295,9 +295,19 @@ def spawn_on_demand_manager(queue_file: Path) -> bool:
     return True
 
 
-def latest_digest() -> str | None:
+def latest_digest(persona: str | None = None) -> str | None:
+    """Return the most recent digest text, optionally filtered to a persona.
+
+    When `persona` is given, files matching `<persona>_*.txt` are tried first.
+    If none exist (e.g. old-style flat naming), falls back to the newest file
+    in DIGESTS_DIR so existing single-persona deployments keep working.
+    """
     if not DIGESTS_DIR.is_dir():
         return None
+    if persona:
+        persona_files = sorted(DIGESTS_DIR.glob(f"{persona}_*.txt"), reverse=True)
+        if persona_files:
+            return persona_files[0].read_text(encoding="utf-8")
     files = sorted(DIGESTS_DIR.glob("*.txt"), reverse=True)
     if not files:
         return None
@@ -365,7 +375,10 @@ def handle_command(text: str, chat_id: int) -> str:
         )
 
     if cmd == "status":
-        digest = latest_digest()
+        if not args:
+            return "Usage: /status <project>\n(project token required — run /projects to see known tokens)"
+        persona = args[0]
+        digest = latest_digest(persona)
         if not digest:
             return "No digest yet. Run the manager skill at least once."
         if len(digest) > 3500:

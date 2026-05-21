@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.11.0
+version: 1.11.1
 ---
 
 # Manager
@@ -54,7 +54,7 @@ State files this skill reads / writes:
 | `~/.claude/state/manager-notes.md`            | yes  | yes (prepend newest-first; source-tagged headings; ~3KB cap) |
 | `~/.claude/state/manager-paused`              | yes  | no    |
 | `~/.claude/state/manager-bot-queue/*.json`    | yes  | move to `processed/` after handling |
-| `~/.claude/state/manager-digests/<utc>.txt`   | no   | yes (periodic mode only) |
+| `~/.claude/state/manager-digests/<persona>_<utc>.txt` | no   | yes (periodic mode only) |
 | `<objectives-path>`                           | yes  | yes (only `[ ]` ↔ `[x]` toggles; periodic mode only) |
 | `<watched-project>/docs/TODO.md`              | yes  | yes (on-demand mode only; APPENDS to `## Next up` only) |
 | `<watched-project>/docs/SPEC.md`              | yes  | yes (on-demand mode only; APPENDS new sub-items or new phase blocks only) |
@@ -170,7 +170,7 @@ Reuse the bot helper `route_queue_payload(payload, my_persona, known_personas)` 
 After routing, handle the per-command behaviors in received-at order:
 
 - `pause <persona>` / `resume <persona>` → toggle `~/.claude/state/manager-paused-<persona>` accordingly (the scoped file; the global `manager-paused` is human-only). Reply `paused` / `resumed` to the chat. Bare `/pause` and `/resume` (no persona token) route to refuse-missing per the routing table above.
-- `status` → reply with the most recent digest from `manager-digests/`.
+- `status <persona>` → reply with the most recent digest from `manager-digests/<persona>_*.txt`. Falls back to the newest file in `manager-digests/` when no persona-prefixed files exist (backward-compatible with pre-28.7 flat naming).
 - `objectives` → reply with the current `objectives.md` (truncate to 3500 chars to fit Telegram).
 - `proposals` → list pending proposals across all watched projects' `.skill-runs/*/proposals/` and the master repo's `proposals/`. Format: one line per proposal with severity, source, target.
 - `promote <skill>` (after the persona token is stripped) → write `~/.claude/state/manager-bot-queue/promote-task.txt` for the next user-driven `/sst-promote-skill-proposal` invocation (this skill does NOT execute Claude itself; it just queues). Reply `queued`.
@@ -314,7 +314,7 @@ Open queue: 5 items; top: [easy] acceptance check for empty-queue handling
 Pending review: none
 ```
 
-Save to `~/.claude/state/manager-digests/<utc>.txt`. Send via `bin/notify-telegram.sh` (prepend a leading newline so Telegram renders cleanly).
+Save to `~/.claude/state/manager-digests/<persona>_<utc>.txt` where `<persona>` is the proprietary manager's persona name (e.g. `my-project`, `other-project`). This prefix lets the bot's `/status <token>` filter to the correct persona's digest in multi-persona deployments. Send via `bin/notify-telegram.sh` (prepend a leading newline so Telegram renders cleanly).
 
 **Escalation (immediate, no batching):**
 
@@ -544,7 +544,7 @@ Same constraint as §On-demand E. Planner mode runs inside one harness invocatio
 
 - **No `git commit` / `git push` / SSH / curl-against-prod.** The manager never commits, pushes, or talks to live services. Write surface is bounded to: its own state files (`manager-cursors.json`, `manager-notes.md`, `manager-digests/`), the Telegram outbound, `<objectives-path>` `[ ]` ↔ `[x]` toggles, on-demand mode's `docs/TODO.md > Next up` appends + `docs/SPEC.md` appends in watched projects, AND planner-mode's `docs/TODO.md > Next up` appends of `[unconfirmed:*]` lines (with a `<!-- planner-id: <id> -->` marker) only. All TODO/SPEC scoped exceptions are APPENDS ONLY (modeled on the existing `objectives.md` `[ ]` ↔ `[x]` exception): never edits an existing item, never deletes, never renumbers, never modifies `## In flight` or `## Just shipped` or any phase heading text, never reorders phases, never commits or stages the change. The dev cycle's normal §1 pick is what eventually ships the queued item; the manager just inserts the line. **Planner-mode appends** are further bounded by §Planner mode β re-entry guard (one outstanding `[unconfirmed:*]` batch at a time per project) and by the `[unconfirmed:`-prefix that the user must clear manually before the dev cycle picks the item — the planner cannot silently broaden the agenda.
 - **No `claude -p` / harness invocation.** The manager runs INSIDE a single skill invocation (one `claude -p`), which the cron / `/loop` / bot-spawn triggers. It does not spawn more — even in on-demand mode where re-reading state in a fresh harness might tempt it (see §On-demand feedback routing E).
-- **Telegram messages capped at 4000 chars.** Truncate with `... [truncated; run /status for full digest]` if needed; the full digest is always in `manager-digests/<utc>.txt`.
+- **Telegram messages capped at 4000 chars.** Truncate with `... [truncated; run /status for full digest]` if needed; the full digest is always in `manager-digests/<persona>_<utc>.txt`.
 - **Never write a token, preimage, or chat ID into the digest body.** The CHAT_ID allowlist is enforced by the bot, not by message content.
 - **Never re-notify on persistent paused-job state.** A rate-limited or otherwise paused job is reported ONCE at the pause edge (via the chain driver) and ONCE at resume. The manager's periodic digest may MENTION currently-paused jobs in the consolidated status block, but MUST NOT fire a separate Telegram body per tick for the same paused job. If a job stays paused across multiple manager ticks, treat that as steady state, not a new event.
 - **On-demand mode is single-feedback-per-invocation.** `--process-feedback` accepts exactly one queue-file path and routes exactly one outcome. Batch routing (multiple queue files in one invocation) is a separate concern that belongs to the periodic-mode drain, not on-demand.

@@ -341,3 +341,61 @@ def test_feedback_empty_body_error_includes_project_token():
     """SPEC 28.6: empty /feedback must tell the user to supply a project token."""
     reply = mb.handle_command("/feedback", chat_id=1)
     assert "<project>" in reply
+
+
+# ── /status persona-aware (SPEC 28.7) ─────────────────────────────────────────
+
+def test_status_no_token_returns_usage_error():
+    """SPEC 28.7: /status with no project token must say a token is required."""
+    reply = mb.handle_command("/status", chat_id=1)
+    lower = reply.lower()
+    assert "token" in lower or "<project>" in reply or "required" in lower
+
+
+def test_status_returns_persona_prefixed_digest(tmp_path, monkeypatch):
+    """SPEC 28.7: /status <persona> returns the newest <persona>_*.txt digest."""
+    digests_dir = tmp_path / "manager-digests"
+    digests_dir.mkdir()
+    (digests_dir / "skill-set_2026-01-02T00-00-00Z.txt").write_text("persona-digest")
+    (digests_dir / "2026-01-01T00-00-00Z.txt").write_text("old-generic-digest")
+    monkeypatch.setattr(mb, "DIGESTS_DIR", digests_dir)
+    reply = mb.handle_command("/status skill-set", chat_id=1)
+    assert "persona-digest" in reply
+
+
+def test_status_falls_back_to_newest_when_no_persona_prefix(tmp_path, monkeypatch):
+    """SPEC 28.7: /status <persona> falls back to the newest overall digest when no persona-prefixed files exist."""
+    digests_dir = tmp_path / "manager-digests"
+    digests_dir.mkdir()
+    (digests_dir / "2026-01-01T00-00-00Z.txt").write_text("generic-digest")
+    monkeypatch.setattr(mb, "DIGESTS_DIR", digests_dir)
+    reply = mb.handle_command("/status skill-set", chat_id=1)
+    assert "generic-digest" in reply
+
+
+def test_status_isolation_across_personas(tmp_path, monkeypatch):
+    """SPEC 28.7: /status alpha must not return a skill-set digest and vice versa."""
+    digests_dir = tmp_path / "manager-digests"
+    digests_dir.mkdir()
+    (digests_dir / "alpha_2026-01-02T00-00-00Z.txt").write_text("alpha-digest")
+    (digests_dir / "skill-set_2026-01-01T00-00-00Z.txt").write_text("skill-set-digest")
+    monkeypatch.setattr(mb, "DIGESTS_DIR", digests_dir)
+    reply_alpha = mb.handle_command("/status alpha", chat_id=1)
+    reply_ss = mb.handle_command("/status skill-set", chat_id=1)
+    assert "alpha-digest" in reply_alpha
+    assert "skill-set-digest" in reply_ss
+    assert "alpha-digest" not in reply_ss
+    assert "skill-set-digest" not in reply_alpha
+
+
+def test_status_persona_prefix_ignores_other_persona_files(tmp_path, monkeypatch):
+    """SPEC 28.7: /status alpha picks only alpha_*.txt files, not skill-set_*.txt even if newer."""
+    digests_dir = tmp_path / "manager-digests"
+    digests_dir.mkdir()
+    # skill-set has a newer timestamp but we request alpha
+    (digests_dir / "skill-set_2026-01-03T00-00-00Z.txt").write_text("newer-skill-set-digest")
+    (digests_dir / "alpha_2026-01-01T00-00-00Z.txt").write_text("older-alpha-digest")
+    monkeypatch.setattr(mb, "DIGESTS_DIR", digests_dir)
+    reply = mb.handle_command("/status alpha", chat_id=1)
+    assert "older-alpha-digest" in reply
+    assert "newer-skill-set-digest" not in reply
