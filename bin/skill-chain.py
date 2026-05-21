@@ -476,6 +476,7 @@ class Harness:
         model: str | None = None,
         effort: str | None = None,
         extra_prompt: str = "",
+        resume_session_id: str | None = None,
     ) -> list[str]:
         raise NotImplementedError
 
@@ -492,12 +493,19 @@ class ClaudeCodeHarness(Harness):
         model: str | None = None,
         effort: str | None = None,
         extra_prompt: str = "",
+        resume_session_id: str | None = None,
     ) -> list[str]:
-        prompt = (
-            f"Use the Skill tool to invoke the '{skill_name}' skill and run it "
-            f"to completion. Do not respond with anything else first; invoke the "
-            f"skill immediately."
-        )
+        if resume_session_id:
+            # Resume a prior session after a rate-limit pause: send a short
+            # no-op prompt so the in-flight context is restored without
+            # re-triggering the skill from scratch.
+            prompt = "continue"
+        else:
+            prompt = (
+                f"Use the Skill tool to invoke the '{skill_name}' skill and run it "
+                f"to completion. Do not respond with anything else first; invoke the "
+                f"skill immediately."
+            )
         if extra_prompt:
             prompt = prompt + "\n\n" + extra_prompt
         # Phase 19 (4): model and effort are resolved by the runner from
@@ -505,7 +513,7 @@ class ClaudeCodeHarness(Harness):
         # the conservative framework defaults (opus / high) when either is
         # absent so direct callers (`bin/skill-chain.py <skill>` ad-hoc form)
         # still produce a working command without the routing context.
-        return [
+        cmd = [
             "claude",
             # bypassPermissions, not --dangerously-skip-permissions. The latter
             # empirically still prompts on writes under `.claude/skills/**` even
@@ -526,11 +534,11 @@ class ClaudeCodeHarness(Harness):
             "--max-turns", "150",
             "--model",  model  or DEFAULT_MODEL_FLOOR,
             "--effort", effort or DEFAULT_EFFORT_FLOOR,
-            "-p",
-            "--verbose",
-            "--output-format", "stream-json",
-            prompt,
         ]
+        if resume_session_id:
+            cmd += ["--resume", resume_session_id]
+        cmd += ["-p", "--verbose", "--output-format", "stream-json", prompt]
+        return cmd
 
 
 HARNESSES: dict[str, type[Harness]] = {
@@ -800,6 +808,7 @@ def run_skill(
     effort: str | None = None,
     extra_prompt: str = "",
     log_stem_override: str | None = None,
+    resume_session_id: str | None = None,
 ) -> tuple[int, dict]:
     """Run one skill via the configured harness. Returns (exit_code, manifest_record).
 
@@ -814,9 +823,15 @@ def run_skill(
     `log_stem_override` lets the caller name the per-skill log files (default
     is `<index:02d>_<skill_name>`). Useful in batch mode where the input
     filename is more meaningful than the iteration index.
+
+    `resume_session_id` is the Claude Code session id from a prior aborted run.
+    When set, the harness uses `--resume <id>` so the agent picks up mid-skill
+    instead of restarting from scratch (used by run_skill_with_retry after a
+    rate-limit pause).
     """
     cmd = harness.build_command(skill_name, model=model, effort=effort,
-                                 extra_prompt=extra_prompt)
+                                 extra_prompt=extra_prompt,
+                                 resume_session_id=resume_session_id)
 
     txt_path: Path | None = None
     jsonl_path: Path | None = None
@@ -922,19 +937,21 @@ def run_skill_with_retry(
     On non-zero exit, inspect the skill_record for a structured rate-limit
     signal (preferred) or a text-fallback match (subprocess died before clean
     event). Under `pause` / `pause-with-cap`, sleep until the parsed reset
-    + jitter, archive the failed attempt, and re-invoke the skill. Each
-    invocation is its own subprocess; there is no in-process state to
-    preserve across the pause. Aborts after `max_pauses` retries on the same
+    + jitter, archive the failed attempt, and re-invoke the skill via
+    `--resume <session_id>` so the agent picks up mid-skill instead of
+    restarting from scratch. Aborts after `max_pauses` retries on the same
     skill or when `pause-with-cap` exceeds `max_pause_seconds`.
 
     pause_records is mutated in place with one entry per executed pause so
     run_iteration can fold them into the iteration manifest.
     """
     retry_count = 0
+    resume_session_id: str | None = None
     while True:
         rc, record = run_skill(
             harness, skill_name, index, log_dir, model=model, effort=effort,
             extra_prompt=extra_prompt, log_stem_override=log_stem_override,
+            resume_session_id=resume_session_id,
         )
         if retry_count > 0:
             record["retry_count"] = retry_count
@@ -1022,6 +1039,9 @@ def run_skill_with_retry(
 
         pause_record["resumed_at"] = _utc_iso()
         retry_count += 1
+        # Capture the session id from the interrupted run so the next
+        # attempt can use --resume to pick up mid-skill context.
+        resume_session_id = record.get("session_id") or None
         # Archive the failed attempt's transcript files before the retry
         # overwrites the canonical names. Uses retry_count - 1 so the first
         # failure becomes .retry-0, the second .retry-1, etc.
