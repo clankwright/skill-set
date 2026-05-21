@@ -362,6 +362,12 @@ A shared Telegram bot serving multiple personas needs two things to stay legible
 **Review follow-ups (open — schedule as the next `/sst-dev-cycle` cycle):**
 - [x] 28.8 [easy] [should-fix] `skills/framework/sst-manager/SKILL.md:547` — the hard-rules truncation hint says `run /status for full digest` but after 28.7 `/status` requires a project token; a user who receives a truncated digest and follows this guidance verbatim will get `"Usage: /status <project>"` with no clear recovery. Proposed fix: update to `run /status <project> for full digest` (or use the `<persona>` placeholder already used elsewhere in that section).
 
+### Phase 29: rate-limit session resume
+
+When `run_skill_with_retry` retries a skill after a rate-limit pause, it was always starting a cold `claude -p ...` subprocess, silently abandoning the prior session's in-flight context. The `session_id` (already captured into `skill_record["session_id"]` from the `system:init` event) was available but never threaded back into the retry invocation. Result: a rate-limit hit mid-skill forced the agent to re-read spec + TODO from disk and restart from scratch, wasting all prior turns and cache. Fix: thread `resume_session_id` through `run_skill_with_retry` → `run_skill` → `Harness.build_command`; `ClaudeCodeHarness` adds `--resume <id>` and swaps the bootstrap prompt for `"continue"` on the second attempt.
+
+- [x] 29.1 [medium] **Session resume on rate-limit retry.** `Harness.build_command` + `ClaudeCodeHarness.build_command` gain `resume_session_id: str | None = None`; when set non-empty, harness prepends `--resume <id>` and uses `"continue"` as the prompt instead of the full skill-invocation bootstrap. `run_skill` threads `resume_session_id` through to `build_command`. `run_skill_with_retry` initializes `resume_session_id = None`, captures `record.get("session_id") or None` after each rate-limit hit (before the archive step), and passes it on the next loop iteration. `tests/test_skill_chain.py`: 6 new tests covering cold-start (no `--resume`), resume flag placement, continuation prompt, empty-id fallback, and the smoke test that the second attempt's command contains `--resume`. 49→55 tests green.
+
 ### Phase 20 (deferred): `goose-cerebras` harness + portability proof
 
 Moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-20-deferred-goose-cerebras-harness--portability-proof). Re-pick conditions are documented there.
