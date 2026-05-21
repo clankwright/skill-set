@@ -24,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- 28.8 [easy] fix sst-manager truncation hint to say "run /status <persona> for full digest"; also fix notify-telegram.sh; +2 tests (42→44 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-21T20:10:00Z
 - [easy] strip "Multi-project bot conventions" from cm-manager/SKILL.md; generic routing now lives in transferable sst-manager §1; v1.0.0→v1.0.1 — by sst-dev-cycle at 2026-05-21T18:10:00Z
 - 28.7 [medium] make /status persona-aware: latest_digest(persona) filters <persona>_*.txt, sst-manager digest naming updated to <persona>_<utc>.txt, /status handler requires token; +5 tests (37→42 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-21T17:00:00Z
 - 28.6 [easy] fix /feedback empty-body error to include required <project> token; +1 test (36→37 green) — by sst-dev-cycle at 2026-05-21T15:45:00Z
@@ -44,7 +45,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 28.8 `skills/framework/sst-manager/SKILL.md:547` truncation hint says "run /status for full digest" but /status now requires a project token — update to "run /status <project> for full digest" — review of bd714c3
 - [medium] `bin/skill-chain.py` rate-limit pause-and-resume should resume the prior Claude Code session via `--resume <session_id>` instead of spawning a fresh subprocess. Today `run_skill_with_retry` (lines 885-1010) loops back into `run_skill` → `ClaudeCodeHarness.build_command` (lines 482-524), which always builds a cold `claude -p ...` invocation; the prior `session_id` (already captured into `skill_record["session_id"]` at line 693) is dropped. Symptom: a rate-limit hit mid-skill (e.g. 717s / 46 turns into a `/sst-dev-cycle` iteration before any commit) abandons all in-flight context — the retry starts the same item over from a cold context, re-reading spec + TODO from disk. Looks like "started a new agent session" instead of resuming. Was masked previously because most rate-limit hits land between iterations (after a commit/push), where a cold start picks up correctly via on-disk state and looks like resumption. Fix shape: thread `session_id` through `run_skill_with_retry` → `run_skill` → `Harness.build_command(skill_name, *, model, effort, resume_session_id=None)`; `ClaudeCodeHarness` prepends `--resume <id>` when set and replaces the bootstrap prompt with a no-op continuation prompt (e.g. `"continue"`) so the resumed session doesn't re-trigger the skill from scratch. Add a smoke test that the second attempt's command contains `--resume`. — Reason: user report 2026-05-03 — rate-limit during long sst-dev-cycle iteration on redaiteam repo wasted ~$3.32 of cache + 46 turns of work that didn't survive the retry.
 
 
