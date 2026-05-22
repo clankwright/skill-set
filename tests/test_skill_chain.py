@@ -195,3 +195,61 @@ def test_blocked_on_human_sentinel_re_matches_in_multiline_output():
         "Exiting cleanly.\n"
     )
     assert sc.BLOCKED_ON_HUMAN_SENTINEL_RE.search(output) is not None
+
+
+# ---- run_iteration integration test (blocked_on_human bail, Phase 31.11) -----
+
+run_iteration = sc.run_iteration
+
+_ROUTE_RECORD = {
+    "difficulty": "medium",
+    "model_floor": "sonnet",
+    "effort_floor": "high",
+    "item_model": "sonnet",
+    "item_effort": "high",
+    "effective_model": "sonnet",
+    "effective_effort": "high",
+}
+
+
+def test_run_iteration_blocked_on_human_bail_skips_remaining_skills():
+    """run_iteration aborts after the first skill fires [blocked-on-human].
+
+    Patches run_skill_with_retry so the first call returns a record with
+    blocked_on_human set; asserts that:
+    - iter_manifest["blocked_on_human"] records the bailing skill + reason
+    - the second skill is never called
+    - iter_manifest exit_code is 0 (bail is clean, not an error)
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        if skill_name == "sst-dev-cycle":
+            return (0, {"blocked_on_human": "H3.1 Set STRAPI secrets"})
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-dev-review"],
+            None,    # iter_log_dir=None skips snapshot writes
+            None,    # auto_supervisor
+            1,       # iteration
+            1,       # total_iterations
+            "/tmp",  # cwd (everything patched, actual path irrelevant)
+        )
+
+    assert rc == 0, "blocked-on-human bail must be a clean exit (rc=0)"
+    assert "blocked_on_human" in iter_manifest, \
+        "iter_manifest must contain blocked_on_human key after bail"
+    assert iter_manifest["blocked_on_human"]["skill"] == "sst-dev-cycle"
+    assert iter_manifest["blocked_on_human"]["reason"] == "H3.1 Set STRAPI secrets"
+    assert calls == ["sst-dev-cycle"], \
+        "sst-dev-review must NOT be called after blocked-on-human bail"
