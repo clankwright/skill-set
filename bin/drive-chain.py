@@ -174,6 +174,41 @@ def _read_telegram_env(path: Path) -> dict[str, str]:
     return out
 
 
+def _resolve_tg_env(
+    telegram_env_path: "Path | None",
+    os_env: "dict[str, str]",
+    repo_root: "Path",
+) -> "dict[str, str]":
+    """Merge Telegram credentials from up to three sources (first match wins per key).
+
+    Resolution order:
+      1. --telegram-env explicit file (``telegram_env_path``)
+      2. Caller-exported env vars in ``os_env`` (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID /
+         TELEGRAM_PARSE_MODE)
+      3. Base-dir fallback: ``repo_root/telegram.env`` — shared channel for all
+         skill-set projects that don't have a per-persona env configured.
+
+    ``TELEGRAM_PARSE_MODE`` defaults to ``""`` (plain text) when not supplied by any
+    source so chain-driver bodies with underscores / asterisks / brackets don't
+    trigger Telegram's Markdown parser.
+    """
+    tg: dict[str, str] = {}
+    if telegram_env_path:
+        tg.update(_read_telegram_env(telegram_env_path))
+    for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_PARSE_MODE"):
+        if k not in tg and k in os_env:
+            tg[k] = os_env[k]
+    if "TELEGRAM_BOT_TOKEN" not in tg:
+        _base_fallback = repo_root / "telegram.env"
+        if _base_fallback.exists():
+            try:
+                tg.update(_read_telegram_env(_base_fallback))
+            except Exception:  # noqa: BLE001 — best-effort; malformed fallback never aborts
+                pass
+    tg.setdefault("TELEGRAM_PARSE_MODE", "")
+    return tg
+
+
 class TelegramSink:
     """Sends a message via bin/notify-telegram.sh. No-op when --no-telegram."""
 
@@ -856,33 +891,7 @@ def main() -> int:
         cmd += ["--log-dir", str(log_dir)]
     cmd += list(forwarded)
 
-    # Telegram env merge. Resolution order (first match wins):
-    #   1. --telegram-env explicit file (or profile telegram-env: default)
-    #   2. Caller-exported env vars (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)
-    #   3. Base-dir fallback: <skill-set-root>/telegram.env — shared channel for all
-    #      skill-set projects that don't have a per-persona env configured.
-    tg_env: dict[str, str] = {}
-    if args.telegram_env:
-        tg_env.update(_read_telegram_env(args.telegram_env))
-    # Allow caller-set env vars to win when no --telegram-env was passed.
-    for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_PARSE_MODE"):
-        if k not in tg_env and k in os.environ:
-            tg_env[k] = os.environ[k]
-    # Base-dir fallback: skill-set root's telegram.env (mirrors notify-telegram.sh §3).
-    if "TELEGRAM_BOT_TOKEN" not in tg_env:
-        _base_fallback = REPO_ROOT / "telegram.env"
-        if _base_fallback.exists():
-            try:
-                tg_env.update(_read_telegram_env(_base_fallback))
-            except Exception:  # noqa: BLE001 — best-effort; malformed fallback never aborts a run
-                pass
-    # Default to plain text. Chain-driver bodies (session-start / iter-close /
-    # rate-limit / supervisor / session-end) interpolate raw run-dir paths,
-    # ISO timestamps, and commit subjects that frequently contain `_` `*` `[`;
-    # under notify-telegram.sh's `Markdown` fallback those parse as
-    # unterminated entities and the API returns 400. Explicit user config
-    # (env file or shell) still wins via setdefault.
-    tg_env.setdefault("TELEGRAM_PARSE_MODE", "")
+    tg_env = _resolve_tg_env(args.telegram_env, dict(os.environ), REPO_ROOT)
 
     telegram = TelegramSink(enabled=not args.no_telegram, env=tg_env)
     label = args.label or args.chain

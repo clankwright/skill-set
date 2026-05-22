@@ -440,7 +440,7 @@ Phase 31.6 fires a Telegram alert for new `## Blocking` HUMAN.md entries — but
 - [x] 34.5 [easy] **Tests.** Each helper's resolution chain: explicit env wins; persona convention beats base-dir; base-dir is used when both are absent; no env present → log-and-skip without error.
 
 **Review follow-ups (open — schedule as the next `/sst-dev-cycle` cycle):**
-- [ ] 34.6 [easy] [should-fix] `bin/drive-chain.py`:872-878 — drive-chain.py's base-dir fallback has no test coverage. Spec 34.5 says "each helper's resolution chain" should be tested, but the 4 new tests in `tests/test_notify_telegram.py` only cover notify-telegram.sh; the `TELEGRAM_BOT_TOKEN not in tg_env → REPO_ROOT/telegram.env` path in drive-chain.py is untested and could silently regress. Proposed fix: add tests (in `tests/test_skill_chain.py` or a new `tests/test_drive_chain_telegram.py`) covering (a) base-dir fires when no explicit arg or env var is set, (b) `--telegram-env` arg beats base-dir, (c) caller-exported `TELEGRAM_BOT_TOKEN` beats base-dir.
+- [x] 34.6 [easy] [should-fix] `bin/drive-chain.py`:872-878 — drive-chain.py's base-dir fallback has no test coverage. Spec 34.5 says "each helper's resolution chain" should be tested, but the 4 new tests in `tests/test_notify_telegram.py` only cover notify-telegram.sh; the `TELEGRAM_BOT_TOKEN not in tg_env → REPO_ROOT/telegram.env` path in drive-chain.py is untested and could silently regress. Proposed fix: add tests (in `tests/test_skill_chain.py` or a new `tests/test_drive_chain_telegram.py`) covering (a) base-dir fires when no explicit arg or env var is set, (b) `--telegram-env` arg beats base-dir, (c) caller-exported `TELEGRAM_BOT_TOKEN` beats base-dir.
 
 ### Phase 20 (deferred): `goose-cerebras` harness + portability proof
 
