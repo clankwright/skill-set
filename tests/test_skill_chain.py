@@ -150,3 +150,48 @@ def test_run_skill_with_retry_cold_when_no_session_id_in_record():
     assert len(call_kwargs) == 2
     assert call_kwargs[1].get("resume_session_id") is None, \
         "no session_id in first record means retry must fall back to cold start"
+
+
+# ---- [blocked-on-human] sentinel (Phase 31.8) --------------------------------
+
+def test_blocked_on_human_sentinel_re_exists():
+    """BLOCKED_ON_HUMAN_SENTINEL_RE must be defined on the module."""
+    assert hasattr(sc, "BLOCKED_ON_HUMAN_SENTINEL_RE"), \
+        "BLOCKED_ON_HUMAN_SENTINEL_RE not found in skill_chain module"
+
+
+def test_blocked_on_human_sentinel_re_matches_canonical_form():
+    """Matches the canonical [blocked-on-human] H<phase>.<n> <title> format."""
+    line = "[blocked-on-human] H3.1 Set STRAPI secrets"
+    assert sc.BLOCKED_ON_HUMAN_SENTINEL_RE.search(line) is not None
+
+
+def test_blocked_on_human_sentinel_re_captures_reason():
+    """Captures the text after [blocked-on-human] as the reason group."""
+    line = "[blocked-on-human] H3.1 Set 7 STRAPI secrets"
+    m = sc.BLOCKED_ON_HUMAN_SENTINEL_RE.search(line)
+    assert m is not None
+    assert m.group(1) == "H3.1 Set 7 STRAPI secrets"
+
+
+def test_blocked_on_human_sentinel_re_no_match_on_no_work():
+    """BLOCKED_ON_HUMAN_SENTINEL_RE does not match the [no-work] sentinel."""
+    line = "[no-work] queue empty and spec fully checked"
+    assert sc.BLOCKED_ON_HUMAN_SENTINEL_RE.search(line) is None
+
+
+def test_blocked_on_human_sentinel_re_matches_bare_sentinel():
+    """Matches [blocked-on-human] with no trailing reason."""
+    line = "[blocked-on-human]"
+    assert sc.BLOCKED_ON_HUMAN_SENTINEL_RE.search(line) is not None
+
+
+def test_blocked_on_human_sentinel_re_matches_in_multiline_output():
+    """Finds the sentinel inside a larger block of assistant text."""
+    output = (
+        "Starting pre-flight...\n"
+        "Picked item: 3.1\n"
+        "[blocked-on-human] H3.1 Set STRAPI secrets\n"
+        "Exiting cleanly.\n"
+    )
+    assert sc.BLOCKED_ON_HUMAN_SENTINEL_RE.search(output) is not None

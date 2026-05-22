@@ -44,6 +44,7 @@
 - When all items in a phase are checked, append a "completed" block to that phase: 1-paragraph result + bulleted file citations + test-count delta. Don't delete the phase's checklist; it's the historical record.
 - New work surfaced mid-cycle goes to `TODO.md`'s "Next up", not directly here. The next cycle decides whether it merits a new spec phase or was actually a follow-up to the current one.
 - Items requiring manual verification, blocked on an external prerequisite, or intentionally parked go to `FUTURE-WORK.md` (if the project uses it), not here or in `Next up`. A human flips them back to `TODO.md > Next up` when ready.
+- Items that are **actively blocked right now** on a human-only action (set a secret, grant access, sign an agreement) go to `docs/HUMAN.md`, not here. An item in HUMAN.md carries a `Blocks:` line naming the SPEC IDs it is gating; the dev cycle emits `[blocked-on-human]` and bails when its picked item appears in any open `Blocks:` line. See `templates/HUMAN.md` for the schema. HUMAN.md is optional: projects without human-only blockers may omit the file; skills treat its absence as "no blockers."
 
 ### Difficulty labels (model + effort routing)
 
@@ -104,3 +105,13 @@ When `TODO.md`'s "Next up" is empty AND every `- [ ]` in this spec has been flip
 The chain runner (`bin/skill-chain.py`) recognizes this sentinel and aborts the loop entirely (no review skill, no supervisor, no further iterations). The iteration's manifest records `iter_manifest["no_work_bail"] = {"skill": "<name>", "reason": "<sentinel-line>"}`; the top-level `manifest["loop"]["terminated_by"] = "no_work_bail"` distinguishes a bail from natural max-cycles completion or a real failure. A chain driver's session-end report should label the stop "no-work bail," not "max-cycles reached."
 
 Any consuming project's dev skill can opt into the contract simply by emitting the sentinel in the same situation; no chain-runner change is required per project.
+
+### Blocked-on-human bail
+
+When `docs/HUMAN.md` is present AND the picked item's SPEC ID appears in any open `## Blocking` entry's `Blocks:` line, the dev-cycle skill exits 0 and prints:
+
+```
+[blocked-on-human] <H-ID> <title>
+```
+
+The chain runner (`bin/skill-chain.py`) recognizes this sentinel, records `iter_manifest["blocked_on_human"] = {"skill": "<name>", "reason": "<H-ID> <title>"}`, and sets `manifest["loop"]["terminated_by"] = "blocked_on_human"`. No commit, no review, no supervisor. The chain driver's session-end report should surface the H-ID and title so the user knows what action is required.

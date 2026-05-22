@@ -1,9 +1,9 @@
 ---
 name: sst-manager
 description: |
-  Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus the most recent run log, decides one of four outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
+  Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, reads docs/HUMAN.md for active blockers (fires immediate Telegram alerts for new Blocking entries and auto-verifies Verify: lines on closed items), sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus docs/HUMAN.md plus the most recent run log, decides one of five outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, HUMAN.md blocker entry, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.13.0
+version: 1.14.0
 ---
 
 # Manager
@@ -11,7 +11,7 @@ version: 1.13.0
 The manager is the third-and-final loop. It runs in three modes:
 
 1. **Periodic oversight** — fires on a cadence (cron / `/loop 6h`), walks the watched projects, decides whether a status digest or an escalation is warranted, sends it over Telegram, drains the inbound bot queue, and shapes the supervisor's next-run inputs via `manager-notes.md`. This is the default invocation (`/<persona>-manager` with no extra args).
-2. **On-demand feedback routing** — fires immediately when the bot writes a `/feedback` queue file, invoked as `/<persona>-manager --process-feedback <queue-file>`. The manager reads the feedback body alongside its full context (objectives, SPEC, TODO, recent run log) and *decides* where the feedback lands instead of routing the body verbatim. Four legal outcomes; see §On-demand feedback routing.
+2. **On-demand feedback routing** — fires immediately when the bot writes a `/feedback` queue file, invoked as `/<persona>-manager --process-feedback <queue-file>`. The manager reads the feedback body alongside its full context (objectives, SPEC, TODO, HUMAN.md, recent run log) and *decides* where the feedback lands instead of routing the body verbatim. Five legal outcomes; see §On-demand feedback routing.
 3. **Planner** — invoked as `/<persona>-manager --plan`, OR auto-triggered in-process at the end of periodic mode §3 when the chosen project's `Next up` is empty AND every SPEC `[ ]` is `[x]` AND those conditions held for ≥1 prior tick (cursor-tracked). The manager scores gap on each measurable objective in `objectives-path`, picks the 1-3 highest-gap criteria, and drafts `[unconfirmed:<id>]` candidate items into `docs/TODO.md > Next up`. The user clears the `[unconfirmed:`-prefix manually before the dev cycle picks the item. See §Planner mode.
 
 All three modes are the same skill, same single-process invocation. Mode is determined by parsing the input: `--process-feedback <queue-file>` → on-demand; else `--plan` → planner; else periodic. Periodic mode may transition into planner-mode in-process when its auto-trigger fires (the digest §4 then reports the planner output as part of the same tick). The manager talks to the user proactively (status digests, escalations, on-demand replies, planner announcements) but is read-only across watched projects with two scoped exceptions: `docs/TODO.md > Next up` and `docs/SPEC.md` appends in on-demand mode, and `docs/TODO.md > Next up` appends of `[unconfirmed:*]` lines in planner mode (see §Hard rules).
@@ -66,6 +66,7 @@ State files this skill reads / writes:
 | `<watched-project>/docs/TODO.md`              | yes  | yes (on-demand mode only; APPENDS to `## Next up` only) |
 | `<watched-project>/docs/SPEC.md`              | yes  | yes (on-demand mode only; APPENDS new sub-items or new phase blocks only) |
 | `<watched-project>/docs/FUTURE-WORK.md`       | yes (read-only, if present) | no |
+| `<watched-project>/docs/HUMAN.md`             | yes (read-only in periodic; read+append in on-demand, if present) | yes (on-demand mode only; APPENDS under `## Blocking` or `## High`) |
 | `<watched-project>/docs/MANAGER.md`           | yes (read-only, if present) | no |
 
 `manager-notes.md` is the single state file the supervisor reads for cross-run steering. It carries THREE source-tagged entry kinds, interleaved newest-first:
@@ -250,6 +251,33 @@ When in doubt, don't flip. The user always wins.
 
 The cursor field stays set across ticks until the queue or SPEC re-fills, at which point step 1 or 2 resets it to null. This guarantees one auto-trigger per empty-state stretch, not one per tick.
 
+### 3b. HUMAN.md delta-detection and auto-verify
+
+**Run this sub-step for each watched project before §4, after the §3 planner-trigger check.**
+
+**Delta-detection (new Blocking entries → immediate Telegram alert):**
+
+1. Read the project's `docs/HUMAN.md`. If absent, skip delta-detection for this project.
+2. Collect the set of H-IDs in `## Blocking` that are open (`[ ]`). Call this `current_blocking`.
+3. Read `manager-cursors.json[<project-path>].human_md_snapshot` (a JSON object mapping H-ID strings to their titles, or absent/null). Call this `prior_snapshot`.
+4. For each H-ID in `current_blocking` that is NOT in `prior_snapshot`, fire an immediate Telegram alert (separate from the §4 digest) with `TELEGRAM_LABEL=<persona>` set:
+   ```
+   [<persona>] New HUMAN.md blocker: <H-ID> — <title>. Blocks: <Blocks-value>. See <project-path>/docs/HUMAN.md
+   ```
+5. Update `manager-cursors.json[<project-path>].human_md_snapshot` to the current `current_blocking` set (H-ID → title mapping). Persist.
+
+**No re-alert on persistent state.** If an H-ID was in the prior snapshot, do NOT fire a separate alert body for it; the §4 digest already lists all open Blocking entries as a recap. Persistent paused-job state is steady state, not a new event.
+
+**Auto-verify (move closed `[x]` items with a passing `Verify:` check to `## Done`):**
+
+1. For each item across `## Blocking` / `## High` / `## Medium` / `## Low` in `docs/HUMAN.md` that is closed (`[x]`) AND carries a `Verify:` line:
+   a. Run the `Verify:` shell command from the watched-project's root (`/bin/bash -c "<cmd>"`) with a 60-second timeout.
+   b. **Pass (exit 0):** Move the entire entry block to the top of `## Done` and append `(verified <utc-iso>)` to the title line. Update `manager-cursors.json[<project-path>].human_md_snapshot` to remove the H-ID.
+   c. **Fail (non-zero or timeout):** Flip the entry back to `[ ]`. Prepend `  Verify-fail at <utc-iso>: <stderr-tail (max 80 chars)>` as the first continuation line. Move the entry to the top of its section (so it's visible). Do NOT fire an immediate alert; the next §4 digest will include it in the Blocking list.
+2. If any entries were moved to `## Done`, write the modified `docs/HUMAN.md` back (the whole file, preserving all other content).
+
+Anti-fork: auto-verify is the ONLY path that moves entries to `## Done`. The human's `[ ]` → `[x]` flip is a prerequisite; the manager only runs the `Verify:` check after the human has closed the item. Never auto-move an entry that the human has not yet closed.
+
 ### 4. Compose the digest
 
 State facts. The user is technical and wants commit subjects, spend figures, and concrete status — not narrative or mood. Every status digest MUST contain all five sections below; write "nothing" or "none" rather than omitting a section.
@@ -261,10 +289,14 @@ State facts. The user is technical and wants commit subjects, spend figures, and
 - Keep technical specifics: quote commit subjects verbatim (backticks); round spend to nearest cent; keep difficulty labels (`[easy]`/`[medium]`/`[hard]`) as-is.
 - Timestamps become human-readable dates ("April 27, 2026"), not ISO strings.
 
-**Default (status digest) — five required sections:**
+**Default (status digest) — six required sections (Human-action blockers first):**
 
 ```
 Progress update — <Month D, YYYY>
+
+Human-action blockers:
+  [<persona>] H<phase>.<n> — <title> (blocks <SPEC-IDs>)
+  (or "none")
 
 What shipped:
   <project-name>: <N> commit(s), ≈$<X.XX> spend
@@ -282,6 +314,8 @@ Goals:
 Open queue: <N> item(s); top: [<difficulty>] <top Next-up item one-liner>
 Pending review: <N> proposal(s), or "none"
 ```
+
+The "Human-action blockers" section lists every open `## Blocking` entry across all watched projects' `docs/HUMAN.md`. One line per entry; `<persona>` is the project's persona token; `<SPEC-IDs>` is the `Blocks:` value verbatim. Place this section **above** "What shipped" so it is visible regardless of digest length or truncation in Telegram. If `docs/HUMAN.md` is absent or has no open `## Blocking` entries, write "none".
 
 Two representative examples:
 
@@ -378,7 +412,7 @@ The point of this mode is to use the manager's full context (objectives.md, ever
 2. Read the proprietary counterpart's frontmatter / body for the same configuration the periodic mode reads (watched-projects, objectives-path, telegram-env). Fail fast with a stderr message if any required field is absent.
 3. Source the Telegram env file as in §0.4.
 4. Read `objectives-path`. This is the canonical north star — every routing decision must trace to one or more objective bullets (or be refused for falling outside).
-5. **For each watched project**, read `<project>/docs/SPEC.md`, `<project>/docs/TODO.md`, and `<project>/docs/FUTURE-WORK.md` (if present) end-to-end. The TODO's `## Next up` section is the queue an outcome (a) appends to; SPEC phase blocks are what outcome (b) appends under. FUTURE-WORK.md is read for context only; on-demand routing never writes to it. Multi-project scope: when the feedback names a specific project ("the dev cycle on project-a is over-batching"), narrow to that project; when it's project-agnostic ("supervisor should weigh cost more"), the manager picks the most-relevant project (typically the one with the most recent run touching that surface).
+5. **For each watched project**, read `<project>/docs/SPEC.md`, `<project>/docs/TODO.md`, `<project>/docs/FUTURE-WORK.md`, and `<project>/docs/HUMAN.md` (all if present) end-to-end. The TODO's `## Next up` section is the queue an outcome (a) appends to; SPEC phase blocks are what outcome (b) appends under. FUTURE-WORK.md is read for context only; on-demand routing never writes to it. HUMAN.md is where outcome (e) appends. Multi-project scope: when the feedback names a specific project ("the dev cycle on project-a is over-batching"), narrow to that project; when it's project-agnostic ("supervisor should weigh cost more"), the manager picks the most-relevant project (typically the one with the most recent run touching that surface).
 
    **Spec sub-item IDs.** Every open `- [ ]` item in `docs/SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 3.1 [medium] **description**`). IDs are 1-indexed per phase and never renumbered; gaps from removed items are valid. When the user's feedback references an item by ID (e.g. `add 3.1 to TODO`, `modify 3.1: …`), resolve the ID against the SPEC before routing; see §B ID-addressed pre-check.
 6. Read the most recent run log under `<chosen-project>/.skill-runs/<latest>/` — `MANIFEST.json` plus any `supervisor_verdict.md` — for "what just happened" context. If no recent run exists, that's fine; some feedback is forward-looking.
@@ -386,7 +420,7 @@ The point of this mode is to use the manager's full context (objectives.md, ever
 
 ### B. Decide the outcome
 
-Pick exactly ONE outcome. The four outcomes are mutually exclusive; bundling (e.g. SPEC addition AND TODO append for the same feedback) is forbidden and surfaces as scope creep on review.
+Pick exactly ONE outcome. The five outcomes are mutually exclusive; bundling (e.g. SPEC addition AND TODO append for the same feedback) is forbidden and surfaces as scope creep on review.
 
 **ID-addressed pre-check.** Before routing to (a)–(d), test whether the body is a structured ID-addressed command. Strip leading/trailing whitespace; match case-insensitively on the command keyword:
 
@@ -428,18 +462,30 @@ The helper prepends `## <utc-iso> manager-translated user feedback (chat <id>)` 
 - **Conflicts with anti-fork or hard rules** ("skip sanitize on the next transferable write", "have the supervisor commit code", "deploy without verification"). Refuse via Telegram with a one-paragraph plain-English explanation of the rule + offer the user a path that DOES fit the framework. Do NOT write any state file. Move the queue file to `processed/<basename>.refused` so the chain-runner pre-iter drain doesn't re-process it.
 - **Is genuinely ambiguous** ("fix the thing", "check that one thing about the cost"). Reply via Telegram with a clarifying question that names what's unclear ("Which 'thing'? The supervisor's batch-window check, the dev's window-target prose, or something else?"). Leave the queue file in place (NOT processed/) so a future on-demand or chain-runner-pre-iter drain can pick up a follow-up. The user's clarifying reply will arrive as a fresh `/feedback` message with its own queue file.
 
+**(e) HUMAN.md blocker entry — append to `docs/HUMAN.md`.** Use when the feedback body maps to a human-only action the cycle cannot perform: "I can't provision the required secrets yet", "waiting on legal approval", "need to grant access in the cloud console". Examples: the user is telling the manager they cannot do something a pending SPEC item requires, or they want to record that a specific action is blocked on an external dependency. Append to the chosen project's `docs/HUMAN.md` under `## Blocking` (if the action actively stops a SPEC item) or `## High` (non-blocking prerequisite):
+
+```
+- [ ] H<phase>.<n> [<difficulty>] **<short title>**
+  <one-paragraph body: what the human must do, where, why the cycle can't do it.>
+  Blocks: <comma-separated SPEC IDs, or "none">.
+  Filed by: sst-manager at <utc-iso> (on-demand, chat <id>).
+  Source: /feedback chat <id>.
+```
+
+Assign the next unused H-ID where `<phase>` is the SPEC phase being gated (or `0` if orthogonal to any open phase). Anti-fork: NEVER flip `[ ]` → `[x]` here; closure is human-initiated.
+
 ### C. Reply via Telegram
 
 Always reply, even on outcome (d). Format:
 
 ```
 ✅ Routed your feedback — <Month D, YYYY> <HH:MM> UTC
-Outcome: <a|b|c|d-refused|d-clarify>
+Outcome: <a|b|c|d-refused|d-clarify|e>
 Where it landed: <project>/<file path>:<section>  (or "Telegram-only; no file change" for d)
 Manager note: <one sentence: why this outcome was chosen>
 ```
 
-For (a) name the file (`<project>/docs/TODO.md`) + section (`## Next up`). For (b) name the file + section (`docs/SPEC.md > ### Phase N: <title>` for sub-items, or `docs/SPEC.md > ### Phase <new-N>: <title>` for new phases). For (c) name the file + entry kind (`~/.claude/state/manager-notes.md > ## <utc> manager-translated user feedback`). For (d) explain the refusal-or-question; no "where it landed" line.
+For (a) name the file (`<project>/docs/TODO.md`) + section (`## Next up`). For (b) name the file + section (`docs/SPEC.md > ### Phase N: <title>` for sub-items, or `docs/SPEC.md > ### Phase <new-N>: <title>` for new phases). For (c) name the file + entry kind (`~/.claude/state/manager-notes.md > ## <utc> manager-translated user feedback`). For (d) explain the refusal-or-question; no "where it landed" line. For (e) name the file + section (`<project>/docs/HUMAN.md > ## Blocking` or `## High`).
 
 If the Telegram send fails (rate-limited / network), retry up to 3 times with exponential backoff (`bin/notify-telegram.sh` already does some of this). After exhaustion, write a `.error` sibling next to the queue file with the failure reason and exit non-zero — the file changes have already been written, so the supervisor will see them next run; the user is just missing the confirmation.
 
