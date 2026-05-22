@@ -43,6 +43,7 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 34.6 drive-chain.py base-dir fallback untested: add tests covering (a) REPO_ROOT/telegram.env fires when no explicit arg/env-var, (b) --telegram-env beats base-dir, (c) caller-exported BOT_TOKEN beats base-dir — review of f8a5df3
 - [medium] Phase 33: Telegram notification on every HUMAN.md change — add `bin/notify-human-md.sh` (snapshot-diff → brief descriptive Telegram message) plus a write-then-notify contract on every HUMAN.md writer (`sst-supervisor` §5b, `sst-dev-review` §4, `sst-manager`). Start at SPEC 33.1. — reason: user message 2026-05-22 (operator wants every HUMAN.md change surfaced immediately, not just the manager's periodic `## Blocking` delta). Phase 32 (supervisor routes unpromoted sidecars into HUMAN.md `## High`) is SPEC-only, lower priority — not queued here.
 
 

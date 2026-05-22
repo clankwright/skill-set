@@ -439,6 +439,9 @@ Phase 31.6 fires a Telegram alert for new `## Blocking` HUMAN.md entries — but
 - [x] 34.4 [easy] **Gitignore + README note.** Add `telegram.env` to `~/Dev/skill-set/.gitignore` (it carries the bot token — must not be committed). Add a one-line note in skill-set's `README.md` Telegram setup section pointing operators at the base-dir fallback as the simplest single-bot setup for multi-project use.
 - [x] 34.5 [easy] **Tests.** Each helper's resolution chain: explicit env wins; persona convention beats base-dir; base-dir is used when both are absent; no env present → log-and-skip without error.
 
+**Review follow-ups (open — schedule as the next `/sst-dev-cycle` cycle):**
+- [ ] 34.6 [easy] [should-fix] `bin/drive-chain.py`:872-878 — drive-chain.py's base-dir fallback has no test coverage. Spec 34.5 says "each helper's resolution chain" should be tested, but the 4 new tests in `tests/test_notify_telegram.py` only cover notify-telegram.sh; the `TELEGRAM_BOT_TOKEN not in tg_env → REPO_ROOT/telegram.env` path in drive-chain.py is untested and could silently regress. Proposed fix: add tests (in `tests/test_skill_chain.py` or a new `tests/test_drive_chain_telegram.py`) covering (a) base-dir fires when no explicit arg or env var is set, (b) `--telegram-env` arg beats base-dir, (c) caller-exported `TELEGRAM_BOT_TOKEN` beats base-dir.
+
 ### Phase 20 (deferred): `goose-cerebras` harness + portability proof
 
 Moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-20-deferred-goose-cerebras-harness--portability-proof). Re-pick conditions are documented there.
