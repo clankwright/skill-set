@@ -23,6 +23,7 @@
   phase blocks and `git log`.
 -->
 
+- 34.6 [easy] extract _resolve_tg_env helper from drive-chain.py main() + tests/test_drive_chain_telegram.py (3 tests: base-dir fires, --telegram-env beats, BOT_TOKEN beats); +3 tests (98→101 green) — by sst-dev-cycle at 2026-05-23T14:15:00Z
 - 34.1+34.2+34.4+34.5 [easy] Telegram base-dir fallback: notify-telegram.sh (graceful skip + ~/Dev/skill-set/telegram.env fallback), drive-chain.py (REPO_ROOT fallback), sst-manager §0.4 optional telegram-env + fallback chain, .gitignore + README.md + CLAUDE.md docs; +4 tests (94→98 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T00:15:00Z
 - 31.11+31.12 [medium] integration test for run_iteration blocked_on_human bail + CLAUDE.md step 4 for HUMAN.md; +1 test (93→94 green) — by sst-dev-cycle at 2026-05-22T20:15:00Z
 - 31.1-31.10 [medium] Phase 31 HUMAN.md framework wiring: templates/HUMAN.md skeleton, sst-supervisor §5b, sst-dev-review 4th routing bucket, sst-manager HUMAN.md read+write+digest+alerts+auto-verify, sst-dev-cycle [blocked-on-human] sentinel, bin/skill-chain.py runner, bin/validate-frontmatter.py validator, dahrouge.com cross-refs; sst-manager v1.13.0→v1.14.0; +15 tests (78→93 green); Sanitize: must-fix=1 (self-fixed inline → final must-fix=0) — by sst-dev-cycle at 2026-05-22T19:30:00Z
@@ -43,7 +44,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 34.6 drive-chain.py base-dir fallback untested: add tests covering (a) REPO_ROOT/telegram.env fires when no explicit arg/env-var, (b) --telegram-env beats base-dir, (c) caller-exported BOT_TOKEN beats base-dir — review of f8a5df3
 - [medium] Phase 33: Telegram notification on every HUMAN.md change — add `bin/notify-human-md.sh` (snapshot-diff → brief descriptive Telegram message) plus a write-then-notify contract on every HUMAN.md writer (`sst-supervisor` §5b, `sst-dev-review` §4, `sst-manager`). Start at SPEC 33.1. — reason: user message 2026-05-22 (operator wants every HUMAN.md change surfaced immediately, not just the manager's periodic `## Blocking` delta). Phase 32 (supervisor routes unpromoted sidecars into HUMAN.md `## High`) is SPEC-only, lower priority — not queued here.
 
 
