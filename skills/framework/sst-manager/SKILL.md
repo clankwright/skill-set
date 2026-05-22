@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, reads docs/HUMAN.md for active blockers (fires immediate Telegram alerts for new Blocking entries and auto-verifies Verify: lines on closed items), sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus docs/HUMAN.md plus the most recent run log, decides one of five outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, HUMAN.md blocker entry, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.14.0
+version: 1.14.1
 ---
 
 # Manager
@@ -276,7 +276,7 @@ The cursor field stays set across ticks until the queue or SPEC re-fills, at whi
    a. Run the `Verify:` shell command from the watched-project's root (`/bin/bash -c "<cmd>"`) with a 60-second timeout.
    b. **Pass (exit 0):** Move the entire entry block to the top of `## Done` and append `(verified <utc-iso>)` to the title line. Update `manager-cursors.json[<project-path>].human_md_snapshot` to remove the H-ID.
    c. **Fail (non-zero or timeout):** Flip the entry back to `[ ]`. Prepend `  Verify-fail at <utc-iso>: <stderr-tail (max 80 chars)>` as the first continuation line. Move the entry to the top of its section (so it's visible). Do NOT fire an immediate alert; the next §4 digest will include it in the Blocking list.
-2. If any entries were moved to `## Done`, write the modified `docs/HUMAN.md` back (the whole file, preserving all other content).
+2. If any entries were moved to `## Done`, write the modified `docs/HUMAN.md` back (the whole file, preserving all other content). After writing back, invoke the notification helper: `bash bin/notify-human-md.sh <project-path> <project-path>/docs/HUMAN.md`. Missing Telegram env → graceful skip (exit 0); never block the manager for a notification failure.
 
 Anti-fork: auto-verify is the ONLY path that moves entries to `## Done`. The human's `[ ]` → `[x]` flip is a prerequisite; the manager only runs the `Verify:` check after the human has closed the item. Never auto-move an entry that the human has not yet closed.
 
@@ -474,7 +474,7 @@ The helper prepends `## <utc-iso> manager-translated user feedback (chat <id>)` 
   Source: /feedback chat <id>.
 ```
 
-Assign the next unused H-ID where `<phase>` is the SPEC phase being gated (or `0` if orthogonal to any open phase). Anti-fork: NEVER flip `[ ]` → `[x]` here; closure is human-initiated.
+Assign the next unused H-ID where `<phase>` is the SPEC phase being gated (or `0` if orthogonal to any open phase). Anti-fork: NEVER flip `[ ]` → `[x]` here; closure is human-initiated. After appending, invoke the notification helper: `bash bin/notify-human-md.sh <project-path> <project-path>/docs/HUMAN.md`. Missing Telegram env → graceful skip (exit 0).
 
 ### C. Reply via Telegram
 

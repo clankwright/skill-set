@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.11.0
+version: 1.12.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -313,6 +313,14 @@ Assign the next unused `H<phase>.<n>` ID where `<phase>` matches the SPEC phase 
 
 **Write-paths addendum.** The supervisor's write-paths (§Output rules) now include: **(f) `docs/HUMAN.md`** — APPEND only, under `## Blocking` or `## High`. Never close an existing entry; never modify prose outside the appended block.
 
+**Write-then-notify.** Immediately after appending to `docs/HUMAN.md`, invoke the notification helper via Bash:
+
+```bash
+bash bin/notify-human-md.sh <cwd> docs/HUMAN.md
+```
+
+The helper diffs the file against the last-notified snapshot, composes a brief delta message (`[<project>] HUMAN.md: <delta summary>`), and forwards it to `bin/notify-telegram.sh`. Missing or unconfigured Telegram env → graceful skip (exit 0); a notification failure must never abort the supervisor. The anti-fork carve-out in §Output rules permits this outbound call.
+
 ### 6. Write the verdict file
 
 `<run-dir>/supervisor_verdict.md`:
@@ -428,7 +436,7 @@ Do NOT fall back to Edit/Write on `.claude/skills/` targets and accept the promp
 
 - **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for proprietary updates; (c) `~/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for transferable updates (runtime-effective path); (d) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for the master-repo staged sanitized copy of a transferable update; (e) `docs/TODO.md` under `## Next up` (rare); (f) `docs/HUMAN.md` — APPEND only, under `## Blocking` or `## High`, for human-only blocker findings (see §5b). Never elsewhere.
 - **Never call git.** No commits, no pushes, no branch creation. Direct overwrites to SKILL.md are left unstaged under `<cwd>/.claude/skills/` (often gitignored anyway) and staged-but-uncommitted under `~/Dev/skill-set/` so the user can open the PR with the sanitization footer from the verdict file.
-- **Never deploy.** No SSH, no service restarts, no curl against a live site.
+- **Never deploy.** No SSH, no service restarts, no curl against a live site. **Exception:** invoking `bin/notify-human-md.sh` (which curls the Telegram API) immediately after a `docs/HUMAN.md` write in §5b is permitted — it is a notification call, not a deploy or production mutation. Scope is tightly limited to that one helper and that one trigger.
 - **Never touch a stale `SKILL.patch.md` you didn't just write.** If this cycle had no finding for a skill that already has a sidecar, leave the sidecar alone; the user may be mid-review.
 
 ## When invoked with no run-log dir argument

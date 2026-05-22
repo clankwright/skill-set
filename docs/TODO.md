@@ -23,6 +23,7 @@
   phase blocks and `git log`.
 -->
 
+- 33.1-33.5+34.3 [medium] Phase 33: bin/notify-human-md.sh (snapshot-diff, delta, send) + write-then-notify contract on sst-supervisor/sst-dev-review/sst-manager + anti-fork carve-outs + templates/HUMAN.md format note; +12 tests (101→113 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T15:30:00Z
 - 34.6 [easy] extract _resolve_tg_env helper from drive-chain.py main() + tests/test_drive_chain_telegram.py (3 tests: base-dir fires, --telegram-env beats, BOT_TOKEN beats); +3 tests (98→101 green) — by sst-dev-cycle at 2026-05-23T14:15:00Z
 - 34.1+34.2+34.4+34.5 [easy] Telegram base-dir fallback: notify-telegram.sh (graceful skip + ~/Dev/skill-set/telegram.env fallback), drive-chain.py (REPO_ROOT fallback), sst-manager §0.4 optional telegram-env + fallback chain, .gitignore + README.md + CLAUDE.md docs; +4 tests (94→98 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T00:15:00Z
 - 31.11+31.12 [medium] integration test for run_iteration blocked_on_human bail + CLAUDE.md step 4 for HUMAN.md; +1 test (93→94 green) — by sst-dev-cycle at 2026-05-22T20:15:00Z
@@ -32,7 +33,6 @@
 - 29.2 [medium] add run_skill_with_retry integration tests for session-id threading (rate-limit retry loop); +2 tests (55→57 green) — by sst-dev-cycle at 2026-05-21T22:15:00Z
 - 29.1 [medium] rate-limit retry now uses --resume <session_id> to restore prior session; continuation prompt "continue" replaces bootstrap; +6 tests (49→55 green) — by sst-dev-cycle at 2026-05-21T21:30:00Z
 - 28.8 [easy] fix sst-manager truncation hint to say "run /status <persona> for full digest"; also fix notify-telegram.sh; +2 tests (42→44 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-21T20:10:00Z
-- [easy] strip "Multi-project bot conventions" from cm-manager/SKILL.md; generic routing now lives in transferable sst-manager §1; v1.0.0→v1.0.1 — by sst-dev-cycle at 2026-05-21T18:10:00Z
 - 28.7 [medium] make /status persona-aware: latest_digest(persona) filters <persona>_*.txt, sst-manager digest naming updated to <persona>_<utc>.txt, /status handler requires token; +5 tests (37→42 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-21T17:00:00Z
 
 ## Next up (queued for next cycle)
@@ -44,6 +44,5 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] Phase 33: Telegram notification on every HUMAN.md change — add `bin/notify-human-md.sh` (snapshot-diff → brief descriptive Telegram message) plus a write-then-notify contract on every HUMAN.md writer (`sst-supervisor` §5b, `sst-dev-review` §4, `sst-manager`). Start at SPEC 33.1. — reason: user message 2026-05-22 (operator wants every HUMAN.md change surfaced immediately, not just the manager's periodic `## Blocking` delta). Phase 32 (supervisor routes unpromoted sidecars into HUMAN.md `## High`) is SPEC-only, lower priority — not queued here.
 
 
