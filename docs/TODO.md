@@ -45,6 +45,7 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] Phase 34: Telegram env fallback to skill-set base dir for consuming projects — extend `bin/notify-telegram.sh`, the chain-driver, the manager's resolution, and the Phase 33 helper to fall back to `~/Dev/skill-set/telegram.env` (when present) if no per-persona `~/.config/<persona>-telegram.env` exists. Start at SPEC 34.1. — reason: user message 2026-05-23 (one configured Telegram channel for every project using skill-set; precondition for Phase 33 to actually notify consuming projects without their own env)
 - [medium] Phase 33: Telegram notification on every HUMAN.md change — add `bin/notify-human-md.sh` (snapshot-diff → brief descriptive Telegram message) plus a write-then-notify contract on every HUMAN.md writer (`sst-supervisor` §5b, `sst-dev-review` §4, `sst-manager`). Start at SPEC 33.1. — reason: user message 2026-05-22 (operator wants every HUMAN.md change surfaced immediately, not just the manager's periodic `## Blocking` delta). Phase 32 (supervisor routes unpromoted sidecars into HUMAN.md `## High`) is SPEC-only, lower priority — not queued here.
 
 
