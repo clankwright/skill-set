@@ -44,4 +44,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [medium] [should-fix] 31.11 `bin/skill-chain.py:run_iteration` blocked_on_human bail path untested at integration level — review of ce8d510
+- [easy] [should-fix] 31.12 `CLAUDE.md` handoff-docs section missing `docs/HUMAN.md` as step 4 — review of ce8d510
 
