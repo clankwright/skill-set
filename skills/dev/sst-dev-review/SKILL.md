@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.5.2
+version: 1.5.4
 model-floor: sonnet
 effort-floor: high
 ---
@@ -155,9 +155,9 @@ A missing prod-verify of a migration, auth path, or billing path is **blocker**.
 
 ### 2.9 Batch coherence
 
-*(Applies when the dev cycle used the batching protocol — the dev skill emits a `[batch-pick]` block to stdout before its first tool call.)*
+**Locating the dev transcript is a mandatory first action of this axis — not a precondition to judge as unmet before looking.** List `.skill-runs/` and open the most recent dev transcript (`.skill-runs/*/iter_NN/00_<dev-skill>.txt` or `.skill-runs/*/00_<dev-skill>.txt`). This axis applies whenever the dev cycle used the batching protocol — i.e. the dev emitted a `[batch-pick]` block to stdout before its first tool call — and you confirm that by reading the transcript, not by assuming. If you genuinely cannot find a dev transcript after running the lookup, fall back to the `## Just shipped` top entries in `docs/TODO.md` as a proxy and note the fallback in §6. Never report this axis as "nothing to flag" without having opened the transcript (or recorded the fallback) — an axis you did not attempt to run is not a clean axis.
 
-**Find the `[batch-pick]` block** in the dev transcript (most recent `.skill-runs/*/iter_NN/00_<dev-skill>.txt` or `.skill-runs/*/00_<dev-skill>.txt`). If no log exists, fall back to the `## Just shipped` top entries in `docs/TODO.md` as a proxy.
+**Find the `[batch-pick]` block** in the dev transcript located above.
 
 Parse the block's stated items and compare against the actual commit:
 
@@ -171,9 +171,11 @@ Do **not** file for a single-item batch (trivially coherent) or when the multi-f
 
 ### 2.10 Batch sizing
 
-*(Applies when the iter MANIFEST is available. If absent, note it in §6 and skip this axis.)*
+**Locating the iter MANIFEST is a mandatory first action of this axis — not a precondition you may judge as unmet before looking.** List `.skill-runs/` and locate the MANIFEST at `.skill-runs/<latest-run-dir>/MANIFEST.json` (flat) or `.skill-runs/<latest-run-dir>/iter_NN/MANIFEST.json` (looped run). Only if no MANIFEST file exists *after you have actually run the lookup* may you note "iter MANIFEST absent" in §6 and skip this axis; that §6 note is mandatory whenever the axis is skipped. Never report this axis as "nothing to flag" without having read a MANIFEST — an axis you did not attempt to run is not a clean axis.
 
-Locate the MANIFEST at `.skill-runs/<latest-run-dir>/MANIFEST.json` (flat) or `.skill-runs/<latest-run-dir>/iter_NN/MANIFEST.json` (looped run). Read: `difficulty` (set by the runner's sentinel capture) and the dev skill's input tokens: sum `inputTokens + cacheCreationInputTokens` across all entries in its `model_usage` dict for **the dev skill only** (`skills[0]` — the first skill in the chain, the one that chose how much work to take on; `model_usage` is keyed by model name, not a flat dict; `cacheCreationInputTokens` measures tokens written to cache first-time — a proxy for peak context size; `cacheReadInputTokens` is a billing-centric cumulative that grows with session turns, not context complexity, and would inflate the total ~40× for long sessions). Do NOT sum review + supervisor tokens — those skills consume what they consume regardless of workload sizing; only the dev skill can act on its own window.
+**Do not infer MANIFEST absence from the run-directory name.** A `.skill-runs/<run-dir>` name carries the chain's *start* timestamp, not the commit time. In a `--loop N` run the iteration that produced HEAD commits minutes-to-hours after the chain started, so a run dir whose name predates the commit by hours is normal — it is **not** evidence that "the commit came from a wiped or manual run with no `.skill-runs/` entry." Never reason from run-dir-name-vs-commit-time at all. Identify the run positively instead: list the most recent `<run-dir>/` for `iter_NN/` subdirectories, then read the highest-numbered `iter_NN/MANIFEST.json` — its `git_sha_before` equals the commit's parent (`git rev-parse HEAD~1`) when you have the right iteration. Declare the MANIFEST absent only when that file genuinely does not exist on disk.
+
+Read: `difficulty` (set by the runner's sentinel capture) and the dev skill's input tokens: sum `inputTokens + cacheCreationInputTokens` across all entries in its `model_usage` dict for **the dev skill only** (`skills[0]` — the first skill in the chain, the one that chose how much work to take on; `model_usage` is keyed by model name, not a flat dict; `cacheCreationInputTokens` measures tokens written to cache first-time — a proxy for peak context size; `cacheReadInputTokens` is a billing-centric cumulative that grows with session turns, not context complexity, and would inflate the total ~40× for long sessions). Do NOT sum review + supervisor tokens — those skills consume what they consume regardless of workload sizing; only the dev skill can act on its own window.
 
 Band edges by difficulty (dev-skill input-token targets — same values the dev skill uses for its own batch window-sizing; the `[batch-sizing]` finding fires on the dev's number, not the full-chain sum):
 - `[easy]` → 100–200k; undersize threshold 50k (50% of lower edge)

@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.4.7
+version: 1.4.8
 model-floor: sonnet
 effort-floor: high
 ---
@@ -241,7 +241,7 @@ git push origin <branch>
 
 **Never make a separate "docs: record <sha> in TODO" commit, and never `git commit --amend` to rewrite a Just-shipped SHA**. The Just-shipped line intentionally omits the SHA for exactly this reason — a commit cannot contain its own hash, and amend-based workarounds produce dangling references that confuse forensic work. The one-line summary + utc-iso is sufficient to locate the commit in `git log`.
 
-Scope tags match the project's convention (examples: `Auth:`, `UI:`, `Docs:`, `Tests:`, `Deploy:`, `Infra:`, or a feature area like `Leads:`).
+Scope tags match the project's convention (examples: `Auth:`, `UI:`, `Docs:`, `Tests:`, `Deploy:`, `Infra:`, or a feature area like `Leads:`). **Never use `Review:` as the scope tag for a dev-cycle commit** — that prefix is reserved for the `sst-dev-review` skill's own follow-up commits, which the review skill emits to add SPEC/TODO entries (`Review: follow-ups from <scope>: ...`) on top of a finished dev cycle. When the dev-cycle picks a review-follow-up item out of `## Next up` (the item itself originated from a `Review:` commit), the dev's own commit still uses a scope tag reflecting **what the dev-cycle changed**, not the source of the work — e.g. `Tests:` for a test-strengthening cycle, `<phase>.<n>:` for a cycle continuing a SPEC phase, the original feature-area tag for an implementation change. The `sst-dev-review` walk-back rule (§0.4 there) treats `Review:`-prefixed commits as non-dev-cycle commits and walks past them to find the next reviewable commit; a misnamed prefix causes the cycle's actual dev work to be silently skipped by the next review.
 
 Never commit `.env` files, credentials, or local scratch files. If the project gitignores config dirs (e.g. `deploy/`, `docs/` in some layouts), those changes won't reach the remote — you'll need the project's separate sync mechanism (scp, rsync, a sync script) for those.
 
