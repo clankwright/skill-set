@@ -41,8 +41,10 @@ watched-projects:
   - path: ~/Dev/project-b
     name: project-b
 objectives-path: ~/.claude/skills/<persona>-manager/objectives.md
-telegram-env: ~/.config/manager-telegram.env  # exports TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
+telegram-env: ~/.config/manager-telegram.env  # optional; exports TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
 ```
+
+`telegram-env` is optional when a base-dir fallback is available (see §0.4). `watched-projects` and `objectives-path` are required.
 
 (The proprietary's body lists these as a fenced ```yaml block; this skill greps for them.)
 
@@ -122,8 +124,8 @@ The proprietary counterpart's `objectives-path` file holds the bar this manager 
 
 1. **Mode dispatch.** Parse the input for mode tokens. If `--process-feedback <queue-file>` is present, jump to §On-demand feedback routing and skip §1–§6. Else if `--plan` is present (with no `--process-feedback`), jump to §Planner mode and skip §1–§6. Else continue with periodic mode below; periodic mode's §3 may auto-transition into planner-mode in-process when conditions hold.
 2. If `~/.claude/state/manager-paused` exists (global pause) OR `~/.claude/state/manager-paused-<persona>` exists (where `<persona>` is the proprietary counterpart's name with the trailing `-manager` stripped), exit silently (no log, no message). The user toggles the scoped file via the bot's `/pause <persona>` and `/resume <persona>`; the global file is touched by hand for emergency multi-persona stops.
-3. Read the proprietary counterpart's frontmatter / body for the configuration above. If anything required is missing, write to stderr and exit non-zero — the manager cannot run without knowing what to watch.
-4. Source the Telegram env file: `set -a; . "$telegram_env"; set +a`. The `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` exports are now available for `bin/notify-telegram.sh`.
+3. Read the proprietary counterpart's frontmatter / body for the configuration above. If `watched-projects` or `objectives-path` is missing, write to stderr and exit non-zero — the manager cannot run without knowing what to watch. `telegram-env` is optional; see step 4.
+4. Source the Telegram env file using the resolution chain below. `bin/notify-telegram.sh` applies the same chain internally, so a successful source here is optional but makes credentials available for any inline checks. Resolution order (first match wins): (a) if `telegram_env` is set in the proprietary config and the file is readable, `set -a; . "$telegram_env"; set +a`; (b) else if the skill-set base-dir fallback `~/Dev/skill-set/telegram.env` is readable, source it; (c) else log a warning to stderr ("no Telegram credentials configured") and continue — Telegram sends will be skipped gracefully by `bin/notify-telegram.sh` (exit 0 with a stderr note), but all file writes (digest, HUMAN.md, manager-notes.md) still happen normally.
 5. Read or create `~/.claude/state/manager-cursors.json` (default: `{}`).
 
 ### 1. Process inbound bot commands first
@@ -409,7 +411,7 @@ The point of this mode is to use the manager's full context (objectives.md, ever
 ### A. Read the inputs
 
 1. Read the queue file (`<queue-file>`). Required JSON fields: `body` (user's message text), `from_chat_id`, `received_at`. If the file is malformed, missing, or already in `processed/` (helper idempotency caught it), reply via Telegram `Already processed (or queue file missing); ignoring.` and exit 0.
-2. Read the proprietary counterpart's frontmatter / body for the same configuration the periodic mode reads (watched-projects, objectives-path, telegram-env). Fail fast with a stderr message if any required field is absent.
+2. Read the proprietary counterpart's frontmatter / body for the same configuration the periodic mode reads (watched-projects, objectives-path, telegram-env). Fail fast with a stderr message if `watched-projects` or `objectives-path` is absent; `telegram-env` is optional (see §0.4 fallback chain).
 3. Source the Telegram env file as in §0.4.
 4. Read `objectives-path`. This is the canonical north star — every routing decision must trace to one or more objective bullets (or be refused for falling outside).
 5. **For each watched project**, read `<project>/docs/SPEC.md`, `<project>/docs/TODO.md`, `<project>/docs/FUTURE-WORK.md`, and `<project>/docs/HUMAN.md` (all if present) end-to-end. The TODO's `## Next up` section is the queue an outcome (a) appends to; SPEC phase blocks are what outcome (b) appends under. FUTURE-WORK.md is read for context only; on-demand routing never writes to it. HUMAN.md is where outcome (e) appends. Multi-project scope: when the feedback names a specific project ("the dev cycle on project-a is over-batching"), narrow to that project; when it's project-agnostic ("supervisor should weigh cost more"), the manager picks the most-relevant project (typically the one with the most recent run touching that surface).
@@ -493,7 +495,7 @@ If the Telegram send fails (rate-limited / network), retry up to 3 times with ex
 
 The on-demand mode does NOT walk other watched projects, score against objectives globally, or compose a digest. Its scope is the single `/feedback` message routed to the single chosen project. Stdout: a one-line summary (`manager: routed feedback (chat <id>) → <outcome> @ <project>/<file>`). Exit 0.
 
-If any input read fails (queue file gone, telegram-env missing, project paths unreachable), exit non-zero with a stderr message naming the missing input. The bot's spawn will see the non-zero exit and the queue file will still be in place; the chain-runner pre-iter drain or the next periodic-mode tick will eventually pick it up as the verbatim-routing fallback (degraded but not lost).
+If any input read fails (queue file gone, project paths unreachable), exit non-zero with a stderr message naming the missing input. Missing Telegram credentials (no `telegram-env` and no base-dir fallback) is NOT a fatal error — Telegram sends are gracefully skipped, file changes still land. The bot's spawn will see the non-zero exit on other failures and the queue file will still be in place; the chain-runner pre-iter drain or the next periodic-mode tick will eventually pick it up as the verbatim-routing fallback (degraded but not lost).
 
 ### E. Never invoke another `claude --print` / harness from on-demand mode
 
@@ -507,7 +509,7 @@ The point of this mode is to keep the dev loop making progress when the user has
 
 ### α. Read the inputs
 
-1. Read the proprietary counterpart's frontmatter / body for the same configuration the periodic mode reads (watched-projects, objectives-path, telegram-env). Fail fast with a stderr message if any required field is absent.
+1. Read the proprietary counterpart's frontmatter / body for the same configuration the periodic mode reads (watched-projects, objectives-path, telegram-env). Fail fast with a stderr message if `watched-projects` or `objectives-path` is absent; `telegram-env` is optional (see §0.4 fallback chain).
 2. Source the Telegram env file as in §0.4.
 3. Read or create `~/.claude/state/manager-cursors.json` (extending it with a `planner` sub-object per project; see §3 auto-trigger).
 4. **For each watched project**, read `<project>/docs/TODO.md` and `<project>/docs/SPEC.md`. The TODO's `## Next up` section is what planner mode appends to; SPEC is read only to confirm fully-checked state and to gather context for tier judgment. When the watched-projects list contains more than one project, planner mode picks the project with the most-recent `.skill-runs/<utc>_<chain>/` activity AND a fully-checked SPEC AND an empty `## Next up` — that is the project most likely to benefit from a fresh batch. If multiple projects qualify, pick the one with the oldest `since:` on its top-gap objective; if none qualify, exit cleanly with stdout `planner: no project in steady state; nothing to draft`.
@@ -591,7 +593,7 @@ When auto-triggered from periodic mode §3, the planner output is appended to th
 
 Stdout: `planner: drafted <K> candidate(s) for <project> targeting <slug-list>` for explicit `--plan` invocation; auto-triggered runs continue to §4 (digest) and report there. Exit 0.
 
-If any input read fails (objectives-path missing, project paths unreachable, telegram-env missing), exit non-zero with a stderr message naming the missing input. The cursor field is left untouched on failure so the next tick retries.
+If any input read fails (objectives-path missing, project paths unreachable), exit non-zero with a stderr message naming the missing input. Missing Telegram credentials is not a fatal error — sends are gracefully skipped. The cursor field is left untouched on failure so the next tick retries.
 
 ### θ. Never invoke another `claude --print` / harness from planner mode
 

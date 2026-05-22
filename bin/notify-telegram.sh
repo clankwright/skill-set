@@ -15,6 +15,13 @@
 #                          Lets `TELEGRAM_ENV_FILE=<env-path> bash notify-telegram.sh` work
 #                          directly without a manual subshell pre-source. Explicit shell env
 #                          wins (auto-source is skipped if the caller already set the token).
+#
+# Credential resolution order (first match wins):
+#   1. Caller-exported TELEGRAM_BOT_TOKEN (already in env).
+#   2. TELEGRAM_ENV_FILE (sourced when TELEGRAM_BOT_TOKEN is not yet set).
+#   3. ~/Dev/skill-set/telegram.env (base-dir fallback; shared channel for all skill-set
+#      projects; only tried when neither of the above is available).
+#   4. No credentials found — logs "skipping send" to stderr and exits 0 (graceful skip).
 #   TELEGRAM_PARSE_MODE  — "Markdown" (default), "MarkdownV2", "HTML", or empty for plain.
 #   TELEGRAM_LABEL       — when set non-empty, prepends "[<label>]\n\n" to the body so the
 #                          recipient can distinguish messages from different personas sharing
@@ -36,8 +43,21 @@ if [ -n "${TELEGRAM_ENV_FILE:-}" ] && [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
     set -a; . "$TELEGRAM_ENV_FILE"; set +a
 fi
 
-: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required (or set TELEGRAM_ENV_FILE to a .env file containing it)}"
-: "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID is required (or set TELEGRAM_ENV_FILE to a .env file containing it)}"
+# Base-dir fallback: ~/Dev/skill-set/telegram.env is the shared Telegram channel for all
+# projects using skill-set. Fires only when no more-specific env is already configured
+# (explicit TELEGRAM_BOT_TOKEN or TELEGRAM_ENV_FILE always wins).
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] && [ -z "${TELEGRAM_ENV_FILE:-}" ]; then
+    _SST_BASE_ENV="${HOME}/Dev/skill-set/telegram.env"
+    if [ -r "$_SST_BASE_ENV" ]; then
+        set -a; . "$_SST_BASE_ENV"; set +a
+    fi
+    unset _SST_BASE_ENV
+fi
+
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+    echo "notify-telegram: no credentials configured; skipping send" >&2
+    exit 0
+fi
 PARSE_MODE="${TELEGRAM_PARSE_MODE-Markdown}"
 
 text="$(cat)"

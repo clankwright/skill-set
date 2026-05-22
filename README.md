@@ -183,6 +183,8 @@ TELEGRAM_CHAT_ID=<numeric-chat-id>
 
 Mode 600, never committed. Token revocation: BotFather → `/revoke` → pick the bot → paste the new token into the env file.
 
+**Base-dir fallback (simplest single-bot setup).** If you run multiple projects from one skill-set installation and want all of them to share one Telegram channel without per-project env files, create `~/Dev/skill-set/telegram.env` with the same two lines (mode 600, already gitignored). `bin/notify-telegram.sh`, `bin/drive-chain.py`, and `sst-manager §0.4` all check this file last in their resolution chain — it fires only when no more-specific per-persona env is configured. Per-persona env files always win when present.
+
 ### Daily use
 
 Outbound (any script can fire a Telegram body):

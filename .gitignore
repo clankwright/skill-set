@@ -20,3 +20,6 @@ __pycache__/
 # sanitize-transferable audit artifacts (regenerate on demand; never commit)
 *.findings.md
 *.sanitized.md
+
+# Shared Telegram channel credentials (base-dir fallback for consuming projects)
+telegram.env
