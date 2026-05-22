@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.5.4
+version: 1.5.5
 model-floor: sonnet
 effort-floor: high
 ---
@@ -211,7 +211,7 @@ A clean report with no findings is a success signal, not a failure to find work.
 
 **Route first: three destinations.** Before filing any finding, decide the destination:
 
-- **`docs/HUMAN.md`** (human-only blocker findings): findings whose proposed fix requires a human action the cycle cannot perform — writing a secret outside the repo, granting access in a third-party UI, signing a legal agreement, or anything that inherently requires out-of-band credentials. Append under `## Blocking` (cycle-stopping) or `## High` (non-blocking prerequisite) per the schema in `docs/HUMAN.md`. APPEND only; never close an existing entry. Do NOT also mirror to spec or `## Next up`.
+- **`docs/HUMAN.md`** (human-only blocker findings): findings whose proposed fix requires a human action the cycle cannot perform — writing a secret outside the repo, granting access in a third-party UI, signing a legal agreement, or anything that inherently requires out-of-band credentials. Append under `## Blocking` (cycle-stopping) or `## High` (non-blocking prerequisite) per the schema in `docs/HUMAN.md`. APPEND only; never close an existing entry. Do NOT also mirror to spec or `## Next up`. Immediately after appending, invoke the notification helper: `bash bin/notify-human-md.sh <cwd> docs/HUMAN.md`. Missing Telegram env → graceful skip (exit 0); never block the review for a notification failure.
 - **`docs/FUTURE-WORK.md`** (acceptance and smoke-test findings only): findings whose resolution requires a real chain-driver round-trip, Telegram message exchange, human-verified end-to-end smoke, or any check the dev cycle cannot perform autonomously from inside its own iteration. Append under `## Manual / human verification > ### <Phase context>` (create the sub-section if absent). One line per finding. Do NOT also mirror to spec or `## Next up` — these items sit in FUTURE-WORK.md until a human flips them back when external verification is ready.
 - **Spec + `docs/TODO.md`** (all other findings): code corrections, prose edits, schema additions, contract clarifications — work a future dev cycle can execute autonomously. File in the spec and mirror to `## Next up` per the rules below.
 
@@ -273,7 +273,7 @@ EOF
 git push origin <branch>
 ```
 
-**Never deploy.** This skill does not touch production. The follow-ups are spec-only; actual fixes go through `/sst-dev-cycle`.
+**Never deploy.** This skill does not touch production. The follow-ups are spec-only; actual fixes go through `/sst-dev-cycle`. **Exception:** invoking `bin/notify-human-md.sh` (which curls the Telegram API) immediately after a `docs/HUMAN.md` write in §4 is permitted — it is a notification call, not a deploy or production mutation. Scope is tightly limited to that one helper and that one trigger.
 
 ## 6. Report to user
 
