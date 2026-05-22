@@ -45,6 +45,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] sst-supervisor §5b: when it writes a transferable `SKILL.patch.md` sidecar (which needs human `/sst-promote-skill-proposal` under `auto-promote: proprietary`), also file a `docs/HUMAN.md` entry for the pending promotion so the manager's HUMAN.md immediate-alert lane surfaces it — today the promotion need lives only in the verdict's `## Notes for the manager` (digest lane) and is missed when no manager is watching. Likely needs a HUMAN.md schema/template addition for a "pending transferable-sidecar promotion" entry kind, plus a manager rule to auto-clear it once the sidecar is promoted or discarded. — reason: user message 2026-05-22 (in MinimaList the sst-dev-review §2.10 fix sidecar escalated across 4 iterations unpromoted and never reached the user)
+- [medium] Phase 33: Telegram notification on every HUMAN.md change — add `bin/notify-human-md.sh` (snapshot-diff → brief descriptive Telegram message) plus a write-then-notify contract on every HUMAN.md writer (`sst-supervisor` §5b, `sst-dev-review` §4, `sst-manager`). Start at SPEC 33.1. — reason: user message 2026-05-22 (operator wants every HUMAN.md change surfaced immediately, not just the manager's periodic `## Blocking` delta). Phase 32 (supervisor routes unpromoted sidecars into HUMAN.md `## High`) is SPEC-only, lower priority — not queued here.
 
 
