@@ -158,6 +158,17 @@ RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_
 
 NO_WORK_SENTINEL_RE = re.compile(r"^\s*\[no-work\](?:\s+(.*\S))?\s*$", re.MULTILINE)
 
+# ---- Blocked-on-human sentinel (Phase 31.8) ---------------------------------
+# When a dev-cycle skill scans docs/HUMAN.md and finds that its picked SPEC
+# item is listed in a Blocking entry's `Blocks:` line, it prints
+# `[blocked-on-human] <H-ID> <title>` and exits 0. The chain runner aborts
+# the iteration (skipping review/supervisor) and terminates the loop, recording
+# `terminated_by: "blocked_on_human"` in the top-level loop manifest so the
+# chain driver's session-end report can surface the reason clearly.
+BLOCKED_ON_HUMAN_SENTINEL_RE = re.compile(
+    r"^\s*\[blocked-on-human\](?:\s+(.*\S))?\s*$", re.MULTILINE
+)
+
 
 # ---- Per-skill model + effort routing (Phase 19) ---------------------------
 # Each iter pre-parses the picked item's difficulty bracket from
@@ -732,6 +743,15 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
                     if m:
                         reason = (m.group(1) or "").strip() or "no reason given"
                         skill_record["no_work_bail"] = reason
+                # Phase 31.8: [blocked-on-human] sentinel — dev skill found a
+                # docs/HUMAN.md Blocking entry whose Blocks: line covers the
+                # picked item. Abort the iteration and loop (parallel to the
+                # no-work bail). First match wins; no commit expected.
+                if "blocked_on_human" not in skill_record:
+                    bm = BLOCKED_ON_HUMAN_SENTINEL_RE.search(text)
+                    if bm:
+                        reason = (bm.group(1) or "").strip() or "no reason given"
+                        skill_record["blocked_on_human"] = reason
                 # Phase 19 (5): capture the dev skill's `[picked-difficulty:
                 # <tier>]` sentinel so run_iteration can override the iter's
                 # pre-parsed difficulty for any skill that runs after the dev.
@@ -1413,6 +1433,17 @@ def run_iteration(
             print(c(f"\n[no-work] /{skill}: sentinel detected but commit shipped "
                     f"({(sha_before_skill or '?')[:7]} -> {(sha_after_skill or '?')[:7]}); "
                     f"treating as false-positive, continuing", DIM), flush=True)
+        # Phase 31.8: [blocked-on-human] sentinel — bail immediately (no
+        # false-positive suppression: a commit during a blocked-on-human exit
+        # is unexpected; treat as-is and surface the block).
+        if record.get("blocked_on_human"):
+            iter_manifest["blocked_on_human"] = {
+                "skill": skill,
+                "reason": record["blocked_on_human"],
+            }
+            print(c(f"\n[blocked-on-human] /{skill}: {record['blocked_on_human']}: "
+                    f"skipping remaining skills + aborting loop", BLUE), flush=True)
+            break
 
     iter_manifest["finished_at"] = _utc_iso()
     iter_manifest["git_sha_after"] = _git_sha(cwd)
@@ -1676,6 +1707,12 @@ def main() -> int:
             if iter_manifest.get("no_work_bail"):
                 if "loop" in manifest:
                     manifest["loop"]["terminated_by"] = "no_work_bail"
+                break
+            # Phase 31.8: blocked-on-human bail — terminate the loop so the
+            # chain driver can surface the block reason to the user.
+            if iter_manifest.get("blocked_on_human"):
+                if "loop" in manifest:
+                    manifest["loop"]["terminated_by"] = "blocked_on_human"
                 break
             if not infinite and iteration >= loop_count:
                 break

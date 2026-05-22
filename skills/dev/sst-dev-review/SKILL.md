@@ -32,7 +32,7 @@ Before filing any finding, ask: *would this actually hurt a user, cause a real b
 
 ## Handoff docs
 
-This skill reads `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` (if present) end-to-end on open. It may write to `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` on close (under §4). Severity bar and process are unchanged from the rest of this skill; the only addition is that every blocker/should-fix you file in the spec also gets mirrored as a one-line entry in `TODO.md`'s `## Next up` so the next `/sst-dev-cycle` picks it up without re-scanning the spec. Both files commit together in §5 if anything was added.
+This skill reads `docs/SPEC.md`, `docs/TODO.md`, `docs/FUTURE-WORK.md`, and `docs/HUMAN.md` (all if present) end-to-end on open. It may write to `docs/SPEC.md`, `docs/TODO.md`, `docs/FUTURE-WORK.md`, and `docs/HUMAN.md` on close (under §4). Severity bar and process are unchanged from the rest of this skill; the only addition is that every blocker/should-fix you file in the spec also gets mirrored as a one-line entry in `TODO.md`'s `## Next up` so the next `/sst-dev-cycle` picks it up without re-scanning the spec. Both files commit together in §5 if anything was added.
 
 **Spec sub-item IDs.** Every `- [ ]` item in `docs/SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 3.1 [hard] **description**`). IDs are assigned once and never renumbered — gaps from closed/removed items are valid. When filing follow-ups to `## Next up` in §4, prefer citing the SPEC item by its ID (e.g. `reason: spec 3.1`) over "Phase 3 sub-item" for durability.
 
@@ -43,7 +43,7 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` (if p
    - Capture the porcelain output. If non-empty, surface it as the "Working-tree state at review start" note in the §6 report and (when §4 fires) include it in the §5 commit body. Surfacing what wasn't part of the just-shipped commit is the value-add; reviewer-side rather than dev-side because the dev cycle has already committed (and pushed) by the time the review starts.
    - Do NOT stash, checkout, or modify any of the dirty files. They are out-of-scope for the review.
    - The §5 stage-narrowly rule is the structural guard: stage only the spec file (plus `docs/TODO.md` if a Next-up entry was added, plus `docs/FUTURE-WORK.md` if §4 routed findings there), never `git add -A` or `git add .`. Working-tree dirt cannot accidentally ride into the review commit if §5 is followed.
-   - One exception still halts: if a dirty file is the spec file itself, `docs/TODO.md`, or `docs/FUTURE-WORK.md` (the three files this skill writes to in §4), stop. Concurrent writers on the same files is the one collision the note-and-proceed pattern doesn't survive; surface to the user and exit.
+   - One exception still halts: if a dirty file is the spec file itself, `docs/TODO.md`, `docs/FUTURE-WORK.md`, or `docs/HUMAN.md` (the four files this skill writes to in §4), stop. Concurrent writers on the same files is the one collision the note-and-proceed pattern doesn't survive; surface to the user and exit.
 3. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported summary (no SHA in that format — a commit cannot contain its own hash; correlate the top Just-shipped line to HEAD, or to the matching commit via `git log --oneline --grep`).
 4. Identify the commit under review:
    ```bash
@@ -207,12 +207,13 @@ A clean report with no findings is a success signal, not a failure to find work.
 
 ## 4. Append follow-ups to the spec + TODO.md
 
-**Route first: FUTURE-WORK.md vs spec + TODO.md.** Before filing any finding, decide the destination:
+**Route first: three destinations.** Before filing any finding, decide the destination:
 
+- **`docs/HUMAN.md`** (human-only blocker findings): findings whose proposed fix requires a human action the cycle cannot perform — writing a secret outside the repo, granting access in a third-party UI, signing a legal agreement, or anything that inherently requires out-of-band credentials. Append under `## Blocking` (cycle-stopping) or `## High` (non-blocking prerequisite) per the schema in `docs/HUMAN.md`. APPEND only; never close an existing entry. Do NOT also mirror to spec or `## Next up`.
 - **`docs/FUTURE-WORK.md`** (acceptance and smoke-test findings only): findings whose resolution requires a real chain-driver round-trip, Telegram message exchange, human-verified end-to-end smoke, or any check the dev cycle cannot perform autonomously from inside its own iteration. Append under `## Manual / human verification > ### <Phase context>` (create the sub-section if absent). One line per finding. Do NOT also mirror to spec or `## Next up` — these items sit in FUTURE-WORK.md until a human flips them back when external verification is ready.
 - **Spec + `docs/TODO.md`** (all other findings): code corrections, prose edits, schema additions, contract clarifications — work a future dev cycle can execute autonomously. File in the spec and mirror to `## Next up` per the rules below.
 
-Signs a finding belongs in FUTURE-WORK.md: the proposed fix is "run an acceptance test", "verify via a Telegram bot", "confirm with a live chain-driver run", "observe in production", or "exercise end-to-end by hand" — any fix the dev cycle cannot self-verify from inside the chain. Signs it belongs in spec + TODO: the proposed fix is a code change, a prose edit, a schema addition, or any other autonomous development task.
+Signs a finding belongs in HUMAN.md: the proposed fix is "set a secret", "grant access", "sign an agreement", or anything that requires a human with external credentials. Signs it belongs in FUTURE-WORK.md: the proposed fix is "run an acceptance test", "verify via a Telegram bot", "confirm with a live chain-driver run", "observe in production", or "exercise end-to-end by hand" — any fix the dev cycle cannot self-verify from inside the chain. Signs it belongs in spec + TODO: the proposed fix is a code change, a prose edit, a schema addition, or any other autonomous development task.
 
 **Spec.** Open the project's spec file (same one `/sst-dev-cycle` updates). Under the sub-section the cycle touched, append a **Review follow-ups** subsection. Format:
 
@@ -257,7 +258,7 @@ Order: blockers first, then should-fix, then any pre-existing entries (push pre-
 **Commit-message rule (read BEFORE composing the heredoc):** never append a `Co-Authored-By: Claude ... <noreply@anthropic.com>` trailer (or any AI-coauthor trailer variant). The heredoc body below ends at `EOF` — nothing else goes after the closing paragraph. Empirical placement-below-heredoc was being skipped by models reading top-down, so the rule lives ABOVE the template now.
 
 ```bash
-git add <spec-file> docs/TODO.md docs/FUTURE-WORK.md  # TODO.md only if you wrote a Next-up entry; FUTURE-WORK.md only if §4 routed findings there; plus any status-index file you corrected
+git add <spec-file> docs/TODO.md docs/FUTURE-WORK.md docs/HUMAN.md  # TODO.md only if you wrote a Next-up entry; FUTURE-WORK.md only if §4 routed findings there; HUMAN.md only if §4 appended a human-only blocker; plus any status-index file you corrected
 git commit -m "$(cat <<'EOF'
 Review: follow-ups from <scope>: <one-line reference to cycle>
 

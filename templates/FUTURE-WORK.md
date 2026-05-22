@@ -8,6 +8,8 @@ Parking lot for items the project is not actively working on this cycle:
 
 This file is **not picked from automatically.** The dev cycle's pick order is unchanged: `TODO.md > Next up` first, then the next unchecked item in `SPEC.md`. Entries here are surfaced only by humans (or by a human-invoked planner pass).
 
+**Distinction from `docs/HUMAN.md`:** FUTURE-WORK.md is for *deferred* work and acceptance tests the cycle can't self-verify. HUMAN.md (if the project uses it) is for *actively-blocking* human-only actions the cycle is waiting on right now — things that must happen before a specific SPEC item can proceed. "We'll look at this later" belongs here; "the cycle cannot proceed until you do this" belongs in HUMAN.md.
+
 ## Format
 
 Mirror the SPEC item ID where one exists. Group by section. One line per item; copy the original prose verbatim so it can be flipped back into `Next up` without re-authoring.

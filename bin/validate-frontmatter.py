@@ -202,6 +202,111 @@ def validate_spec_ids(spec_path: Path = SPEC_PATH) -> list[str]:
     return errors
 
 
+# ---- HUMAN.md validation (Phase 31.9) ----------------------------------------
+# Validates docs/HUMAN.md when present. Checks: canonical five-section order,
+# H-ID format, open items carry Blocks:, Verify: lines are single commands.
+# Absence of the file is not an error (optional per-project doc).
+
+_HUMAN_SECTIONS = ["## Blocking", "## High", "## Medium", "## Low", "## Done"]
+# Broad match: any checkbox bullet starting with H (captures raw token for ID check).
+_HUMAN_ITEM_BROAD_RE = re.compile(r"^- \[([ xX])\] (H\S+)")
+_HUMAN_ID_RE = re.compile(r"^H\d+\.\d+[a-z]*$")
+_HUMAN_SECTION_RE = re.compile(r"^## (.+)$")
+_HUMAN_VERIFY_RE = re.compile(r"^\s{2,}Verify:\s*(.+)$")
+_HUMAN_BLOCKS_RE = re.compile(r"^\s{2,}Blocks:\s*\S")
+
+
+def validate_human_md(path: Path) -> list[str]:
+    """Validate docs/HUMAN.md when present. Returns a list of error strings."""
+    if not path.exists():
+        return []
+
+    errors: list[str] = []
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    # 1. Canonical five sections must all be present in order.
+    found_sections: list[str] = []
+    for line in lines:
+        m = _HUMAN_SECTION_RE.match(line.rstrip())
+        if m:
+            header = f"## {m.group(1)}"
+            if header in _HUMAN_SECTIONS and header not in found_sections:
+                found_sections.append(header)
+
+    for section in _HUMAN_SECTIONS:
+        if section not in found_sections:
+            errors.append(
+                f"{path}: missing required section {section!r}"
+            )
+
+    # Check canonical order: each found section's index in _HUMAN_SECTIONS must
+    # be strictly increasing compared to the one before it.
+    prev_idx = -1
+    for section in found_sections:
+        idx = _HUMAN_SECTIONS.index(section)
+        if idx <= prev_idx:
+            errors.append(
+                f"{path}: section {section!r} is out of canonical order "
+                f"(expected order: {', '.join(_HUMAN_SECTIONS)})"
+            )
+        prev_idx = idx
+
+    # 2. Per-item checks.
+    current_item_id: str | None = None
+    item_lineno: int = 0
+    item_has_blocks: bool = False
+    open_items: list[tuple[int, str]] = []  # (lineno, H-ID) for open items
+
+    def _flush_item() -> None:
+        if current_item_id is not None and not item_has_blocks:
+            # Only open items require Blocks:
+            if any(h_id == current_item_id for _, h_id in open_items):
+                errors.append(
+                    f"{path}:{item_lineno}: open item {current_item_id!r} "
+                    f"is missing required 'Blocks:' line"
+                )
+
+    for lineno, line in enumerate(lines, 1):
+        item_m = _HUMAN_ITEM_BROAD_RE.match(line)
+        if item_m:
+            _flush_item()
+            state = item_m.group(1)
+            h_id = item_m.group(2)
+            # Validate H-ID format.
+            if not _HUMAN_ID_RE.match(h_id):
+                errors.append(
+                    f"{path}:{lineno}: invalid H-ID format {h_id!r} "
+                    f"(expected H<phase>.<n>, e.g. H3.1)"
+                )
+            current_item_id = h_id
+            current_item_is_open = (state == " ")
+            item_lineno = lineno
+            item_has_blocks = False
+            if current_item_is_open:
+                open_items.append((lineno, h_id))
+            continue
+
+        if current_item_id is not None:
+            if _HUMAN_BLOCKS_RE.match(line):
+                item_has_blocks = True
+            elif _HUMAN_VERIFY_RE.match(line):
+                verify_body = _HUMAN_VERIFY_RE.match(line).group(1).strip()
+                if "\n" in verify_body:
+                    errors.append(
+                        f"{path}:{lineno}: Verify: line must be a single command "
+                        f"(no embedded newlines)"
+                    )
+            # A new ## heading or a blank non-indented line ends the item block.
+            elif line and not line.startswith(" ") and not line.startswith("\t"):
+                _flush_item()
+                current_item_id = None
+                item_has_blocks = False
+
+    _flush_item()
+    return errors
+
+
 def main() -> int:
     if not SCHEMA_PATH.exists():
         print(f"schema not found: {SCHEMA_PATH}", file=sys.stderr)
@@ -244,6 +349,11 @@ def main() -> int:
                 total_errors += 1
 
     for e in validate_spec_ids():
+        print(e, file=sys.stderr)
+        total_errors += 1
+
+    human_md_path = REPO_ROOT / "docs" / "HUMAN.md"
+    for e in validate_human_md(human_md_path):
         print(e, file=sys.stderr)
         total_errors += 1
 

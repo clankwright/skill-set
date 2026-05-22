@@ -55,7 +55,7 @@ Read these in order, all from the run log directory passed to you (the chain run
    When a verbatim user-feedback entry and a manager-translated entry exist for related concerns, prefer the verbatim entry's wording where it's specific; the manager-translated entry's recommendation is fallback when the verbatim entry is shape-ish or absent.
 
    Earlier framework versions split these entries into `manager-guidance.md` (manager observations) + `manager-feedback.md` (user feedback). If those files still exist on this host, the next manager invocation merges them into `manager-notes.md` and archives them; until then, treat their continued presence as a transition state and read both as additional inputs with the same source-tagging semantics.
-5. **`docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md`** (if present) — for context on what the chain was working toward and what is intentionally parked.
+5. **`docs/SPEC.md`, `docs/TODO.md`, `docs/FUTURE-WORK.md`, and `docs/HUMAN.md`** (all if present) — for context on what the chain was working toward, what is intentionally parked, and what human-only actions are currently blocking the cycle.
 
 **Spec sub-item IDs.** Every `- [ ]` item in `docs/SPEC.md` carries a stable ID of the form `<phase>.<n>` before the difficulty bracket (e.g. `- [ ] 3.1 [hard] **description**`). IDs are assigned once and never renumbered — gaps from closed or removed items are valid. When writing `## Next up` follow-ups in `docs/TODO.md`, prefer citing the SPEC item by its ID (e.g. `reason: spec 3.1`) over "Phase 3 sub-item 1" for durability across renames.
 
@@ -292,6 +292,27 @@ Do not move existing entries; do not touch `## In flight` or `## Just shipped`.
 
 **Route acceptance findings to FUTURE-WORK.md instead (optional).** When a finding implies work that cannot be autonomously verified by a future dev cycle — acceptance tests requiring a real chain-driver round-trip, human-verified smoke tests, production observation — the supervisor MAY append the item to `docs/FUTURE-WORK.md` (under `## Manual / human verification` or an appropriate sub-section) instead of `## Next up`. Items in FUTURE-WORK.md are intentionally parked; a human flips them back to `## Next up` when ready. Use `## Next up` when the dev cycle can execute the work autonomously without human-in-the-loop verification.
 
+### 5b. Route to HUMAN.md for human-only blockers (when applicable)
+
+When a finding's resolution requires an action the cycle cannot perform autonomously — writing a secret outside the repo, granting access in a third-party UI (e.g. GitHub Actions secrets, cloud IAM), signing a legal agreement, or any action that inherently requires a human with credentials the cycle does not have — append to `docs/HUMAN.md` instead of `docs/TODO.md` or `docs/FUTURE-WORK.md`.
+
+Placement: default to `## Blocking` for items that actively stop a SPEC item from proceeding; use `## High` for non-blocking prerequisites the cycle would benefit from soon. Format each entry per the schema in `docs/HUMAN.md`:
+
+```
+- [ ] H<phase>.<n> [<difficulty>] **<short title>**
+  <one-paragraph body: what the human must do, where, why the cycle can't do it.>
+  Blocks: <comma-separated SPEC IDs>, or "none".
+  Verify: <optional one-line shell check; pass = supervisor/manager auto-moves to ## Done>.
+  Filed by: sst-supervisor at <utc-iso>.
+  Source: <run-dir-name>/supervisor_verdict.md.
+```
+
+Assign the next unused `H<phase>.<n>` ID where `<phase>` matches the SPEC phase the action is gating. IDs are stable once assigned; gaps are valid.
+
+**Anti-fork constraint.** The supervisor MUST NOT flip `[ ]` → `[x]` on HUMAN.md entries. Closure is human-initiated (or auto-verified by the manager skill). Write APPEND-only; never remove or modify an existing open entry.
+
+**Write-paths addendum.** The supervisor's write-paths (§Output rules) now include: **(f) `docs/HUMAN.md`** — APPEND only, under `## Blocking` or `## High`. Never close an existing entry; never modify prose outside the appended block.
+
 ### 6. Write the verdict file
 
 `<run-dir>/supervisor_verdict.md`:
@@ -405,7 +426,7 @@ Do NOT fall back to Edit/Write on `.claude/skills/` targets and accept the promp
 
 ## Output rules
 
-- **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for proprietary updates; (c) `~/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for transferable updates (runtime-effective path); (d) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for the master-repo staged sanitized copy of a transferable update; (e) `docs/TODO.md` under `## Next up` (rare). Never elsewhere.
+- **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for proprietary updates; (c) `~/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for transferable updates (runtime-effective path); (d) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for the master-repo staged sanitized copy of a transferable update; (e) `docs/TODO.md` under `## Next up` (rare); (f) `docs/HUMAN.md` — APPEND only, under `## Blocking` or `## High`, for human-only blocker findings (see §5b). Never elsewhere.
 - **Never call git.** No commits, no pushes, no branch creation. Direct overwrites to SKILL.md are left unstaged under `<cwd>/.claude/skills/` (often gitignored anyway) and staged-but-uncommitted under `~/Dev/skill-set/` so the user can open the PR with the sanitization footer from the verdict file.
 - **Never deploy.** No SSH, no service restarts, no curl against a live site.
 - **Never touch a stale `SKILL.patch.md` you didn't just write.** If this cycle had no finding for a skill that already has a sidecar, leave the sidecar alone; the user may be mid-review.

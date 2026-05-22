@@ -47,6 +47,8 @@ Contract for every cycle:
 
    If `docs/FUTURE-WORK.md` exists, also read it end-to-end. **Do not pick from it** — it is the project's parking lot for deferred work and acceptance tests requiring human verification; the pick order is unchanged.
 
+   If `docs/HUMAN.md` exists, also read it end-to-end. **Do not pick from it** — it is the project's active list of human-only blockers. The pick order is unchanged; use the file only to detect `[blocked-on-human]` conditions in step 6b below.
+
 6. **Empty-queue bail.** If ALL three conditions hold, exit 0 immediately without picking any item, writing any test, or making any commit:
    - `TODO.md`'s `## Next up (queued for next cycle)` section contains no `- ` entries (only the `<!-- ... -->` template comment, or empty); AND
    - `docs/SPEC.md` (or the project's primary spec) contains no remaining `- [ ]` checkboxes (every checkable item is `[x]`); AND
@@ -89,6 +91,25 @@ Don't ship just the primary if related siblings fit. Walk the rest of `Next up` 
 If only the primary is actionable across both surfaces, ship it alone (the primary IS the entire batch). If zero items are actionable across both surfaces, exit via the `[no-work]` bail in §0 step 6 — do NOT pad the batch with speculative work or invent a `Next up` entry to consume.
 
 Bundling *unrelated* items remains forbidden. The batch must be cohesive (sharing files / phase / concept / mechanical pattern), not just adjacent in the queue.
+
+### 6b. Blocked-on-human check (after picking the primary, before §2)
+
+After identifying the primary item's SPEC ID (the leading `<phase>.<n>` token on the item line), scan `docs/HUMAN.md` (if present) for open `## Blocking` entries whose `Blocks:` line lists that SPEC ID. Matching rules:
+
+- Read all `Blocks:` lines within open `[ ]` items in the `## Blocking` section.
+- Split the `Blocks:` value on commas and strip whitespace. Compare each token against the picked SPEC ID (exact match).
+- `Blocks: none` never matches.
+- If `docs/HUMAN.md` is absent, treat as "no blockers" and continue normally.
+
+**If a match is found:** print exactly one line on stdout and exit 0:
+
+```
+[blocked-on-human] <H-ID> <title>
+```
+
+The chain runner recognizes this sentinel, records `terminated_by: "blocked_on_human"` in `MANIFEST.json`, and aborts the loop so the chain driver can surface the block to the user. Do NOT write any test, code, or commit. Do NOT update `## In flight` or `## Just shipped` — the cycle did no work.
+
+**If no match is found:** continue to the batch-pick declaration below.
 
 ### Declare the batch BEFORE §2
 
