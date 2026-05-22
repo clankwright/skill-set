@@ -856,7 +856,11 @@ def main() -> int:
         cmd += ["--log-dir", str(log_dir)]
     cmd += list(forwarded)
 
-    # Telegram env merge.
+    # Telegram env merge. Resolution order (first match wins):
+    #   1. --telegram-env explicit file (or profile telegram-env: default)
+    #   2. Caller-exported env vars (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)
+    #   3. Base-dir fallback: <skill-set-root>/telegram.env — shared channel for all
+    #      skill-set projects that don't have a per-persona env configured.
     tg_env: dict[str, str] = {}
     if args.telegram_env:
         tg_env.update(_read_telegram_env(args.telegram_env))
@@ -864,6 +868,14 @@ def main() -> int:
     for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_PARSE_MODE"):
         if k not in tg_env and k in os.environ:
             tg_env[k] = os.environ[k]
+    # Base-dir fallback: skill-set root's telegram.env (mirrors notify-telegram.sh §3).
+    if "TELEGRAM_BOT_TOKEN" not in tg_env:
+        _base_fallback = REPO_ROOT / "telegram.env"
+        if _base_fallback.exists():
+            try:
+                tg_env.update(_read_telegram_env(_base_fallback))
+            except Exception:  # noqa: BLE001 — best-effort; malformed fallback never aborts a run
+                pass
     # Default to plain text. Chain-driver bodies (session-start / iter-close /
     # rate-limit / supervisor / session-end) interpolate raw run-dir paths,
     # ISO timestamps, and commit subjects that frequently contain `_` `*` `[`;
