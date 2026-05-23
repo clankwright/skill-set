@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.5.5
+version: 1.5.6
 model-floor: sonnet
 effort-floor: high
 ---
@@ -221,13 +221,13 @@ Signs a finding belongs in HUMAN.md: the proposed fix is "set a secret", "grant 
 
 ```markdown
 **Review follow-ups (open — schedule as the next `/sst-dev-cycle` cycle):**
-- [ ] [<difficulty>] [blocker] `<file>:<line>` — <one-sentence description>. Proposed fix: <short hint>.
-- [ ] [<difficulty>] [should-fix] `<file>:<function>` — <one-sentence description>. Proposed fix: <short hint>.
+- [ ] <phase>.<n> [<difficulty>] [blocker] `<file>:<line>` — <one-sentence description>. Proposed fix: <short hint>.
+- [ ] <phase>.<n> [<difficulty>] [should-fix] `<file>:<function>` — <one-sentence description>. Proposed fix: <short hint>.
 ```
 
 Rules:
 
-- Every entry MUST carry a difficulty label as the leading bracket immediately after the checkbox, with the severity bracket second. Difficulty is one of `[easy]` / `[medium]` / `[hard]` per the SPEC.md "Difficulty labels" appendix; the project's chain runner pre-parses it to route the next cycle's skills (`effective = max(item_tier, skill_floor)` per axis). Closed `[x]` items don't carry the label (historical).
+- Every entry MUST start with a stable `<phase>.<n>` sub-item ID immediately after the checkbox, then the difficulty bracket, then the severity bracket. The ID belongs to the same Phase header the **Review follow-ups** subsection lives under; pick the next unused `<n>` in that phase (gaps from closed items are valid — do not renumber). `bin/validate-frontmatter.py` rejects any checkbox bullet in `docs/SPEC.md` that lacks this ID in the correct position, so a missing or mis-ordered ID is a CI failure. Difficulty is one of `[easy]` / `[medium]` / `[hard]` per the SPEC.md "Difficulty labels" appendix; the project's chain runner pre-parses it to route the next cycle's skills (`effective = max(item_tier, skill_floor)` per axis). Closed `[x]` items don't carry the label (historical).
 - Only `[blocker]` and `[should-fix]` severities go here. No nice-to-have / nitpick / cosmetic items — if you can't justify why it causes a real bug, security risk, or major confusion, don't file it.
 - One checkbox per finding; do not bundle. A later `/sst-dev-cycle` will pick the top unchecked item (or a bundled chunk, if it uses a chunk-sizing rule).
 - Order by severity (blocker → should-fix), then by file/line. Difficulty is independent of severity and does not affect ordering.
