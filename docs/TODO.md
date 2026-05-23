@@ -45,5 +45,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [medium] [should-fix] 32.2 `sst-promote-skill-proposal/SKILL.md` — flip matching HUMAN.md entry [x] after sidecar promotion; manager-less projects accumulate stale open entries without this — review of 055d927
 
 
