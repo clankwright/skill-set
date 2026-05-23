@@ -23,6 +23,7 @@
   phase blocks and `git log`.
 -->
 
+- 32.1 [medium] sst-supervisor §5b sidecar-promotion routing to HUMAN.md ##High (Blocks: none, Verify: test ! -e, auto-clear path) + sst-manager §3b discarded-sidecar auto-close rule + templates/HUMAN.md pending-sidecar entry shape; sst-supervisor v1.12.0→v1.13.0, sst-manager v1.14.1→v1.14.2; +9 tests (113→122 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T16:20:00Z
 - 33.1-33.5+34.3 [medium] Phase 33: bin/notify-human-md.sh (snapshot-diff, delta, send) + write-then-notify contract on sst-supervisor/sst-dev-review/sst-manager + anti-fork carve-outs + templates/HUMAN.md format note; +12 tests (101→113 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T15:30:00Z
 - 34.6 [easy] extract _resolve_tg_env helper from drive-chain.py main() + tests/test_drive_chain_telegram.py (3 tests: base-dir fires, --telegram-env beats, BOT_TOKEN beats); +3 tests (98→101 green) — by sst-dev-cycle at 2026-05-23T14:15:00Z
 - 34.1+34.2+34.4+34.5 [easy] Telegram base-dir fallback: notify-telegram.sh (graceful skip + ~/Dev/skill-set/telegram.env fallback), drive-chain.py (REPO_ROOT fallback), sst-manager §0.4 optional telegram-env + fallback chain, .gitignore + README.md + CLAUDE.md docs; +4 tests (94→98 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T00:15:00Z
