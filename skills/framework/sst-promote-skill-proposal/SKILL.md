@@ -2,7 +2,7 @@
 name: sst-promote-skill-proposal
 description: User-gated promotion of a supervisor-written SKILL.patch.md sidecar into a real SKILL.md. Scans the current project and harness skills dir for pending sidecars, lets the user pick one, shows the diff, and (on confirmation) replaces the target SKILL.md with the sidecar's content. Never auto-promotes; never crosses the proprietary→transferable boundary without re-running the leak check. Used when a chain ran with auto-promote turned off (or for any transferable skill whose auto-promote was blocked by sanitization findings).
 user-invocable: true
-version: 1.1.1
+version: 1.1.2
 model-floor: haiku
 effort-floor: medium
 ---
@@ -66,6 +66,16 @@ mv <sidecar-SKILL.patch.md> <target-SKILL.md>
 ```
 
 A single atomic rename: the sidecar becomes the new `SKILL.md`; the prior `SKILL.md` content is discarded (recoverable from git history). The sidecar's frontmatter must already carry the bumped `version:` per SemVer (the supervisor does this when it writes the sidecar). If the version looks wrong (unchanged or un-bumped), warn the user before `mv`-ing.
+
+### 6b. Close matching HUMAN.md entries
+
+After the `mv`, the sidecar file no longer exists. If `<cwd>/docs/HUMAN.md` is present, scan it for open `- [ ]` entries in `## High`, `## Medium`, or `## Low` whose `Verify:` line is exactly `test ! -e <sidecar-path>` (where `<sidecar-path>` is the absolute path of the sidecar before the rename). For each match, flip `- [ ]` to `- [x]` in the file. Then call:
+
+```bash
+bash bin/notify-human-md.sh <cwd> docs/HUMAN.md
+```
+
+This closes the pending-sidecar HUMAN.md entry the supervisor filed when it created the sidecar, so manager-less projects don't accumulate stale open entries for sidecars that were already promoted. If `docs/HUMAN.md` is absent or no entries match, skip this step silently.
 
 ### 7. Stage (don't commit)
 
