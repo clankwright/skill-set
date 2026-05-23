@@ -23,6 +23,7 @@
   phase blocks and `git log`.
 -->
 
+- 32.3 [easy] sst-promote-skill-proposal §6b: replace "absolute path" with "sidecar path in the same form used when discovering it — do not expand ~ before comparing"; v1.1.2→v1.1.3; +1 test (126→127 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T20:30:00Z
 - 32.2 [medium] sst-promote-skill-proposal §6b: scan docs/HUMAN.md for open Verify:test!-e entries matching the promoted sidecar, flip to [x], call bin/notify-human-md.sh; v1.1.1→v1.1.2; +4 tests (122→126 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T18:10:00Z
 - 32.1 [medium] sst-supervisor §5b sidecar-promotion routing to HUMAN.md ##High (Blocks: none, Verify: test ! -e, auto-clear path) + sst-manager §3b discarded-sidecar auto-close rule + templates/HUMAN.md pending-sidecar entry shape; sst-supervisor v1.12.0→v1.13.0, sst-manager v1.14.1→v1.14.2; +9 tests (113→122 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T16:20:00Z
 - 33.1-33.5+34.3 [medium] Phase 33: bin/notify-human-md.sh (snapshot-diff, delta, send) + write-then-notify contract on sst-supervisor/sst-dev-review/sst-manager + anti-fork carve-outs + templates/HUMAN.md format note; +12 tests (101→113 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T15:30:00Z
@@ -46,5 +47,4 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 32.3 `sst-promote-skill-proposal/SKILL.md:§6b` — path-form ambiguity ("absolute path") vs. tilde notation in supervisor-written Verify line may cause silent HUMAN.md match failure on promotion — review of e9c8d32
 

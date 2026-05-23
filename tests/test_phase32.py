@@ -198,3 +198,36 @@ def test_promote_skill_calls_notify_human_md():
         "sst-promote-skill-proposal must call bin/notify-human-md.sh after "
         "flipping the matching HUMAN.md entry to [x] (SPEC 32.2)"
     )
+
+
+# ── SPEC 32.3: §6b match criterion must not say "absolute path" ───────────────
+
+def test_promote_skill_6b_match_uses_discovered_form_not_absolute():
+    """SPEC 32.3: §6b match criterion must NOT say 'absolute path' for the sidecar-path
+    comparison; it must instruct the skill to match in the same form the path was
+    discovered (i.e. do not expand ~ before comparing), to avoid silent match failure
+    when the supervisor writes tilde notation in the Verify: line."""
+    content = _SST_PROMOTE.read_text()
+    # Find §6b section
+    section_6b = content.find("### 6b.")
+    assert section_6b != -1, "sst-promote-skill-proposal must have a ### 6b. section"
+    next_section = content.find("\n### ", section_6b + 1)
+    prose_6b = content[section_6b:next_section] if next_section != -1 else content[section_6b:]
+    # Must NOT say "absolute path" as the comparison criterion
+    assert "absolute path" not in prose_6b.lower(), (
+        "sst-promote-skill-proposal §6b must not say 'absolute path' in the match criterion "
+        "— the supervisor writes tilde notation; 'absolute path' causes silent mismatch "
+        "(SPEC 32.3)"
+    )
+    # Must say something about not expanding ~ / discovered form
+    has_tilde_note = (
+        "do not expand" in prose_6b.lower()
+        or "tilde" in prose_6b.lower()
+        or "same form" in prose_6b.lower()
+        or "discovered" in prose_6b.lower()
+    )
+    assert has_tilde_note, (
+        "sst-promote-skill-proposal §6b must instruct the skill to match in the same form "
+        "the path was discovered (e.g. 'do not expand ~') so tilde notation in the supervisor's "
+        "Verify: line is matched correctly (SPEC 32.3)"
+    )
