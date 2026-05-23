@@ -152,6 +152,85 @@ def test_run_skill_with_retry_cold_when_no_session_id_in_record():
         "no session_id in first record means retry must fall back to cold start"
 
 
+def test_run_skill_with_retry_post_pause_delay_flat():
+    """A configured flat loop_delay fires as a post-pause sleep before retrying."""
+    h = ClaudeCodeHarness()
+    pause_records: list = []
+    call_kwargs: list = []
+
+    first = (1, {"rate_limit_signal": {"type": "max_usage", "status": "rejected"}})
+    fake = _make_fake_run_skill(call_kwargs, first)
+
+    sleep_calls: list[float] = []
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch.object(sc.time, "sleep", side_effect=sleep_calls.append):
+        rc, _ = run_skill_with_retry(
+            h, "sst-dev-cycle", 0, None,
+            on_rate_limit="pause",
+            max_pause_seconds=3600,
+            max_pauses=3,
+            pause_records=pause_records,
+            loop_delay=42.0,
+        )
+
+    assert rc == 0
+    assert 42.0 in sleep_calls, \
+        f"expected post-pause flat delay 42.0 in sleep calls; got {sleep_calls!r}"
+    assert pause_records[0].get("post_pause_delay") == 42.0
+
+
+def test_run_skill_with_retry_post_pause_delay_random():
+    """A configured loop_delay_random samples a post-pause sleep from [min, max]."""
+    h = ClaudeCodeHarness()
+    pause_records: list = []
+    call_kwargs: list = []
+
+    first = (1, {"rate_limit_signal": {"type": "max_usage", "status": "rejected"}})
+    fake = _make_fake_run_skill(call_kwargs, first)
+
+    sleep_calls: list[float] = []
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch.object(sc.time, "sleep", side_effect=sleep_calls.append), \
+         mock.patch.object(sc.random, "uniform", return_value=123.4):
+        rc, _ = run_skill_with_retry(
+            h, "sst-dev-cycle", 0, None,
+            on_rate_limit="pause",
+            max_pause_seconds=3600,
+            max_pauses=3,
+            pause_records=pause_records,
+            loop_delay_random=(60.0, 600.0),
+        )
+
+    assert rc == 0
+    assert 123.4 in sleep_calls, \
+        f"expected sampled post-pause delay 123.4 in sleep calls; got {sleep_calls!r}"
+    assert pause_records[0].get("post_pause_delay") == 123.4
+
+
+def test_run_skill_with_retry_no_post_pause_delay_when_unset():
+    """With no loop_delay configured, no post-pause delay is recorded or slept."""
+    h = ClaudeCodeHarness()
+    pause_records: list = []
+    call_kwargs: list = []
+
+    first = (1, {"rate_limit_signal": {"type": "max_usage", "status": "rejected"}})
+    fake = _make_fake_run_skill(call_kwargs, first)
+
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch("time.sleep"):
+        rc, _ = run_skill_with_retry(
+            h, "sst-dev-cycle", 0, None,
+            on_rate_limit="pause",
+            max_pause_seconds=3600,
+            max_pauses=3,
+            pause_records=pause_records,
+        )
+
+    assert rc == 0
+    assert "post_pause_delay" not in pause_records[0], \
+        "unset loop_delay must not record a post_pause_delay key"
+
+
 # ---- [blocked-on-human] sentinel (Phase 31.8) --------------------------------
 
 def test_blocked_on_human_sentinel_re_exists():
