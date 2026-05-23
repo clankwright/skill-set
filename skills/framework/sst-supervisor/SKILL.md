@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.12.0
+version: 1.13.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -308,6 +308,25 @@ Placement: default to `## Blocking` for items that actively stop a SPEC item fro
 ```
 
 Assign the next unused `H<phase>.<n>` ID where `<phase>` matches the SPEC phase the action is gating. IDs are stable once assigned; gaps are valid.
+
+**Sidecar-promotion routing.** When writing a transferable `SKILL.patch.md` sidecar — any case in the routing table that produces a sidecar for a transferable skill (auto-promote `off` or `proprietary`, or `all` with sanitization blocked) — ALSO append to `docs/HUMAN.md` under `## High` immediately after the sidecar write. This is NOT a `## Blocking` entry: an unpromoted sidecar is a should-do, not a cycle-stopper; routing it to `## Blocking` would wrongly trip the `sst-dev-cycle §6b` bail. Format:
+
+```
+- [ ] H<phase>.<n> [easy] **Promote <transferable-skill-name> sidecar to transferable**
+  A supervisor-authored transferable improvement is waiting as a sidecar at
+  `<sidecar-path>`. Run `/sst-promote-skill-proposal` to review and apply it.
+  Blocks: none
+  Verify: test ! -e <sidecar-path>
+  Filed by: sst-supervisor at <utc-iso>.
+  Source: <run-dir-name>/supervisor_verdict.md.
+```
+
+Use `<phase>` matching the SPEC phase associated with the skill improvement. If the sidecar is not tied to any specific SPEC item, use `H0.<n>` (framework-level, not phase-specific). These entries are always `[easy]` — the human action is a single slash-command invocation.
+
+**Auto-clear path.** The sidecar HUMAN entry resolves in one of two ways:
+
+- **Promotion (normal):** the human runs `/sst-promote-skill-proposal`, which applies the sidecar and removes the `SKILL.patch.md` file. The human then flips the entry to `[x]`. The manager's §3b auto-verify step runs `test ! -e <sidecar-path>` on the next tick; it passes, so the entry moves to `## Done`.
+- **Discarded (manager close rule):** if the sidecar is deleted without promotion (e.g., the proposed change was judged unnecessary), the manager's §3b discarded-sidecar auto-close detects that the `Verify:` passes on the open `## High` entry and auto-closes it. This prevents `docs/HUMAN.md` from accumulating stale entries for improvements that were discarded rather than promoted. See `sst-manager §3b` for the discarded-sidecar auto-close rule.
 
 **Anti-fork constraint.** The supervisor MUST NOT flip `[ ]` → `[x]` on HUMAN.md entries. Closure is human-initiated (or auto-verified by the manager skill). Write APPEND-only; never remove or modify an existing open entry.
 

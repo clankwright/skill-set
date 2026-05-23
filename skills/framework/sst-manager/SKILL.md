@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Three modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, reads docs/HUMAN.md for active blockers (fires immediate Telegram alerts for new Blocking entries and auto-verifies Verify: lines on closed items), sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus docs/HUMAN.md plus the most recent run log, decides one of five outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, HUMAN.md blocker entry, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.14.1
+version: 1.14.2
 ---
 
 # Manager
@@ -279,6 +279,8 @@ The cursor field stays set across ticks until the queue or SPEC re-fills, at whi
 2. If any entries were moved to `## Done`, write the modified `docs/HUMAN.md` back (the whole file, preserving all other content). After writing back, invoke the notification helper: `bash bin/notify-human-md.sh <project-path> <project-path>/docs/HUMAN.md`. Missing Telegram env → graceful skip (exit 0); never block the manager for a notification failure.
 
 Anti-fork: auto-verify is the ONLY path that moves entries to `## Done`. The human's `[ ]` → `[x]` flip is a prerequisite; the manager only runs the `Verify:` check after the human has closed the item. Never auto-move an entry that the human has not yet closed.
+
+**Discarded-sidecar auto-close (exception to the human-flip prerequisite).** For open `[ ]` entries in `## High`, `## Medium`, or `## Low` (NOT `## Blocking`) whose `Verify:` line is a sidecar-absence check (i.e., `test ! -e <path>` or equivalent), if the verify passes (the sidecar file is gone), the manager MAY auto-flip the entry to `[x]` and then run the standard auto-verify path to move it to `## Done`. This covers the case where a sidecar was deleted or discarded without promotion: the sidecar is gone (the blocker resolved itself), so the HUMAN entry is stale. Rationale: a sidecar-absence check is unambiguous evidence of resolution; no other interpretation is possible. `## Blocking` entries are excluded from this auto-close because cycle-stopping items should always involve a human acknowledgment, not a silent auto-close. After auto-closing, invoke `bash bin/notify-human-md.sh <project-path> <project-path>/docs/HUMAN.md` to notify.
 
 ### 4. Compose the digest
 
