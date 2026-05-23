@@ -951,6 +951,8 @@ def run_skill_with_retry(
     effort: str | None = None,
     extra_prompt: str = "",
     log_stem_override: str | None = None,
+    loop_delay: float = 0.0,
+    loop_delay_random: tuple[float, float] | None = None,
 ) -> tuple[int, dict]:
     """Run a skill with rate-limit pause-and-resume.
 
@@ -961,6 +963,14 @@ def run_skill_with_retry(
     `--resume <session_id>` so the agent picks up mid-skill instead of
     restarting from scratch. Aborts after `max_pauses` retries on the same
     skill or when `pause-with-cap` exceeds `max_pause_seconds`.
+
+    After the rate-limit sleep ends and before retrying the skill, an
+    additional human-like delay drawn from `loop_delay_random` (or a flat
+    `loop_delay`) is applied so the post-pause retry doesn't fire on a
+    machine-perfect schedule. Reuses the same knobs as the inter-iter sleep
+    so a chain configured with `loop-delay-random: [a, b]` gets matching
+    cadence on both inter-iter boundaries and post-pause resumes. The
+    sampled value is recorded as `pause_record["post_pause_delay"]`.
 
     pause_records is mutated in place with one entry per executed pause so
     run_iteration can fold them into the iteration manifest.
@@ -1066,6 +1076,33 @@ def run_skill_with_retry(
         # overwrites the canonical names. Uses retry_count - 1 so the first
         # failure becomes .retry-0, the second .retry-1, etc.
         _archive_attempt(log_dir, index, skill_name, retry_count - 1)
+
+        # Post-pause human-like delay before retrying. Same knobs as the
+        # inter-iter sleep: a configured loop_delay_random samples from
+        # [min, max]; a flat loop_delay applies as a fixed wait; zero on
+        # both is a no-op. KeyboardInterrupt during this sleep propagates
+        # up the same way the rate-limit sleep above does.
+        post_pause_sleep = 0.0
+        if loop_delay_random is not None:
+            post_pause_sleep = random.uniform(loop_delay_random[0], loop_delay_random[1])
+        elif loop_delay > 0:
+            post_pause_sleep = loop_delay
+        if post_pause_sleep > 0:
+            if loop_delay_random is not None:
+                print(c(
+                    f"[rate-limit] post-pause delay {post_pause_sleep:.1f}s "
+                    f"(sampled from [{loop_delay_random[0]:g}, {loop_delay_random[1]:g}]) "
+                    f"before retrying /{skill_name}",
+                    DIM,
+                ), flush=True)
+            else:
+                print(c(
+                    f"[rate-limit] post-pause delay {post_pause_sleep:.1f}s "
+                    f"before retrying /{skill_name}",
+                    DIM,
+                ), flush=True)
+            pause_record["post_pause_delay"] = round(post_pause_sleep, 1)
+            time.sleep(post_pause_sleep)
 
 
 def _utc_iso() -> str:
@@ -1275,6 +1312,8 @@ def run_iteration(
     on_rate_limit: str = DEFAULT_ON_RATE_LIMIT,
     max_pause_seconds: int = DEFAULT_MAX_RATE_LIMIT_PAUSE_SECONDS,
     max_pauses: int = DEFAULT_MAX_PAUSES_PER_SESSION,
+    loop_delay: float = 0.0,
+    loop_delay_random: tuple[float, float] | None = None,
 ) -> tuple[int, dict]:
     """Run one pass of the chain. Returns (exit_code, iteration_manifest).
 
@@ -1369,6 +1408,8 @@ def run_iteration(
             pause_records=iter_manifest["rate_limit_pauses"],
             model=eff_model,
             effort=eff_effort,
+            loop_delay=loop_delay,
+            loop_delay_random=loop_delay_random,
         )
         record["route"] = route_record
         if skill == auto_supervisor:
@@ -1687,6 +1728,8 @@ def main() -> int:
                 on_rate_limit=on_rate_limit,
                 max_pause_seconds=max_pause_seconds,
                 max_pauses=max_pauses,
+                loop_delay=loop_delay,
+                loop_delay_random=loop_delay_random,
             )
             iterations_collected.append(iter_manifest)
 
