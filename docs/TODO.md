@@ -46,4 +46,5 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 32.3 `sst-promote-skill-proposal/SKILL.md:§6b` — path-form ambiguity ("absolute path") vs. tilde notation in supervisor-written Verify line may cause silent HUMAN.md match failure on promotion — review of e9c8d32
 
