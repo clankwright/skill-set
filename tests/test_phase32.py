@@ -1,8 +1,10 @@
-"""Tests for Phase 32.1: supervisor routes unpromoted transferable sidecars into HUMAN.md."""
+"""Tests for Phase 32: supervisor routes unpromoted transferable sidecars into HUMAN.md,
+and sst-promote-skill-proposal flips matching HUMAN.md entries on promotion."""
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent
 _SST_SUPERVISOR = _REPO_ROOT / "skills/framework/sst-supervisor/SKILL.md"
+_SST_PROMOTE = _REPO_ROOT / "skills/framework/sst-promote-skill-proposal/SKILL.md"
 _SST_MANAGER = _REPO_ROOT / "skills/framework/sst-manager/SKILL.md"
 _TEMPLATES_HUMAN_MD = _REPO_ROOT / "templates/HUMAN.md"
 
@@ -137,4 +139,62 @@ def test_supervisor_5b_has_discard_close_rule():
         "sst-supervisor §5b or sst-manager must document a close rule "
         "for when the sidecar file is discarded/deleted rather than promoted "
         "(e.g. 'discarded sidecar', 'sidecar is deleted', etc.)"
+    )
+
+
+# ── SPEC 32.2: sst-promote-skill-proposal flips matching HUMAN.md entry [x] ──
+
+def test_promote_skill_scans_human_md_after_mv():
+    """SPEC 32.2: after the mv promotion step, the skill must scan docs/HUMAN.md
+    for open entries whose Verify line matches the just-promoted sidecar path."""
+    content = _SST_PROMOTE.read_text()
+    # The skill must mention scanning/checking HUMAN.md after promotion
+    lower = content.lower()
+    has_human_md_scan = (
+        "human.md" in lower
+        and ("verify" in lower or "test ! -e" in lower)
+    )
+    assert has_human_md_scan, (
+        "sst-promote-skill-proposal must scan docs/HUMAN.md for matching Verify entries "
+        "after the mv promotion step (SPEC 32.2)"
+    )
+
+
+def test_promote_skill_flips_matching_entry_to_x():
+    """SPEC 32.2: the skill must flip matching open [ ] entries to [x]."""
+    content = _SST_PROMOTE.read_text()
+    lower = content.lower()
+    # Must describe flipping [ ] to [x]
+    has_flip = (
+        "[ ]" in content and "[x]" in content
+        and ("flip" in lower or "mark" in lower or "close" in lower or "set" in lower)
+    ) or "flip" in lower or "[x]" in content
+    # Specifically the promote skill must mention updating/flipping entries in HUMAN.md
+    has_human_update = "human.md" in lower and (
+        "[x]" in content
+        or "flip" in lower
+        or "mark" in lower
+        or "close" in lower
+    )
+    assert has_human_update, (
+        "sst-promote-skill-proposal must flip matching HUMAN.md entries to [x] "
+        "after promotion (SPEC 32.2)"
+    )
+
+
+def test_promote_skill_matches_on_verify_test_not_e():
+    """SPEC 32.2: the skill must match on Verify: test ! -e <sidecar-path> entries."""
+    content = _SST_PROMOTE.read_text()
+    assert "test ! -e" in content, (
+        "sst-promote-skill-proposal must match open HUMAN.md entries by their "
+        "'Verify: test ! -e <sidecar-path>' line (SPEC 32.2)"
+    )
+
+
+def test_promote_skill_calls_notify_human_md():
+    """SPEC 32.2: the skill must call bin/notify-human-md.sh after flipping entries."""
+    content = _SST_PROMOTE.read_text()
+    assert "notify-human-md.sh" in content, (
+        "sst-promote-skill-proposal must call bin/notify-human-md.sh after "
+        "flipping the matching HUMAN.md entry to [x] (SPEC 32.2)"
     )
