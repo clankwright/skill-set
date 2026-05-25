@@ -44,6 +44,8 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 35.14 `skills/framework/sst-supervisor/SKILL.md` inline sanitize bypass on 35.13 change (005477c): retroactive `/sst-sanitize-transferable` + "Sanitize: must-fix=N" record — review of 005477c (group with inline-sanitize-bypass)
+- [easy] [should-fix] 35.15 `skills/dev/sst-dev-review/SKILL.md` inline sanitize bypass in 35.11 closure (005477c): retroactive `/sst-sanitize-transferable` + "Sanitize: must-fix=N" record — review of 005477c (group with inline-sanitize-bypass)
 - 35.2 [medium] bin/manager-bot.py reshape into dispatcher: lift spawn_on_demand_manager to general spawn_manager_for_command, drop inline /ping-/status-/projects fulfillment, route every project-scoped verb through a one-time manager spawn in the project cwd. — SPEC Phase 35
 - 35.3 [easy] dispatcher project-cwd resolution via `_discover_manager_personas`; spawn manager with `cwd=project_cwd`. — SPEC Phase 35
 - 35.5 [easy] bot startup log broadens to "on-demand command routing enabled (verbs: ...)"; queue-only fallback when MANAGER_SKILL_NAME is unset. — SPEC Phase 35
