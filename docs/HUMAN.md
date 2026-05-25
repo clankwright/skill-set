@@ -19,6 +19,18 @@ Each entry is a checkbox bullet whose ID has the form `H<phase>.<n>` (e.g. `H3.1
 
 (Important but not actively blocking the cycle. The dev cycle continues past these unless picked-item gating exists.)
 
+- [ ] H35.3 [easy] **Promote sst-dev-review sidecar to transferable**
+  A supervisor-authored transferable improvement is waiting as a sidecar at
+  `/home/rob/Dev/skill-set/skills/dev/sst-dev-review/SKILL.patch.md`. Run
+  `/sst-promote-skill-proposal` to review and apply it. The patch adds one
+  Pitfalls bullet about verifying parser/runner claims by reading the code
+  before filing a finding (motivated by iter_07's false-positive parser claim
+  on `docs/TODO.md:47`).
+  Blocks: none
+  Verify: test ! -e /home/rob/Dev/skill-set/skills/dev/sst-dev-review/SKILL.patch.md
+  Filed by: skill-set-supervisor at 2026-05-25T10:30:00Z.
+  Source: 2026-05-25T07-22-35Z_skill-set-cycle/iter_07/supervisor_verdict.md.
+
 ## Medium
 
 ## Low
