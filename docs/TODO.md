@@ -45,6 +45,7 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 36.3 `templates/SPEC.md:126-133` contract_violation manifest shape mismatch: template uses `"reason"`/`"signals"`, runner emits `"kind"` with no signals key — review of 6ada821
 - 35.6 [medium] dispatcher-lifecycle decision (always-on vs chain-bound); Phase 35 removes the Phase 18 inbound-noise rationale because every spawn re-reads project state — recommend flipping to always-on, update Phase 18 follow-ups + drive-chain.py + CLAUDE.md + README accordingly. — SPEC Phase 35
 - 35.8 [medium] end-to-end integration test under tests/test_manager_bot.py + fixture project: simulate bot → queue → mock manager spawn → mock notify-telegram capture; parameterize over each verb; assert unknown-persona refuse path doesn't spawn. — SPEC Phase 35
 
