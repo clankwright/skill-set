@@ -43,4 +43,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 37.1 `docs/SPEC.md:81` — stale "Closed phases" prose says compress-inline but current convention archives to COMPLETED.md — review of 77d17de
+
 

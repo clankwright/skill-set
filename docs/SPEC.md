@@ -120,3 +120,8 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 ### Phase 20 (deferred): `goose-cerebras` harness + portability proof
 
 Moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-20-deferred-goose-cerebras-harness--portability-proof). Re-pick conditions are documented there.
+
+### Phase 37: handoff-doc prose alignment
+
+**Review follow-ups (open — schedule as the next `/skill-set-dev` cycle):**
+- [ ] [easy] [should-fix] `docs/SPEC.md:81` — The "SPEC.md shape" description says "Closed phases get a 1-paragraph context + a tight bulleted change log (one line per item, not a paragraph each). Phases that drift toward novella-length should be compressed back" — but commit `77d17de` archived all closed phases to `docs/COMPLETED.md`. A dev reading line 81 would expect compressed-inline closed phases in SPEC.md, not an archive file. Proposed fix: update the description to say completed phases are archived to `docs/COMPLETED.md` once closed, with consuming projects keeping closed phases inline (compressed) until the file grows large enough to warrant an archive.
