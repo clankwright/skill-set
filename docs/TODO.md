@@ -12,6 +12,7 @@
 
 
 
+
 ## Just shipped (last cycle)
 
 <!--
@@ -25,6 +26,7 @@
   phase blocks and `git log`.
 -->
 
+- 36.2 [easy] templates/SPEC.md: added "### Incomplete-cycle contract violation" section after "### Blocked-on-human bail" documenting runner signal, manifest shape, and chain-driver reporting guidance — by skill-set-dev at 2026-05-25T17:00:11Z
 - 35.2+35.3+35.5 [medium] bin/manager-bot.py reshaped into dispatcher: spawn_manager_for_command (--process-command, cwd from persona), _route_via_dispatcher helper, inline /ping/help/projects only, all project-scoped verbs dispatched; startup log broadened; 60 tests green — by skill-set-dev at 2026-05-25T14:08:33Z
 - 35.15 [easy] retroactive /sst-sanitize-transferable on sst-dev-review/SKILL.md (005477c inline bypass): Sanitize: must-fix=0, should-fix=0, nit=0 — by skill-set-dev at 2026-05-25T13:32:53Z
 - 36.1 [medium] Phase 36: runner-level incomplete-cycle enforcement in bin/skill-chain.py; _incomplete_cycle_detected helper + run_iteration check + main() terminated_by; 9 new tests (25 total green) — by skill-set-dev at 2026-05-25T12:43:24Z
@@ -34,7 +36,6 @@
 - 35.13 [easy] sst-supervisor §0.5.3 fast-path keyword scan: word-boundary anchoring on ERROR/FAIL/Traceback/Exception; v1.13.0→v1.13.1; Inline sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T08:25:12Z
 - 35.12 [easy] sst-dev-review template retroactive spec item (415ac81): <phase>.<n> ID before difficulty bracket; inline sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T08:25:12Z
 - 35.11 [easy] retroactive sst-sanitize-transferable on sst-dev-review/SKILL.md (415ac81); inline sanitize: must-fix=0 + retroactive spec item 35.12 added — by skill-set-dev at 2026-05-25T08:25:12Z
-- 35.9 [easy] Phase 29 spec item 29.3 added for post-pause jitter (3f1d716); handoff-doc omission resolved — by skill-set-dev at 2026-05-25T08:25:12Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -44,7 +45,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 36.2 `templates/SPEC.md:117` contract_violation terminated_by not documented in templates alongside no_work_bail/blocked_on_human — review of 16ed652
 - 35.6 [medium] dispatcher-lifecycle decision (always-on vs chain-bound); Phase 35 removes the Phase 18 inbound-noise rationale because every spawn re-reads project state — recommend flipping to always-on, update Phase 18 follow-ups + drive-chain.py + CLAUDE.md + README accordingly. — SPEC Phase 35
 - 35.8 [medium] end-to-end integration test under tests/test_manager_bot.py + fixture project: simulate bot → queue → mock manager spawn → mock notify-telegram capture; parameterize over each verb; assert unknown-persona refuse path doesn't spawn. — SPEC Phase 35
 

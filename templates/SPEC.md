@@ -115,3 +115,30 @@ When `docs/HUMAN.md` is present AND the picked item's SPEC ID appears in any ope
 ```
 
 The chain runner (`bin/skill-chain.py`) recognizes this sentinel, records `iter_manifest["blocked_on_human"] = {"skill": "<name>", "reason": "<H-ID> <title>"}`, and sets `manifest["loop"]["terminated_by"] = "blocked_on_human"`. No commit, no review, no supervisor. The chain driver's session-end report should surface the H-ID and title so the user knows what action is required.
+
+### Incomplete-cycle contract violation
+
+When the dev skill exits with `[ok]` (rc == 0) but no commit landed (git SHA unchanged) and `docs/TODO.md` shows evidence of incomplete work — either an active `## In flight` bullet OR a `Sanitize: must-fix=PENDING` placeholder — the chain runner detects a contract violation and aborts the loop. This fires when the dev skill exits mid-cycle after invoking a sub-skill (e.g. `sst-sanitize-transferable`) but before completing `§6 + §7` (SPEC + TODO update + commit + push).
+
+The runner emits `[contract-violation: incomplete-cycle]` on stderr, records:
+
+```json
+{
+  "iter_manifest": {
+    "contract_violation": {
+      "reason": "incomplete-cycle",
+      "signals": ["in_flight_bullet"] 
+    }
+  }
+}
+```
+
+and sets `manifest["loop"]["terminated_by"] = "contract_violation"` in the top-level loop manifest before breaking the outer loop.
+
+Detection signals (either triggers the check):
+- `## In flight` bullet present in `docs/TODO.md` — the dev wrote the in-flight line but never cleared it on close.
+- `Sanitize: must-fix=PENDING` anywhere in `docs/TODO.md` — the retroactive-attestation reorder (Defense 4 in the dev skill) staged the SPEC + TODO but the PENDING placeholder was never replaced.
+
+The check fires only when all of: dev skill exited rc == 0, git SHA before == git SHA after, no `[no-work]` or `[blocked-on-human]` sentinel was captured. On detection the runner skips the review and supervisor for that iteration and terminates the loop. The next cycle's pre-flight (`§0.2 carve-outs`) handles the dirty working tree left behind.
+
+A chain driver's session-end report should label the stop "contract violation (incomplete cycle)" and surface the `signals` array so the operator can distinguish from a clean bail.
