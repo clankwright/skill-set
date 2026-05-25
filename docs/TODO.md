@@ -44,6 +44,7 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 36.2 `templates/SPEC.md:117` contract_violation terminated_by not documented in templates alongside no_work_bail/blocked_on_human — review of 16ed652
 - 35.6 [medium] dispatcher-lifecycle decision (always-on vs chain-bound); Phase 35 removes the Phase 18 inbound-noise rationale because every spawn re-reads project state — recommend flipping to always-on, update Phase 18 follow-ups + drive-chain.py + CLAUDE.md + README accordingly. — SPEC Phase 35
 - 35.8 [medium] end-to-end integration test under tests/test_manager_bot.py + fixture project: simulate bot → queue → mock manager spawn → mock notify-telegram capture; parameterize over each verb; assert unknown-persona refuse path doesn't spawn. — SPEC Phase 35
 
