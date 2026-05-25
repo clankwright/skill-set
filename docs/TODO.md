@@ -43,6 +43,9 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 35.9 bin/skill-chain.py: add Phase 29 spec item (29.3) for post-pause jitter shipped in 3f1d716 without spec item or SPEC/TODO update; update TODO.md. — review of 3f1d716 (group with handoff-doc-omission)
+- [medium] [should-fix] 35.10 sst-wiki-curator/SKILL.md: add spec block for v1.1.0 13-feature promotion (c20ff96) with no spec item or SPEC/TODO update; Phase 23 covers v1.0.0 only. — review of c20ff96 (group with handoff-doc-omission)
+- [easy] [should-fix] 35.11 sst-dev-review/SKILL.md: run sst-sanitize-transferable on current body (missing attestation in 415ac81); add retroactive spec item for template format fix; update TODO.md. — review of 415ac81 (group with handoff-doc-omission)
 - 35.2 [medium] bin/manager-bot.py reshape into dispatcher: lift spawn_on_demand_manager to general spawn_manager_for_command, drop inline /ping-/status-/projects fulfillment, route every project-scoped verb through a one-time manager spawn in the project cwd. — SPEC Phase 35
 - 35.3 [easy] dispatcher project-cwd resolution via `_discover_manager_personas`; spawn manager with `cwd=project_cwd`. — SPEC Phase 35
 - 35.5 [easy] bot startup log broadens to "on-demand command routing enabled (verbs: ...)"; queue-only fallback when MANAGER_SKILL_NAME is unset. — SPEC Phase 35
