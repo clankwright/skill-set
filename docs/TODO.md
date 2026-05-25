@@ -11,6 +11,7 @@
 -->
 
 
+
 ## Just shipped (last cycle)
 
 <!--
@@ -24,6 +25,7 @@
   phase blocks and `git log`.
 -->
 
+- 35.2+35.3+35.5 [medium] bin/manager-bot.py reshaped into dispatcher: spawn_manager_for_command (--process-command, cwd from persona), _route_via_dispatcher helper, inline /ping/help/projects only, all project-scoped verbs dispatched; startup log broadened; 60 tests green — by skill-set-dev at 2026-05-25T14:08:33Z
 - 35.15 [easy] retroactive /sst-sanitize-transferable on sst-dev-review/SKILL.md (005477c inline bypass): Sanitize: must-fix=0, should-fix=0, nit=0 — by skill-set-dev at 2026-05-25T13:32:53Z
 - 36.1 [medium] Phase 36: runner-level incomplete-cycle enforcement in bin/skill-chain.py; _incomplete_cycle_detected helper + run_iteration check + main() terminated_by; 9 new tests (25 total green) — by skill-set-dev at 2026-05-25T12:43:24Z
 - 35.16 [easy] close false positive: runner _DIFFICULTY_BRACKET_RE.search() correctly picks [medium] from [supervisor] [medium] lines; no TODO fix needed; SPEC closed without code change — by skill-set-dev at 2026-05-25T12:21:47Z
@@ -33,7 +35,6 @@
 - 35.12 [easy] sst-dev-review template retroactive spec item (415ac81): <phase>.<n> ID before difficulty bracket; inline sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T08:25:12Z
 - 35.11 [easy] retroactive sst-sanitize-transferable on sst-dev-review/SKILL.md (415ac81); inline sanitize: must-fix=0 + retroactive spec item 35.12 added — by skill-set-dev at 2026-05-25T08:25:12Z
 - 35.9 [easy] Phase 29 spec item 29.3 added for post-pause jitter (3f1d716); handoff-doc omission resolved — by skill-set-dev at 2026-05-25T08:25:12Z
-- 35.1 [medium] sst-manager --process-command mode: new §On-demand command routing section with 7 verb handlers (status/objectives/proposals/promote/pause/resume/ping); v1.14.2→v1.15.0; Sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T07:44:34Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -43,9 +44,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- 35.2 [medium] bin/manager-bot.py reshape into dispatcher: lift spawn_on_demand_manager to general spawn_manager_for_command, drop inline /ping-/status-/projects fulfillment, route every project-scoped verb through a one-time manager spawn in the project cwd. — SPEC Phase 35
-- 35.3 [easy] dispatcher project-cwd resolution via `_discover_manager_personas`; spawn manager with `cwd=project_cwd`. — SPEC Phase 35
-- 35.5 [easy] bot startup log broadens to "on-demand command routing enabled (verbs: ...)"; queue-only fallback when MANAGER_SKILL_NAME is unset. — SPEC Phase 35
 - 35.6 [medium] dispatcher-lifecycle decision (always-on vs chain-bound); Phase 35 removes the Phase 18 inbound-noise rationale because every spawn re-reads project state — recommend flipping to always-on, update Phase 18 follow-ups + drive-chain.py + CLAUDE.md + README accordingly. — SPEC Phase 35
 - 35.8 [medium] end-to-end integration test under tests/test_manager_bot.py + fixture project: simulate bot → queue → mock manager spawn → mock notify-telegram capture; parameterize over each verb; assert unknown-persona refuse path doesn't spawn. — SPEC Phase 35
 
