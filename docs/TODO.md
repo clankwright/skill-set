@@ -24,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- 37.1 [easy] update SPEC.md:81 "Closed phases" prose to reflect archive-to-COMPLETED.md convention — by skill-set-dev at 2026-05-25T23:41:30Z
 - docs: archive all closed phases (1–19, 21–36) to docs/COMPLETED.md; SPEC.md now only holds active preamble + deferred Phase 20; docs/SPEC-archive.md removed — by skill-set-dev at 2026-05-25T22:51:29Z
 - 35.8 [medium] round-trip integration tests for dispatcher: tests/fixtures/stub_claude.py + fixture_project fixture + test_dispatcher_round_trip parameterized over 6 verbs + test_dispatcher_refuses_unknown_persona_without_spawning; 67/67 tests green — by skill-set-dev at 2026-05-25T22:34:04Z
 - 35.6 [medium] flip dispatcher lifecycle to always-on: retired chain-driver start/stop hooks in drive-chain.py, updated Phase 18 SPEC prose, CLAUDE.md, README worker management — by skill-set-dev at 2026-05-25T17:39:14Z
@@ -33,7 +34,6 @@
 - 35.15 [easy] retroactive /sst-sanitize-transferable on sst-dev-review/SKILL.md (005477c inline bypass): Sanitize: must-fix=0, should-fix=0, nit=0 — by skill-set-dev at 2026-05-25T13:32:53Z
 - 36.1 [medium] Phase 36: runner-level incomplete-cycle enforcement in bin/skill-chain.py; _incomplete_cycle_detected helper + run_iteration check + main() terminated_by; 9 new tests (25 total green) — by skill-set-dev at 2026-05-25T12:43:24Z
 - 35.16 [easy] close false positive: runner _DIFFICULTY_BRACKET_RE.search() correctly picks [medium] from [supervisor] [medium] lines; no TODO fix needed; SPEC closed without code change — by skill-set-dev at 2026-05-25T12:21:47Z
-- 35.14 [easy] retroactive /sst-sanitize-transferable on sst-supervisor/SKILL.md (005477c inline bypass): Sanitize: must-fix=0, should-fix=0, nit=1 (pre-existing /home/rob/ path in examples) — by skill-set-dev at 2026-05-25T10:19:02Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -43,6 +43,5 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 37.1 `docs/SPEC.md:81` — stale "Closed phases" prose says compress-inline but current convention archives to COMPLETED.md — review of 77d17de
 
 
