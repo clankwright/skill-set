@@ -332,3 +332,141 @@ def test_run_iteration_blocked_on_human_bail_skips_remaining_skills():
     assert iter_manifest["blocked_on_human"]["reason"] == "H3.1 Set STRAPI secrets"
     assert calls == ["sst-dev-cycle"], \
         "sst-dev-review must NOT be called after blocked-on-human bail"
+
+
+# ---- _incomplete_cycle_detected unit tests (Phase 36) -----------------------
+
+_incomplete_cycle_detected = sc._incomplete_cycle_detected
+
+
+def test_incomplete_cycle_detected_false_when_no_todo(tmp_path):
+    """Returns False when docs/TODO.md does not exist."""
+    assert _incomplete_cycle_detected(str(tmp_path)) is False
+
+
+def test_incomplete_cycle_detected_false_on_clean_todo(tmp_path):
+    """Returns False when In flight is empty and no PENDING placeholder."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "TODO.md").write_text(
+        "## In flight\n\n<!--\n  empty\n-->\n\n## Just shipped\n",
+        encoding="utf-8",
+    )
+    assert _incomplete_cycle_detected(str(tmp_path)) is False
+
+
+def test_incomplete_cycle_detected_true_on_in_flight_bullet(tmp_path):
+    """Returns True when ## In flight contains a '- [' entry."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "TODO.md").write_text(
+        "## In flight\n\n- [skill-set-dev @ 2026-05-25T13:00:00Z] working\n\n## Just shipped\n",
+        encoding="utf-8",
+    )
+    assert _incomplete_cycle_detected(str(tmp_path)) is True
+
+
+def test_incomplete_cycle_detected_true_on_pending_placeholder(tmp_path):
+    """Returns True when 'Sanitize: must-fix=PENDING' appears in TODO.md."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "TODO.md").write_text(
+        "## Just shipped\n\n- some item; Sanitize: must-fix=PENDING\n",
+        encoding="utf-8",
+    )
+    assert _incomplete_cycle_detected(str(tmp_path)) is True
+
+
+def test_incomplete_cycle_detected_false_comment_text_not_bullet(tmp_path):
+    """HTML comment prose inside ## In flight section is not an active entry."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "TODO.md").write_text(
+        "## In flight\n\n<!--\n  - [example] comment line\n-->\n\n## Just shipped\n",
+        encoding="utf-8",
+    )
+    assert _incomplete_cycle_detected(str(tmp_path)) is False
+
+
+# ---- run_iteration integration test (contract_violation, Phase 36) ----------
+
+
+def test_run_iteration_contract_violation_incomplete_cycle():
+    """Phase 36: dev exits [ok] with no commit and In-flight set → contract_violation.
+
+    Patches:
+    - run_skill_with_retry: dev returns rc=0 with no sentinel; review never called
+    - _git_sha: always returns the same sha (no commit)
+    - _incomplete_cycle_detected: returns True (simulates dirty TODO.md)
+    Asserts:
+    - iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
+    - sst-dev-review is NOT invoked
+    - exit code is 0 (violation is a clean abort, not an error)
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-dev-review"],
+            None,
+            None,
+            1,
+            1,
+            "/tmp",
+        )
+
+    assert rc == 0, "contract-violation bail must be a clean exit (rc=0)"
+    assert "contract_violation" in iter_manifest, \
+        "iter_manifest must contain contract_violation after detection"
+    assert iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
+    assert iter_manifest["contract_violation"]["skill"] == "sst-dev-cycle"
+    assert calls == ["sst-dev-cycle"], \
+        "sst-dev-review must NOT be called after contract_violation bail"
+
+
+def test_run_iteration_no_contract_violation_when_commit_shipped():
+    """Phase 36: no violation when sha changes (real commit shipped).
+
+    Even if _incomplete_cycle_detected would return True, a commit means
+    the dev finished properly — the incomplete-cycle check is sha-gated.
+    """
+    h = ClaudeCodeHarness()
+    # _git_sha is called 4 times for a 1-skill iter: iter_manifest init,
+    # sha_before_skill, sha_after_skill, iter_manifest git_sha_after.
+    sha_sequence = iter(["abc1234", "abc1234", "def5678", "def5678"])
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", side_effect=lambda _: next(sha_sequence)), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle"],
+            None,
+            None,
+            1,
+            1,
+            "/tmp",
+        )
+
+    assert rc == 0
+    assert "contract_violation" not in iter_manifest, \
+        "contract_violation must NOT fire when a commit shipped"

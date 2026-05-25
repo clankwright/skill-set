@@ -494,6 +494,12 @@ Why this matters: (a) one home for command logic — the manager skill — so ad
 **Review follow-ups (open — schedule as the next `/skill-set-dev` cycle):**
 - [x] 35.16 [easy] [should-fix] `docs/TODO.md:47` — **false positive, no fix needed.** The review claimed `_DIFFICULTY_BRACKET_RE` extracts only the first bracket; code read at `bin/skill-chain.py:295` confirms `_DIFFICULTY_BRACKET_RE.search(s)` (not anchored) scans the whole line and correctly picks `[medium]` from `- [supervisor] [medium] Phase 36 ...`. The `[supervisor]` source-tag (sst-supervisor §5 convention) does not interfere with routing. Closed without changing the TODO entry.
 
+### Phase 36: runner-level enforcement of dev incomplete-cycle detection
+
+Five consecutive recurrences of the "sub-skill returns, parent doesn't close" failure pattern (2026-04-27, 2026-05-02, 2026-05-25 iters 04/05/06) exhausted prose-level mitigations (Defenses 1–4 in `skill-set-dev §5`). The model treats sub-skill return as cycle terminus regardless of what the prose requires. Phase 36 moves enforcement into the runner: after the dev skill exits with `[ok]` and no commit landed, `run_iteration` checks `docs/TODO.md` for evidence of incomplete work (`## In flight` has an active bullet, or `Sanitize: must-fix=PENDING` placeholder exists). On detection, the runner emits `[contract-violation: incomplete-cycle]` and aborts the loop, terminating with `terminated_by: "contract_violation"` in the loop manifest.
+
+- [x] 36.1 [medium] **Incomplete-cycle detection in `bin/skill-chain.py`.** New `_incomplete_cycle_detected(cwd)` helper reads `docs/TODO.md` and returns True when either signal is present (In-flight bullet or PENDING placeholder). Check fires in `run_iteration` after `i==0` (dev) exits with rc==0, sha unchanged, and no no-work/blocked-on-human bail already triggered; skipped when `_git_sha` returns None (non-git harness). `main()` reads `iter_manifest["contract_violation"]` and sets `manifest["loop"]["terminated_by"] = "contract_violation"` before breaking the loop. 9 new tests in `tests/test_skill_chain.py` covering the helper (5 unit tests) and the integration path (2 run_iteration tests: violation fires + commit-shipped suppression). 25/25 tests green.
+
 ### Phase 20 (deferred): `goose-cerebras` harness + portability proof
 
 Moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-20-deferred-goose-cerebras-harness--portability-proof). Re-pick conditions are documented there.

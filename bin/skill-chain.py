@@ -364,6 +364,38 @@ def _no_work_bail_should_fire(
     return True
 
 
+def _incomplete_cycle_detected(cwd: str) -> bool:
+    """Phase 36: return True when docs/TODO.md indicates an incomplete dev cycle.
+
+    Two signals:
+    - 'Sanitize: must-fix=PENDING' anywhere in the file (Defense 4 reorder
+      left the placeholder unfilled).
+    - '## In flight' section contains a '- [' bullet (the dev wrote an
+      In-flight line but never cleared it before exiting).
+
+    Only called when git SHA is available and shows no commit (sha_before ==
+    sha_after), so the cost of reading one file is always justified.
+    """
+    todo_path = Path(cwd) / "docs" / "TODO.md"
+    if not todo_path.exists():
+        return False
+    text = todo_path.read_text(encoding="utf-8")
+    if "Sanitize: must-fix=PENDING" in text:
+        return True
+    # Parse ## In flight section; a live entry starts with '- ['
+    m = re.search(
+        r"^##\s+In flight\s*\n(.*?)(?=^##\s|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if m:
+        # Strip HTML comments so template prose inside <!-- --> doesn't match
+        body = re.sub(r"<!--.*?-->", "", m.group(1), flags=re.DOTALL)
+        if re.search(r"^\s*-\s+\[", body, re.MULTILINE):
+            return True
+    return False
+
+
 def _parse_reset_time(value: Any) -> float | None:
     """Parse a rate-limit reset time into epoch seconds. Returns None on failure.
 
@@ -1485,6 +1517,31 @@ def run_iteration(
             print(c(f"\n[blocked-on-human] /{skill}: {record['blocked_on_human']}: "
                     f"skipping remaining skills + aborting loop", BLUE), flush=True)
             break
+        # Phase 36: incomplete-cycle detection — fires only on the dev skill
+        # (i==0), when it exits clean with no commit but docs/TODO.md still
+        # shows an In-flight line or a Sanitize: must-fix=PENDING placeholder.
+        # This is the runner-level enforcement of the "dev skill done = git push
+        # succeeded" contract that prose-level Defenses 1-4 could not uphold.
+        # Skipped when git SHA is unavailable (non-git harness).
+        if (
+            i == 0
+            and sha_before_skill is not None
+            and sha_after_skill is not None
+            and sha_before_skill == sha_after_skill
+            and _incomplete_cycle_detected(cwd)
+        ):
+            iter_manifest["contract_violation"] = {
+                "skill": skill,
+                "kind": "incomplete-cycle",
+            }
+            print(c(
+                f"\n[contract-violation: incomplete-cycle] /{skill}: "
+                f"exited [ok] with no commit but docs/TODO.md indicates "
+                f"incomplete work (In-flight non-empty or "
+                f"Sanitize: must-fix=PENDING); aborting chain",
+                RED,
+            ), flush=True)
+            break
 
     iter_manifest["finished_at"] = _utc_iso()
     iter_manifest["git_sha_after"] = _git_sha(cwd)
@@ -1756,6 +1813,13 @@ def main() -> int:
             if iter_manifest.get("blocked_on_human"):
                 if "loop" in manifest:
                     manifest["loop"]["terminated_by"] = "blocked_on_human"
+                break
+            # Phase 36: incomplete-cycle contract violation — abort the loop
+            # so a stuck "sub-skill returns, parent doesn't close" cycle
+            # doesn't silently re-iterate against the same In-flight state.
+            if iter_manifest.get("contract_violation"):
+                if "loop" in manifest:
+                    manifest["loop"]["terminated_by"] = "contract_violation"
                 break
             if not infinite and iteration >= loop_count:
                 break
