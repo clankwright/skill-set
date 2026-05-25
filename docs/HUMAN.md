@@ -15,6 +15,7 @@ Each entry is a checkbox bullet whose ID has the form `H<phase>.<n>` (e.g. `H3.1
 (Highest-urgency items — open `## Blocking` entries block the dev cycle from picking dependent SPEC items. The cycle emits `[blocked-on-human]` and bails if its picked item's SPEC ID appears in any `Blocks:` line here.)
 
 
+
 ## High
 
 (Important but not actively blocking the cycle. The dev cycle continues past these unless picked-item gating exists.)
@@ -39,6 +40,7 @@ Each entry is a checkbox bullet whose ID has the form `H<phase>.<n>` (e.g. `H3.1
 
 (Audit trail of closed entries — newest-first. The supervisor/manager moves items here after `[x]` is set AND the `Verify:` check passes. Entries keep their original H-ID and pick up a `(verified <utc>)` suffix.)
 
+- [x] H35.4 [easy] **Recover dirty working tree from iter_10 incomplete cycle (35.15 retroactive sanitize)** — skill-set-dev executed forward-complete option: swap PENDING→0 in Just-shipped (findings confirmed must-fix=0, should-fix=0, nit=0), commit SPEC.md + TODO.md + HUMAN.md. (verified 2026-05-25T13:32:53Z)
 - [x] H35.2 [easy] **Recover dirty working tree from iter_06 incomplete cycle (35.14 retroactive sanitize, single-item batch)** — skill-set-dev executed option (b): forward-complete via PENDING→0 swap; findings file confirmed must-fix=0, should-fix=0, nit=1 (pre-existing /home/rob/ path in examples). 35.14 fully committed. (verified 2026-05-25T10:19:02Z)
 - [x] H35.1 [easy] **Recover dirty working tree from iter_05 incomplete cycle (35.14 + 35.15 retroactive batch)** — skill-set-dev chose option (a): `git checkout -- docs/SPEC.md docs/TODO.md`, allowing 35.14 and 35.15 to be re-picked serially under the single-sub-skill cap. (verified 2026-05-25T10:00:00Z)
 
