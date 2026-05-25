@@ -10,6 +10,7 @@
   Rewrite (don't append) as the focus narrows. Empty when no skill is running.
 -->
 
+
 ## Just shipped (last cycle)
 
 <!--
@@ -23,16 +24,16 @@
   phase blocks and `git log`.
 -->
 
+- 35.13 [easy] sst-supervisor §0.5.3 fast-path keyword scan: word-boundary anchoring on ERROR/FAIL/Traceback/Exception; v1.13.0→v1.13.1; Inline sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T08:25:12Z
+- 35.12 [easy] sst-dev-review template retroactive spec item (415ac81): <phase>.<n> ID before difficulty bracket; inline sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T08:25:12Z
+- 35.11 [easy] retroactive sst-sanitize-transferable on sst-dev-review/SKILL.md (415ac81); inline sanitize: must-fix=0 + retroactive spec item 35.12 added — by skill-set-dev at 2026-05-25T08:25:12Z
+- 35.9 [easy] Phase 29 spec item 29.3 added for post-pause jitter (3f1d716); handoff-doc omission resolved — by skill-set-dev at 2026-05-25T08:25:12Z
 - 35.1 [medium] sst-manager --process-command mode: new §On-demand command routing section with 7 verb handlers (status/objectives/proposals/promote/pause/resume/ping); v1.14.2→v1.15.0; Sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T07:44:34Z
 - 35.7 [easy] bin/notify-telegram.sh: chunk-split bodies >4000 chars at newline boundaries with code-fence rebalancing; +3 tests (130→133 green) — by skill-set-dev at 2026-05-25T07:44:34Z
 - 35.4 [easy] skill-set-manager: document --process-command mode in proprietary template description + on-demand command section; v1.5.1→v1.5.2; transferable-version >=1.15.0 — by skill-set-dev at 2026-05-25T07:44:34Z
 - 32.3 [easy] sst-promote-skill-proposal §6b: replace "absolute path" with "sidecar path in the same form used when discovering it — do not expand ~ before comparing"; v1.1.2→v1.1.3; +1 test (126→127 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T20:30:00Z
 - 32.2 [medium] sst-promote-skill-proposal §6b: scan docs/HUMAN.md for open Verify:test!-e entries matching the promoted sidecar, flip to [x], call bin/notify-human-md.sh; v1.1.1→v1.1.2; +4 tests (122→126 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T18:10:00Z
 - 32.1 [medium] sst-supervisor §5b sidecar-promotion routing to HUMAN.md ##High (Blocks: none, Verify: test ! -e, auto-clear path) + sst-manager §3b discarded-sidecar auto-close rule + templates/HUMAN.md pending-sidecar entry shape; sst-supervisor v1.12.0→v1.13.0, sst-manager v1.14.1→v1.14.2; +9 tests (113→122 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T16:20:00Z
-- 33.1-33.5+34.3 [medium] Phase 33: bin/notify-human-md.sh (snapshot-diff, delta, send) + write-then-notify contract on sst-supervisor/sst-dev-review/sst-manager + anti-fork carve-outs + templates/HUMAN.md format note; +12 tests (101→113 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T15:30:00Z
-- 34.6 [easy] extract _resolve_tg_env helper from drive-chain.py main() + tests/test_drive_chain_telegram.py (3 tests: base-dir fires, --telegram-env beats, BOT_TOKEN beats); +3 tests (98→101 green) — by sst-dev-cycle at 2026-05-23T14:15:00Z
-- 34.1+34.2+34.4+34.5 [easy] Telegram base-dir fallback: notify-telegram.sh (graceful skip + ~/Dev/skill-set/telegram.env fallback), drive-chain.py (REPO_ROOT fallback), sst-manager §0.4 optional telegram-env + fallback chain, .gitignore + README.md + CLAUDE.md docs; +4 tests (94→98 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T00:15:00Z
-- 31.11+31.12 [medium] integration test for run_iteration blocked_on_human bail + CLAUDE.md step 4 for HUMAN.md; +1 test (93→94 green) — by sst-dev-cycle at 2026-05-22T20:15:00Z
 
 ## Next up (queued for next cycle)
 
@@ -43,9 +44,7 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 35.9 bin/skill-chain.py: add Phase 29 spec item (29.3) for post-pause jitter shipped in 3f1d716 without spec item or SPEC/TODO update; update TODO.md. — review of 3f1d716 (group with handoff-doc-omission)
 - [medium] [should-fix] 35.10 sst-wiki-curator/SKILL.md: add spec block for v1.1.0 13-feature promotion (c20ff96) with no spec item or SPEC/TODO update; Phase 23 covers v1.0.0 only. — review of c20ff96 (group with handoff-doc-omission)
-- [easy] [should-fix] 35.11 sst-dev-review/SKILL.md: run sst-sanitize-transferable on current body (missing attestation in 415ac81); add retroactive spec item for template format fix; update TODO.md. — review of 415ac81 (group with handoff-doc-omission)
 - 35.2 [medium] bin/manager-bot.py reshape into dispatcher: lift spawn_on_demand_manager to general spawn_manager_for_command, drop inline /ping-/status-/projects fulfillment, route every project-scoped verb through a one-time manager spawn in the project cwd. — SPEC Phase 35
 - 35.3 [easy] dispatcher project-cwd resolution via `_discover_manager_personas`; spawn manager with `cwd=project_cwd`. — SPEC Phase 35
 - 35.5 [easy] bot startup log broadens to "on-demand command routing enabled (verbs: ...)"; queue-only fallback when MANAGER_SKILL_NAME is unset. — SPEC Phase 35
