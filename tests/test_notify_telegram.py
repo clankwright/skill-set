@@ -205,3 +205,105 @@ def test_no_env_graceful_skip():
         assert rc == 0, f"expected graceful skip (exit 0), not hard failure; stderr: {stderr!r}"
         assert payload is None, "expected curl NOT to be called when no credentials configured"
         assert "skip" in stderr.lower(), f"expected 'skip' in stderr; got: {stderr!r}"
+
+
+# ===== Phase 35.7: chunked sending for bodies > 4000 chars =====
+
+
+def _run_notify_multi(
+    message: str, env_extra: dict | None = None
+) -> tuple[int, list[dict], str]:
+    """Run notify-telegram.sh and collect every curl --data payload (for chunking tests).
+
+    Returns (returncode, list_of_parsed_payloads_in_call_order, stderr).
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        captured_dir = Path(tmpdir) / "captured"
+        captured_dir.mkdir()
+        fake_curl = Path(tmpdir) / "curl"
+        # Each curl invocation writes its --data payload to a zero-padded numbered file
+        # so that sort order == call order.
+        fake_curl.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys, json, pathlib\n"
+            "args = sys.argv[1:]\n"
+            "for i, a in enumerate(args):\n"
+            f"    if a == '--data' and i + 1 < len(args):\n"
+            f"        p = pathlib.Path(r'{captured_dir}')\n"
+            f"        existing = sorted(p.glob('chunk_*.json'))\n"
+            f"        n = len(existing)\n"
+            f"        (p / f'chunk_{{n:03d}}.json').write_text(args[i + 1])\n"
+            "        break\n"
+            "print(json.dumps({'ok': True, 'result': {'message_id': 1}}))\n"
+        )
+        fake_curl.chmod(0o755)
+
+        env = {
+            "TELEGRAM_BOT_TOKEN": "fake_token",
+            "TELEGRAM_CHAT_ID": "12345",
+            "PATH": f"{tmpdir}:{os.environ['PATH']}",
+            "HOME": os.environ.get("HOME", "/root"),
+        }
+        if env_extra:
+            env.update(env_extra)
+
+        proc = subprocess.run(
+            ["bash", str(NOTIFY_TELEGRAM)],
+            input=message,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        payloads = []
+        for f in sorted(captured_dir.glob("chunk_*.json")):
+            try:
+                payloads.append(json.loads(f.read_text()))
+            except json.JSONDecodeError:
+                pass
+        return proc.returncode, payloads, proc.stderr
+
+
+def test_short_body_single_post():
+    """A body under 4000 chars produces exactly one POST."""
+    body = "hello, world"
+    rc, payloads, stderr = _run_notify_multi(body)
+    assert rc == 0, f"unexpected failure; stderr: {stderr!r}"
+    assert len(payloads) == 1, f"expected 1 POST, got {len(payloads)}"
+    assert payloads[0]["text"] == body
+
+
+def test_long_body_multiple_posts_in_order():
+    """A body > 4000 chars is split into multiple POSTs; each chunk ≤ 4000 chars;
+    concatenating chunk texts reproduces the original (no fences, no rebalancing)."""
+    # 200 lines × "this is line number NNN\n" ≈ 200 × 25 = 5000 chars
+    lines = [f"this is line number {i:03d}" for i in range(200)]
+    body = "\n".join(lines)
+    assert len(body) > 4000, "test body must be > 4000 chars"
+
+    rc, payloads, stderr = _run_notify_multi(body)
+    assert rc == 0, f"unexpected failure; stderr: {stderr!r}"
+    assert len(payloads) >= 2, f"expected ≥2 POSTs for a {len(body)}-char body"
+    for i, p in enumerate(payloads):
+        assert len(p["text"]) <= 4000, f"chunk {i} is {len(p['text'])} chars (> 4000)"
+    # Without fences, chunks are contiguous slices — concatenating recovers the original.
+    combined = "".join(p["text"] for p in payloads)
+    assert combined == body, "chunks do not reassemble to original body"
+
+
+def test_code_fence_rebalanced_at_split():
+    """A code fence that spans a chunk boundary is closed in chunk N and reopened in N+1
+    so every chunk has balanced ``` markers (even count)."""
+    # 100 "a"s + newline + open fence + 4000 "x"s pushes the second chunk's
+    # fence opening to the start, triggering the rebalancing path.
+    body = "a" * 100 + "\n```python\n" + "x" * 4000 + "\n```\nfooter"
+    assert len(body) > 4000
+
+    rc, payloads, stderr = _run_notify_multi(body)
+    assert rc == 0, f"unexpected failure; stderr: {stderr!r}"
+    assert len(payloads) > 1, "expected multiple chunks"
+    for i, p in enumerate(payloads):
+        text = p["text"]
+        assert text.count("```") % 2 == 0, (
+            f"chunk {i} has an odd (unbalanced) number of ``` markers: {text[:200]!r}"
+        )

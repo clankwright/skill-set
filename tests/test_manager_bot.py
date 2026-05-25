@@ -405,22 +405,29 @@ def test_status_persona_prefix_ignores_other_persona_files(tmp_path, monkeypatch
 
 # ── SPEC 28.8: truncation hints must include project token ─────────────────────
 
-def test_skill_md_truncation_hint_includes_project_token():
-    """SPEC 28.8: sst-manager hard-rules truncation hint must tell users to supply a project token."""
+def test_skill_md_uses_chunking_not_truncation():
+    """SPEC 35.7: sst-manager hard rules must document chunked sending, not truncation."""
     skill_md = _REPO_ROOT / "skills/framework/sst-manager/SKILL.md"
     content = skill_md.read_text()
-    assert "run /status <project>" in content or "run /status <persona>" in content, (
-        "truncation hint must say 'run /status <project>' or 'run /status <persona>' — "
-        "bare '/status' is broken after SPEC 28.7 made the token required"
+    # Old truncation rule removed by SPEC 35.7 (chunking replaces truncation).
+    assert "truncate" not in content.lower() or "not truncate" in content.lower() or "chunked" in content.lower(), (
+        "sst-manager should document chunked sending (SPEC 35.7 removed truncation)"
+    )
+    assert "chunk" in content.lower(), (
+        "sst-manager hard rules should mention chunking"
     )
 
 
-def test_notify_telegram_truncation_hint_includes_project_token():
-    """SPEC 28.8: notify-telegram.sh truncation hint must tell users to supply a project token."""
+def test_notify_telegram_uses_chunking_not_truncation():
+    """SPEC 35.7: notify-telegram.sh must split long bodies into chunks, not truncate them."""
     script = _REPO_ROOT / "bin/notify-telegram.sh"
     content = script.read_text()
-    assert "run /status <project>" in content or "run /status <persona>" in content, (
-        "notify-telegram.sh truncation hint must say 'run /status <project>' or 'run /status <persona>'"
+    # The old 4000-char hard truncation is gone; chunking is now used instead.
+    assert "split_chunks" in content or "split" in content.lower(), (
+        "notify-telegram.sh should contain chunk-splitting logic"
+    )
+    assert "truncat" not in content or "4000" not in content, (
+        "notify-telegram.sh should not truncate — use chunking instead"
     )
 
 
