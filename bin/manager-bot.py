@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
-"""manager-bot.py — long-poll Telegram bot for the manager skill.
+"""manager-bot.py — Telegram dispatcher for manager skills.
 
-Sits between the user (on Telegram) and the manager skill. Pulls updates via
-getUpdates (no webhook needed — works behind NAT / on a laptop), filters by
-TELEGRAM_CHAT_ID, and translates inbound commands into queue files under
-~/.claude/state/manager-bot-queue/. The next manager-skill invocation drains
-the queue.
+Receives commands from Telegram, resolves the project token to a persona,
+writes a queue file, and spawns the matching `<persona>-manager` skill in
+the project's cwd. The manager fulfills the command and replies via
+notify-telegram.sh — the bot never reads project state itself.
 
-Critical separation: this bot NEVER spawns the agent harness or runs Claude.
-It only writes JSON files. The user (or cron) triggers /<persona>-manager
-and the manager processes the queue.
+Project-agnostic commands (/help, /projects, bare /ping with no token) are
+handled inline. All project-scoped commands are dispatched.
 
 Setup: see ~/Dev/docs/telegram_bot_setup.md (BotFather, chat-id discovery,
 service unit / rc.d wiring).
 
 Required env (typically from a .env file):
-  TELEGRAM_BOT_TOKEN  — from BotFather
-  TELEGRAM_CHAT_ID    — your numeric chat id (allowlist)
+  TELEGRAM_BOT_TOKEN   — from BotFather
+  TELEGRAM_CHAT_ID     — your numeric chat id (allowlist)
 
 Optional env:
-  MANAGER_STATE_DIR   — default ~/.claude/state
+  MANAGER_STATE_DIR    — default ~/.claude/state
+  MANAGER_SKILL_NAME   — any truthy value enables on-demand command routing;
+                         the actual skill name is derived from the project token
+                         (e.g. token "cm" -> /cm-manager). When unset, every
+                         project-scoped command queues for the next periodic tick.
 """
 
 import datetime as _dt
@@ -60,11 +62,12 @@ CHAT_ID_ALLOW = os.environ.get("TELEGRAM_CHAT_ID")  # numeric, as string
 STATE_DIR = Path(os.environ.get("MANAGER_STATE_DIR", str(Path.home() / ".claude" / "state")))
 QUEUE_DIR = STATE_DIR / "manager-bot-queue"
 DIGESTS_DIR = STATE_DIR / "manager-digests"
-# Persona-specific manager skill name (e.g. "skill-set-manager", "sdrai-manager").
-# When set, the bot spawns `claude --print "/<skill> --process-feedback <queue-file>"`
-# out-of-band on each /feedback so on-demand routing happens within seconds rather
-# than waiting for the next cron tick. When unset, /feedback queues only and the
-# next periodic-mode tick (or chain-runner pre-iter drain) does verbatim routing.
+# When set, enables on-demand command routing: every project-scoped command
+# spawns `/<persona>-manager --process-command <queue-file>` in the project's
+# cwd immediately, and the manager replies via Telegram. The value itself is
+# not the skill name; the skill name is derived from the project token
+# (e.g. token "skill-set" -> skill "skill-set-manager"). When unset, commands
+# queue for the next periodic manager tick or chain-runner pre-iter drain.
 MANAGER_SKILL_NAME = os.environ.get("MANAGER_SKILL_NAME")
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "claude"
 ON_DEMAND_LOG_DIR = STATE_DIR / "manager-bot-spawn-log"
@@ -80,7 +83,7 @@ API = f"https://api.telegram.org/bot{TOKEN}"
 KNOWN_COMMANDS = {"status", "objectives", "proposals", "promote", "pause", "resume", "ping", "help", "feedback", "projects"}
 
 # Commands that operate at the bot level and never target a specific persona.
-# They are always processed regardless of project token.
+# They are always processed inline regardless of project token.
 PROJECT_AGNOSTIC_COMMANDS = {"ping", "help", "projects"}
 
 
@@ -298,25 +301,31 @@ def queue_feedback(body: str, from_chat_id: int) -> Path:
     return path
 
 
-def spawn_on_demand_manager(queue_file: Path) -> bool:
-    """Spawn `claude --print "/<persona>-manager --process-feedback <queue-file>"`
-    out-of-band so on-demand routing happens within seconds. Returns True if the
-    spawn was launched successfully (the manager runs asynchronously; we don't
-    wait for the result — Telegram reply-on-routing-completion is the manager's
-    own responsibility). Returns False if MANAGER_SKILL_NAME is unset or the
-    spawn fails to launch; in either case the queue file remains in place and
-    the next periodic-mode tick or chain-runner pre-iter drain will catch up.
+def spawn_manager_for_command(
+    persona: str,
+    project_cwd: str | None,
+    queue_file: Path,
+) -> bool:
+    """Spawn `/<persona>-manager --process-command <queue-file>` in project_cwd.
+
+    Returns True if the spawn was launched successfully. The manager runs
+    asynchronously and owns the Telegram reply. Returns False when
+    MANAGER_SKILL_NAME is unset (dispatching disabled) or the spawn fails;
+    in either case the queue file remains for the next periodic tick or
+    chain-runner pre-iter drain to pick up.
     """
     if not MANAGER_SKILL_NAME:
         return False
     ON_DEMAND_LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = ON_DEMAND_LOG_DIR / f"{queue_file.stem}.log"
+    skill_name = f"{persona}-manager"
+    cwd_str = str(Path(project_cwd).expanduser()) if project_cwd else None
     cmd = [
         CLAUDE_BIN,
         "--print",
         "--permission-mode",
         "bypassPermissions",
-        f"/{MANAGER_SKILL_NAME} --process-feedback {queue_file}",
+        f"/{skill_name} --process-command {queue_file}",
     ]
     try:
         with open(log_path, "ab", buffering=0) as log_fd:
@@ -327,31 +336,43 @@ def spawn_on_demand_manager(queue_file: Path) -> bool:
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,
                 close_fds=True,
+                cwd=cwd_str,
             )
     except Exception as exc:
         logger.error("on-demand manager spawn failed: %s", exc)
         return False
-    logger.info("spawned on-demand manager for %s (log=%s)", queue_file.name, log_path)
+    logger.info(
+        "spawned %s --process-command for %s (cwd=%s, log=%s)",
+        skill_name, queue_file.name, cwd_str, log_path,
+    )
     return True
 
 
-def latest_digest(persona: str | None = None) -> str | None:
-    """Return the most recent digest text, optionally filtered to a persona.
+def _route_via_dispatcher(cmd: str, token: str, queue_file: Path) -> str:
+    """Route a queued command through the on-demand manager spawn, or fall back to queue-only.
 
-    When `persona` is given, files matching `<persona>_*.txt` are tried first.
-    If none exist (e.g. old-style flat naming), falls back to the newest file
-    in DIGESTS_DIR so existing single-persona deployments keep working.
+    When MANAGER_SKILL_NAME is unset, always queues. When set, resolves the
+    token against discovered personas; unknown token returns an error message
+    with the known token list; on successful spawn returns a routing ack.
     """
-    if not DIGESTS_DIR.is_dir():
-        return None
-    if persona:
-        persona_files = sorted(DIGESTS_DIR.glob(f"{persona}_*.txt"), reverse=True)
-        if persona_files:
-            return persona_files[0].read_text(encoding="utf-8")
-    files = sorted(DIGESTS_DIR.glob("*.txt"), reverse=True)
-    if not files:
-        return None
-    return files[0].read_text(encoding="utf-8")
+    if not MANAGER_SKILL_NAME:
+        return f"Queued `/{cmd}`. Next manager run will process it."
+
+    all_personas = _discover_manager_personas()
+    persona_entry = next((p for p in all_personas if p["persona"] == token), None)
+    if persona_entry is None:
+        known = sorted(p["persona"] for p in all_personas)
+        listing = ", ".join(known) if known else "(none discovered)"
+        return (
+            f"Unknown project token: `{token}`. Known: {listing}. "
+            "Run /projects to see the live registry."
+        )
+
+    cwd = persona_entry["projects"][0]["path"] if persona_entry["projects"] else None
+    spawned = spawn_manager_for_command(token, cwd, queue_file)
+    if spawned:
+        return f"Routing /{cmd} to {token} — reply incoming when it lands."
+    return f"Queued `/{cmd}` (file: `{queue_file.name}`). Next manager run will process it."
 
 
 def handle_command(text: str, chat_id: int) -> str:
@@ -365,17 +386,9 @@ def handle_command(text: str, chat_id: int) -> str:
         body = (fb_match.group(1) or "").strip()
         if not body:
             return "Usage: /feedback <project> <message>\n(give the supervisor steering input or course corrections)"
+        token = body.split()[0]
         path = queue_feedback(body, chat_id)
-        spawned = spawn_on_demand_manager(path)
-        if spawned:
-            return (
-                f"Routing feedback ({len(body)} chars) through the manager — "
-                "Telegram update incoming when it lands."
-            )
-        return (
-            f"Queued feedback ({len(body)} chars). "
-            "Next manager run will route it to the supervisor."
-        )
+        return _route_via_dispatcher("feedback", token, path)
 
     parts = text.lstrip("/").split()
     if not parts:
@@ -389,8 +402,9 @@ def handle_command(text: str, chat_id: int) -> str:
     if cmd not in KNOWN_COMMANDS:
         return f"Unknown command: `{cmd}`\nKnown: {', '.join(sorted(KNOWN_COMMANDS))}"
 
-    if cmd == "ping":
-        return "pong"
+    # Project-agnostic commands — always handled inline.
+    if cmd == "ping" and not args:
+        return "pong from dispatcher"
 
     if cmd == "help":
         return (
@@ -409,21 +423,10 @@ def handle_command(text: str, chat_id: int) -> str:
             "(e.g. `/status cm`, `/feedback cm <text>`). Run `/projects` to see the live\n"
             "token-to-project registry.\n\n"
             "Token-required commands write a queue file at "
-            f"`{QUEUE_DIR}` for the next manager-skill invocation to process.\n\n"
-            "Replies are live only during chain runs; commands sent between runs "
-            "queue and ack on the next session start."
+            f"`{QUEUE_DIR}` and spawn the matching manager skill when routing is enabled.\n\n"
+            "When on-demand routing is enabled (MANAGER_SKILL_NAME set), replies arrive via "
+            "Telegram from the manager. Otherwise commands queue for the next periodic tick."
         )
-
-    if cmd == "status":
-        if not args:
-            return "Usage: /status <project>\n(project token required — run /projects to see known tokens)"
-        persona = args[0]
-        digest = latest_digest(persona)
-        if not digest:
-            return "No digest yet. Run the manager skill at least once."
-        if len(digest) > 3500:
-            digest = digest[:3450] + "\n\n... [truncated]"
-        return digest
 
     if cmd == "projects":
         personas = _discover_manager_personas()
@@ -443,13 +446,16 @@ def handle_command(text: str, chat_id: int) -> str:
                 lines.append(f"`{persona}` -> (no watched-projects configured)")
         return "Registered personas:\n" + "\n".join(lines)
 
-    if cmd in {"objectives", "proposals", "promote", "pause", "resume"}:
-        if cmd == "promote" and len(args) < 2:
-            return "Usage: /promote <project> <skill>"
-        path = queue_task(cmd, args, chat_id)
-        return f"Queued `/{cmd}` (file: `{path.name}`). Next manager run will process it."
+    # All project-scoped commands (including /ping <persona>) go through the dispatcher.
+    if cmd == "promote" and len(args) < 2:
+        return "Usage: /promote <project> <skill>"
 
-    return f"Unknown command: `{cmd}`"
+    if not args:
+        return f"Usage: /{cmd} <project>\n(project token required — run /projects to see known tokens)"
+
+    token = args[0]
+    path = queue_task(cmd, args, chat_id)
+    return _route_via_dispatcher(cmd, token, path)
 
 
 def main() -> int:
@@ -458,12 +464,13 @@ def main() -> int:
     logger.info("allowlisted chat: %s", CHAT_ID_ALLOW or "<any (insecure)>")
     if MANAGER_SKILL_NAME:
         logger.info(
-            "on-demand /feedback routing enabled: claude=%s skill=/%s",
-            CLAUDE_BIN, MANAGER_SKILL_NAME,
+            "on-demand command routing enabled (verbs: status, objectives, proposals, "
+            "promote, pause, resume, feedback, ping): claude=%s",
+            CLAUDE_BIN,
         )
     else:
         logger.info(
-            "on-demand /feedback routing disabled (MANAGER_SKILL_NAME unset); "
+            "on-demand command routing disabled (MANAGER_SKILL_NAME unset); "
             "queue-only fallback active"
         )
     offset = 0
