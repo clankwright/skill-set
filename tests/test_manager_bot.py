@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 import importlib.util
 
+import pytest
+
 _REPO_ROOT = Path(__file__).parent.parent
 
 # manager-bot.py does sys.exit(1) at import time if TELEGRAM_BOT_TOKEN is absent.
@@ -763,3 +765,162 @@ def test_startup_log_says_queue_only_when_routing_disabled(monkeypatch, caplog):
             "queue-only fallback active"
         )
     assert "queue-only fallback" in caplog.text
+
+
+# ── SPEC 35.8: round-trip integration test ─────────────────────────────────────
+
+_STUB_CLAUDE = _REPO_ROOT / "tests" / "fixtures" / "stub_claude.py"
+
+_DISPATCH_VERBS = [
+    ("/status skill-set", "status"),
+    ("/objectives skill-set", "objectives"),
+    ("/proposals skill-set", "proposals"),
+    ("/pause skill-set", "pause"),
+    ("/resume skill-set", "resume"),
+    ("/ping skill-set", "ping"),
+]
+
+
+@pytest.fixture
+def fixture_project(tmp_path):
+    """Minimal project directory for round-trip integration tests."""
+    proj = tmp_path / "test_project"
+    proj.mkdir()
+    (proj / "docs").mkdir()
+    (proj / "docs" / "TODO.md").write_text(
+        "# TODO\n\n## In flight\n\n## Just shipped\n\n## Next up\n"
+    )
+    (proj / "docs" / "SPEC.md").write_text(
+        "# SPEC\n\n## Phase 1\n\n- [x] 1.1 [easy] Fixture item.\n"
+    )
+    return proj
+
+
+@pytest.mark.parametrize("cmd_text,expected_verb", _DISPATCH_VERBS)
+def test_dispatcher_round_trip(tmp_path, monkeypatch, fixture_project, cmd_text, expected_verb):
+    """SPEC 35.8: end-to-end round trip; stub sees queue-file content; spawn uses project cwd.
+
+    Flow: handle_command → queue file written → spawn_manager_for_command →
+    stub_claude.py reads queue file → writes capture + simulated Telegram payload.
+    """
+    import json
+    import subprocess as _sp
+
+    capture_file = tmp_path / "capture.json"
+    telegram_capture = tmp_path / "telegram.json"
+
+    monkeypatch.setattr(mb, "MANAGER_SKILL_NAME", "skill-set-manager")
+    monkeypatch.setattr(mb, "QUEUE_DIR", tmp_path / "queue")
+    monkeypatch.setattr(mb, "ON_DEMAND_LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(mb, "_discover_manager_personas", lambda *a, **kw: [
+        {"persona": "skill-set", "projects": [
+            {"path": str(fixture_project), "name": "skill-set"}
+        ]},
+    ])
+
+    # Save the real Popen before patching so sync_popen can invoke the stub
+    # without recursing back into itself (subprocess.run → Popen → sync_popen).
+    _real_popen = _sp.Popen
+
+    def sync_popen(cmd, **kwargs):
+        """Run stub_claude.py synchronously so the capture file is ready to assert."""
+        env = {
+            **os.environ,
+            "STUB_CAPTURE_FILE": str(capture_file),
+            "STUB_TELEGRAM_CAPTURE": str(telegram_capture),
+        }
+        proc = _real_popen(
+            [sys.executable, str(_STUB_CLAUDE)] + list(cmd[1:]),
+            env=env,
+            cwd=kwargs.get("cwd"),
+            stdout=_sp.PIPE,
+            stderr=_sp.PIPE,
+            stdin=_sp.DEVNULL,
+        )
+        proc.wait()
+
+        class _P:
+            pass
+
+        return _P()
+
+    monkeypatch.setattr(_sp, "Popen", sync_popen)
+
+    reply = mb.handle_command(cmd_text, chat_id=99999)
+
+    # Bot sends a routing ack to the user.
+    assert "routing" in reply.lower() or "reply incoming" in reply.lower(), (
+        f"/{expected_verb}: expected routing ack, got {reply!r}"
+    )
+
+    # Queue file was written with correct JSON shape.
+    queue_files = list((tmp_path / "queue").glob("*.json"))
+    assert len(queue_files) == 1, f"/{expected_verb}: expected exactly one queue file"
+    qdata = json.loads(queue_files[0].read_text())
+    assert qdata["command"] == expected_verb, (
+        f"queue file command mismatch: expected {expected_verb!r}, got {qdata['command']!r}"
+    )
+    assert "received_at" in qdata, "queue file must include received_at timestamp"
+    assert qdata["from_chat_id"] == 99999, "queue file must record the originating chat_id"
+
+    # Stub ran in the project cwd; capture confirms both cwd and queue content.
+    assert capture_file.exists(), f"/{expected_verb}: stub_claude did not write capture file"
+    cap = json.loads(capture_file.read_text())
+    assert cap["cwd"] == str(fixture_project), (
+        f"/{expected_verb}: spawn cwd {cap['cwd']!r} != project path"
+    )
+    assert cap.get("queue_content", {}).get("command") == expected_verb, (
+        f"/{expected_verb}: stub did not see correct command in queue file"
+    )
+    assert cap.get("queue_file") == str(queue_files[0]), (
+        f"/{expected_verb}: stub received a different queue file path than the one written"
+    )
+
+    # Mock notify-telegram captured the expected reply (simulated by stub).
+    assert telegram_capture.exists(), (
+        f"/{expected_verb}: stub did not write telegram capture (notify-telegram.sh path)"
+    )
+    tg = json.loads(telegram_capture.read_text())
+    assert tg.get("command") == expected_verb, (
+        f"/{expected_verb}: telegram capture command mismatch"
+    )
+    assert tg.get("from_chat_id") == 99999, (
+        f"/{expected_verb}: telegram capture must include originating chat_id"
+    )
+
+
+def test_dispatcher_refuses_unknown_persona_without_spawning(tmp_path, monkeypatch):
+    """SPEC 35.8: unknown project token returns refuse-unknown reply; Popen never called."""
+    import subprocess as _sp
+
+    monkeypatch.setattr(mb, "MANAGER_SKILL_NAME", "skill-set-manager")
+    monkeypatch.setattr(mb, "QUEUE_DIR", tmp_path / "queue")
+    monkeypatch.setattr(mb, "ON_DEMAND_LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(mb, "_discover_manager_personas", lambda *a, **kw: [
+        {"persona": "skill-set", "projects": [
+            {"path": str(tmp_path / "proj"), "name": "skill-set"}
+        ]},
+    ])
+
+    popen_calls: list = []
+
+    def capture_popen(cmd, **kwargs):
+        popen_calls.append(cmd)
+
+        class _P:
+            pass
+
+        return _P()
+
+    monkeypatch.setattr(_sp, "Popen", capture_popen)
+
+    reply = mb.handle_command("/status bogus-persona", chat_id=99999)
+
+    assert "unknown" in reply.lower(), (
+        f"Expected 'unknown' in refuse reply, got {reply!r}"
+    )
+    assert "bogus-persona" in reply, "Reply must echo the unknown token back to the user"
+    assert "skill-set" in reply, "Reply must list known personas"
+    assert len(popen_calls) == 0, (
+        f"Popen must NOT be called for an unknown persona; was called {len(popen_calls)} time(s)"
+    )
