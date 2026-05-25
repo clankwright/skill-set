@@ -126,8 +126,8 @@ The runner emits `[contract-violation: incomplete-cycle]` on stderr, records:
 {
   "iter_manifest": {
     "contract_violation": {
-      "reason": "incomplete-cycle",
-      "signals": ["in_flight_bullet"] 
+      "skill": "<skill-name>",
+      "kind": "incomplete-cycle"
     }
   }
 }
@@ -141,4 +141,4 @@ Detection signals (either triggers the check):
 
 The check fires only when all of: dev skill exited rc == 0, git SHA before == git SHA after, no `[no-work]` or `[blocked-on-human]` sentinel was captured. On detection the runner skips the review and supervisor for that iteration and terminates the loop. The next cycle's pre-flight (`§0.2 carve-outs`) handles the dirty working tree left behind.
 
-A chain driver's session-end report should label the stop "contract violation (incomplete cycle)" and surface the `signals` array so the operator can distinguish from a clean bail.
+A chain driver's session-end report should label the stop "contract violation (incomplete cycle)" and surface the `kind` field so the operator can distinguish from a clean bail.
