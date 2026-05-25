@@ -211,15 +211,15 @@ All commands except `/ping`, `/help`, and `/projects` REQUIRE a project token as
 
 The token-required commands (`/status`, `/objectives`, `/proposals`, `/promote`, `/pause`, `/resume`, `/feedback`) write a queue file to `~/.claude/state/manager-bot-queue/`; the next `<persona>-manager` invocation drains the queue.
 
-**Replies are live only during chain runs.** The bot worker starts when a chain session begins and stops when it ends (chain-bound lifecycle). Commands you send between runs are queued to disk and acknowledged on the next session start — the bot going silent doesn't mean it's broken, it means no chain is currently running. Run `/ping` at the start of a chain session to confirm liveness before relying on inbound commands.
+**Replies are live whenever the worker is running.** Since Phase 35 the bot is a pure dispatcher: every project-scoped command spawns a one-time manager process that re-reads project state, so there is no stale-reply risk from a persistent worker. Run the worker always-on (recommended) so commands work between chain runs.
 
 ### Worker management
 
-The long-poll worker (`bin/manager-bot.py`) holds the open connection to `api.telegram.org`. Two patterns:
+The long-poll worker (`bin/manager-bot.py`) holds the open connection to `api.telegram.org`. Run it always-on so commands work at any time, not just during active chain sessions.
 
-**Chain-bound (recommended; Phase 18 in spec)**: the chain driver (`sst-chain-driver`) starts the worker at chain-session start and stops it at chain-session end. Worker only runs while there's an active chain whose state it can report on. Avoids the inbound-noise pattern where a persistent worker keeps acking queued user commands without an active chain. Until Phase 18 lands, this is operationally a manual pattern: the user starts the worker before invoking `/skill-set-chain-driver` (or whichever proprietary chain driver) and stops it after the run completes.
+**Always-on (recommended)**: run the worker persistently under one of three hosts. Commands fire the matching manager skill on demand; replies arrive within seconds regardless of whether a chain is running.
 
-**Always-on (legacy / always-available bot)**: the worker runs persistently under one of three hosts, surfacing inbound commands even between chain runs. Keep this if you want manager-bot commands available 24/7 (the user can `/status` at any time and the next manager tick consumes the queued command). Three host options:
+Three host options:
 
 - **tmux** (laptop-friendly; default for `sst-setup-telegram`): one detached session per worker. Survives terminal close, not host reboot.
   ```bash

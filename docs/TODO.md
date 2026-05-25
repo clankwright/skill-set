@@ -12,7 +12,6 @@
 
 
 
-
 ## Just shipped (last cycle)
 
 <!--
@@ -26,6 +25,7 @@
   phase blocks and `git log`.
 -->
 
+- 35.6 [medium] flip dispatcher lifecycle to always-on: retired chain-driver start/stop hooks in drive-chain.py, updated Phase 18 SPEC prose, CLAUDE.md, README worker management — by skill-set-dev at 2026-05-25T17:39:14Z
 - 36.3 [easy] templates/SPEC.md contract_violation JSON: corrected "reason"→"kind", added "skill" field, removed "signals" key, updated guidance to "surface the `kind` field" — by skill-set-dev at 2026-05-25T17:18:24Z
 - 36.2 [easy] templates/SPEC.md: added "### Incomplete-cycle contract violation" section after "### Blocked-on-human bail" documenting runner signal, manifest shape, and chain-driver reporting guidance — by skill-set-dev at 2026-05-25T17:00:11Z
 - 35.2+35.3+35.5 [medium] bin/manager-bot.py reshaped into dispatcher: spawn_manager_for_command (--process-command, cwd from persona), _route_via_dispatcher helper, inline /ping/help/projects only, all project-scoped verbs dispatched; startup log broadened; 60 tests green — by skill-set-dev at 2026-05-25T14:08:33Z
@@ -35,7 +35,6 @@
 - 35.14 [easy] retroactive /sst-sanitize-transferable on sst-supervisor/SKILL.md (005477c inline bypass): Sanitize: must-fix=0, should-fix=0, nit=1 (pre-existing /home/rob/ path in examples) — by skill-set-dev at 2026-05-25T10:19:02Z
 - 35.10 [easy] retroactive spec block for sst-wiki-curator v1.1.0 (c20ff96): 12 items 23.5–23.16 covering all 13 testbed phases (synthesis page kind, drafts/ layer, domain-schema extension, navigation axis, reading paths, middle lint.py template, Mode D umbrella, variant-boundary lint, source-papers table, contradiction example, adjacent patterns, profile axis) — by skill-set-dev at 2026-05-25T08:44:42Z
 - 35.13 [easy] sst-supervisor §0.5.3 fast-path keyword scan: word-boundary anchoring on ERROR/FAIL/Traceback/Exception; v1.13.0→v1.13.1; Inline sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T08:25:12Z
-- 35.12 [easy] sst-dev-review template retroactive spec item (415ac81): <phase>.<n> ID before difficulty bracket; inline sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T08:25:12Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -45,6 +44,5 @@
   Order: blockers/highest-impact first.
 -->
 
-- 35.6 [medium] dispatcher-lifecycle decision (always-on vs chain-bound); Phase 35 removes the Phase 18 inbound-noise rationale because every spawn re-reads project state — recommend flipping to always-on, update Phase 18 follow-ups + drive-chain.py + CLAUDE.md + README accordingly. — SPEC Phase 35
 - 35.8 [medium] end-to-end integration test under tests/test_manager_bot.py + fixture project: simulate bot → queue → mock manager spawn → mock notify-telegram capture; parameterize over each verb; assert unknown-persona refuse path doesn't spawn. — SPEC Phase 35
 
