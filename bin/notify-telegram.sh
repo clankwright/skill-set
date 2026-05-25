@@ -29,9 +29,12 @@
 #                          bin/drive-chain.py sets this to --label / chain name automatically.
 #
 # Behavior:
-#   - Reads stdin, truncates to 4000 chars (Telegram cap is 4096; a small margin).
-#   - POSTs to https://api.telegram.org/bot<TOKEN>/sendMessage.
-#   - Exit 0 on Telegram "ok": true; non-zero otherwise (and prints the body to stderr).
+#   - Reads stdin, splits into ≤4000-char chunks at newline boundaries. Code fences (```)
+#     spanning a split boundary are closed at the end of the first chunk and reopened at the
+#     start of the next so every chunk is valid Markdown.
+#   - POSTs each chunk to https://api.telegram.org/bot<TOKEN>/sendMessage with a 100ms delay
+#     between chunks to preserve message ordering on the client.
+#   - Exit 0 when all chunks succeed; non-zero on any Telegram API error.
 
 set -euo pipefail
 
@@ -70,14 +73,11 @@ if [ -n "${TELEGRAM_LABEL:-}" ]; then
     text="[${TELEGRAM_LABEL}]"$'\n\n'"${text}"
 fi
 
-# Truncate at 4000 chars to leave headroom for parse-mode escapes.
-if [ "${#text}" -gt 4000 ]; then
-    text="${text:0:3950}"$'\n... [truncated; run /status <persona> for the full digest]'
-fi
-
-# Build JSON payload safely (using python's json.dumps to handle escaping).
-payload=$(
-    TEXT="$text" CID="$TELEGRAM_CHAT_ID" MODE="$PARSE_MODE" python3 - <<'PY'
+# POST one chunk via curl; build the JSON payload using python's json.dumps for safe escaping.
+_send_chunk() {
+    local body="$1"
+    local payload
+    payload=$(TEXT="$body" CID="$TELEGRAM_CHAT_ID" MODE="$PARSE_MODE" python3 - <<'PY'
 import json, os
 data = {
     "chat_id": int(os.environ["CID"]),
@@ -90,20 +90,69 @@ if mode:
 print(json.dumps(data))
 PY
 )
+    local response ok
+    response=$(
+        curl -sS -X POST \
+            -H 'Content-Type: application/json' \
+            --max-time 15 \
+            --data "$payload" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+    )
+    ok=$(printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("yes" if d.get("ok") else "no")' 2>/dev/null || echo no)
+    if [ "$ok" != "yes" ]; then
+        echo "notify-telegram: API returned non-ok response:" >&2
+        printf '%s\n' "$response" >&2
+        return 1
+    fi
+}
 
-response=$(
-    curl -sS -X POST \
-        -H 'Content-Type: application/json' \
-        --max-time 15 \
-        --data "$payload" \
-        "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+if [ "${#text}" -le 4000 ]; then
+    _send_chunk "$text"
+else
+    # Split at newline boundaries; close any open code fence (```) that spans the split
+    # point so every chunk is valid Markdown, then reopen it at the start of the next chunk.
+    _first_chunk=true
+    while IFS= read -r -d '' _chunk; do
+        [ -n "$_chunk" ] || continue
+        if [ "$_first_chunk" = true ]; then
+            _first_chunk=false
+        else
+            sleep 0.1
+        fi
+        _send_chunk "$_chunk"
+    done < <(TEXT="$text" python3 - <<'PY'
+import os, sys
+
+text = os.environ["TEXT"]
+MAX = 4000
+
+
+def split_chunks(text, max_len, min_chunk=200):
+    chunks = []
+    while text:
+        if len(text) <= max_len:
+            chunks.append(text)
+            break
+        candidate = text[:max_len]
+        last_nl = candidate.rfind('\n')
+        # Prefer the last newline, but require a minimum chunk size to avoid
+        # near-empty chunks that trigger infinite rebalancing loops.
+        split_at = last_nl + 1 if last_nl > 0 else max_len
+        if split_at < min_chunk:
+            split_at = max_len
+        chunk = text[:split_at]
+        # If the chunk ends with an open code fence, close it so the chunk is valid Markdown.
+        if chunk.count('```') % 2 == 1:
+            chunk = chunk.rstrip('\n') + '\n```'
+            text = '```\n' + text[split_at:]
+        else:
+            text = text[split_at:]
+        chunks.append(chunk)
+    return chunks
+
+
+for part in split_chunks(text, MAX):
+    sys.stdout.buffer.write(part.encode('utf-8') + b'\x00')
+PY
 )
-
-# Verify Telegram acknowledged.
-ok=$(printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("yes" if d.get("ok") else "no")' 2>/dev/null || echo no)
-
-if [ "$ok" != "yes" ]; then
-    echo "notify-telegram: API returned non-ok response:" >&2
-    printf '%s\n' "$response" >&2
-    exit 1
 fi

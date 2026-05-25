@@ -23,6 +23,9 @@
   phase blocks and `git log`.
 -->
 
+- 35.1 [medium] sst-manager --process-command mode: new §On-demand command routing section with 7 verb handlers (status/objectives/proposals/promote/pause/resume/ping); v1.14.2→v1.15.0; Sanitize: must-fix=0 — by skill-set-dev at 2026-05-25T07:44:34Z
+- 35.7 [easy] bin/notify-telegram.sh: chunk-split bodies >4000 chars at newline boundaries with code-fence rebalancing; +3 tests (130→133 green) — by skill-set-dev at 2026-05-25T07:44:34Z
+- 35.4 [easy] skill-set-manager: document --process-command mode in proprietary template description + on-demand command section; v1.5.1→v1.5.2; transferable-version >=1.15.0 — by skill-set-dev at 2026-05-25T07:44:34Z
 - 32.3 [easy] sst-promote-skill-proposal §6b: replace "absolute path" with "sidecar path in the same form used when discovering it — do not expand ~ before comparing"; v1.1.2→v1.1.3; +1 test (126→127 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T20:30:00Z
 - 32.2 [medium] sst-promote-skill-proposal §6b: scan docs/HUMAN.md for open Verify:test!-e entries matching the promoted sidecar, flip to [x], call bin/notify-human-md.sh; v1.1.1→v1.1.2; +4 tests (122→126 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T18:10:00Z
 - 32.1 [medium] sst-supervisor §5b sidecar-promotion routing to HUMAN.md ##High (Blocks: none, Verify: test ! -e, auto-clear path) + sst-manager §3b discarded-sidecar auto-close rule + templates/HUMAN.md pending-sidecar entry shape; sst-supervisor v1.12.0→v1.13.0, sst-manager v1.14.1→v1.14.2; +9 tests (113→122 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T16:20:00Z
@@ -30,13 +33,6 @@
 - 34.6 [easy] extract _resolve_tg_env helper from drive-chain.py main() + tests/test_drive_chain_telegram.py (3 tests: base-dir fires, --telegram-env beats, BOT_TOKEN beats); +3 tests (98→101 green) — by sst-dev-cycle at 2026-05-23T14:15:00Z
 - 34.1+34.2+34.4+34.5 [easy] Telegram base-dir fallback: notify-telegram.sh (graceful skip + ~/Dev/skill-set/telegram.env fallback), drive-chain.py (REPO_ROOT fallback), sst-manager §0.4 optional telegram-env + fallback chain, .gitignore + README.md + CLAUDE.md docs; +4 tests (94→98 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-23T00:15:00Z
 - 31.11+31.12 [medium] integration test for run_iteration blocked_on_human bail + CLAUDE.md step 4 for HUMAN.md; +1 test (93→94 green) — by sst-dev-cycle at 2026-05-22T20:15:00Z
-- 31.1-31.10 [medium] Phase 31 HUMAN.md framework wiring: templates/HUMAN.md skeleton, sst-supervisor §5b, sst-dev-review 4th routing bucket, sst-manager HUMAN.md read+write+digest+alerts+auto-verify, sst-dev-cycle [blocked-on-human] sentinel, bin/skill-chain.py runner, bin/validate-frontmatter.py validator, dahrouge.com cross-refs; sst-manager v1.13.0→v1.14.0; +15 tests (78→93 green); Sanitize: must-fix=1 (self-fixed inline → final must-fix=0) — by sst-dev-cycle at 2026-05-22T19:30:00Z
-- 30.3 [hard] framework portion: operator-level manager support — `_discover_manager_personas` honors `operator-level: true` (emits one persona per `watched-projects[*].name`); `docs/migration-single-manager.md` operator runbook; sst-manager v1.12.0→v1.13.0 documents both shapes; +8 tests (70→78 green); Sanitize: must-fix=3 (self-fixed inline → final must-fix=0) — by sst-dev-cycle at 2026-05-21T23:50:00Z
-- 30.1+30.2 [medium] MANAGER.md preamble + sst-manager walk-time read + multi-project objectives.md ## Project: sections; sst-manager v1.11.2→v1.12.0; +13 tests (57→70 green); Sanitize: must-fix=0, should-fix=1 (self-fixed) — by sst-dev-cycle at 2026-05-21T23:15:00Z
-- 29.2 [medium] add run_skill_with_retry integration tests for session-id threading (rate-limit retry loop); +2 tests (55→57 green) — by sst-dev-cycle at 2026-05-21T22:15:00Z
-- 29.1 [medium] rate-limit retry now uses --resume <session_id> to restore prior session; continuation prompt "continue" replaces bootstrap; +6 tests (49→55 green) — by sst-dev-cycle at 2026-05-21T21:30:00Z
-- 28.8 [easy] fix sst-manager truncation hint to say "run /status <persona> for full digest"; also fix notify-telegram.sh; +2 tests (42→44 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-21T20:10:00Z
-- 28.7 [medium] make /status persona-aware: latest_digest(persona) filters <persona>_*.txt, sst-manager digest naming updated to <persona>_<utc>.txt, /status handler requires token; +5 tests (37→42 green); Sanitize: must-fix=0 — by sst-dev-cycle at 2026-05-21T17:00:00Z
 
 ## Next up (queued for next cycle)
 
@@ -47,4 +43,9 @@
   Order: blockers/highest-impact first.
 -->
 
+- 35.2 [medium] bin/manager-bot.py reshape into dispatcher: lift spawn_on_demand_manager to general spawn_manager_for_command, drop inline /ping-/status-/projects fulfillment, route every project-scoped verb through a one-time manager spawn in the project cwd. — SPEC Phase 35
+- 35.3 [easy] dispatcher project-cwd resolution via `_discover_manager_personas`; spawn manager with `cwd=project_cwd`. — SPEC Phase 35
+- 35.5 [easy] bot startup log broadens to "on-demand command routing enabled (verbs: ...)"; queue-only fallback when MANAGER_SKILL_NAME is unset. — SPEC Phase 35
+- 35.6 [medium] dispatcher-lifecycle decision (always-on vs chain-bound); Phase 35 removes the Phase 18 inbound-noise rationale because every spawn re-reads project state — recommend flipping to always-on, update Phase 18 follow-ups + drive-chain.py + CLAUDE.md + README accordingly. — SPEC Phase 35
+- 35.8 [medium] end-to-end integration test under tests/test_manager_bot.py + fixture project: simulate bot → queue → mock manager spawn → mock notify-telegram capture; parameterize over each verb; assert unknown-persona refuse path doesn't spawn. — SPEC Phase 35
 
