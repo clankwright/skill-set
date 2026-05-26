@@ -78,7 +78,7 @@ Project-scoped proprietary MAY substitute a project-name prefix when tightly cou
 
 Every project keeps two canonical files (`docs/SPEC.md`, `docs/TODO.md`) read by every skill on start and updated by every skill on close. See `templates/`.
 
-`SPEC.md` shape: long-lived, phase checklists with `- [ ]`/`- [x]`. Closed phases are compressed to a 1-paragraph context + a tight bulleted change log (one line per item); consuming projects keep them inline until the file grows unwieldy, at which point closed phases are archived to `docs/COMPLETED.md`. Phases that drift toward novella-length should be compressed back; git history + TODO `Just shipped` carry the detail.
+`SPEC.md` shape: long-lived, phase checklists with `- [ ]`/`- [x]`. Closed phases are compressed to a 1-paragraph context + a tight bulleted change log (one line per item); consuming projects keep them inline until the file grows unwieldy, at which point closed phases are archived to `docs/SPEC-archive.md`. Phases that drift toward novella-length should be compressed back; git history + TODO `Just shipped` carry the detail.
 
 `TODO.md` shape (three sections):
 ```markdown
@@ -115,7 +115,7 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 
 ## Phases
 
-> All closed phases (1–19, 21–36) archived to [docs/COMPLETED.md](COMPLETED.md). Active and deferred phases live below.
+> All closed phases (1–19, 21–36) archived to [docs/SPEC-archive.md](SPEC-archive.md). Active and deferred phases live below.
 
 ### Phase 20 (deferred): `goose-cerebras` harness + portability proof
 
@@ -124,4 +124,4 @@ Moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-20-deferred-goose-cerebras-h
 ### Phase 37: handoff-doc prose alignment
 
 **Review follow-ups (open — schedule as the next `/skill-set-dev` cycle):**
-- [x] 37.1 [easy] [should-fix] `docs/SPEC.md:81` — The "SPEC.md shape" description says "Closed phases get a 1-paragraph context + a tight bulleted change log (one line per item, not a paragraph each). Phases that drift toward novella-length should be compressed back" — but commit `77d17de` archived all closed phases to `docs/COMPLETED.md`. A dev reading line 81 would expect compressed-inline closed phases in SPEC.md, not an archive file. Proposed fix: update the description to say completed phases are archived to `docs/COMPLETED.md` once closed, with consuming projects keeping closed phases inline (compressed) until the file grows large enough to warrant an archive.
+- [x] 37.1 [easy] [should-fix] `docs/SPEC.md:81` — The "SPEC.md shape" description says "Closed phases get a 1-paragraph context + a tight bulleted change log (one line per item, not a paragraph each). Phases that drift toward novella-length should be compressed back" — but commit `77d17de` archived all closed phases to `docs/SPEC-archive.md`. A dev reading line 81 would expect compressed-inline closed phases in SPEC.md, not an archive file. Proposed fix: update the description to say completed phases are archived to `docs/SPEC-archive.md` once closed, with consuming projects keeping closed phases inline (compressed) until the file grows large enough to warrant an archive.
