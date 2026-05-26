@@ -292,6 +292,8 @@ If any finding implies the *project* (not the skill) needs follow-up work — fo
 
 Do not move existing entries; do not touch `## In flight` or `## Just shipped`.
 
+**Bounded-item rule.** Any item appended to `## Next up` must be a *specific, completable action* — one whose done-state is unambiguous and whose SPEC `[ ]` can meaningfully flip to `[x]`. Forbidden: "continue improving X", "iterative Y polish", or any description of a recurring process with no natural end-state. Required instead: name the exact target file and symbol, or state a concrete acceptance criterion (e.g. "validator rejects vague bullets in unit tests for `bin/validate-frontmatter.py`"). If the needed work resists being named as a finite deliverable, file a `docs/FUTURE-WORK.md` entry instead.
+
 **Route acceptance findings to FUTURE-WORK.md instead (optional).** When a finding implies work that cannot be autonomously verified by a future dev cycle — acceptance tests requiring a real chain-driver round-trip, human-verified smoke tests, production observation — the supervisor MAY append the item to `docs/FUTURE-WORK.md` (under `## Manual / human verification` or an appropriate sub-section) instead of `## Next up`. Items in FUTURE-WORK.md are intentionally parked; a human flips them back to `## Next up` when ready. Use `## Next up` when the dev cycle can execute the work autonomously without human-in-the-loop verification.
 
 ### 5b. Route to HUMAN.md for human-only blockers (when applicable)

@@ -22,6 +22,12 @@ Optional env:
                          the actual skill name is derived from the project token
                          (e.g. token "cm" -> /cm-manager). When unset, every
                          project-scoped command queues for the next periodic tick.
+
+Discovery:
+  Persona tokens are resolved by scanning ~/.claude/skills/*-manager/SKILL.md
+  for files with a `transferable:` key in their YAML frontmatter. Project-local
+  managers under <project>/.claude/skills/ are NOT discovered automatically —
+  symlink them into ~/.claude/skills/ so they appear in the known-persona registry.
 """
 
 import datetime as _dt

@@ -443,12 +443,16 @@ If the body does not match any command pattern, OR `<ID>` does not resolve to an
 
 Pick `<difficulty>` by judging the work shape against the project's existing `[easy] | [medium] | [hard]` labels (the difficulty contract is the same one the dev skill uses; default to `[medium]` when uncertain). Order: append to the BOTTOM of `## Next up` so existing queued blockers stay ahead. Do NOT touch `## In flight` or `## Just shipped`. Do NOT modify any other section. Do NOT commit; the change is left in the working tree for the next chain run to pick up via the dev skill's normal §1 pick.
 
+**Bounded-item rule.** The item must be a *specific, completable action* with a falsifiable done-state. Forbidden: "iterative X polish", "address remaining issues", or any description of a recurring process with no natural end-state. Required instead: name a concrete target and acceptance criterion (e.g. "add `--dry-run` guard in `bin/foo.py:main()`"). Feedback that cannot be stated as a finite deliverable should be routed as outcome (c) soft steering instead.
+
 **(b) SPEC addition — append to `docs/SPEC.md`.** Use when the feedback is bigger than a single cycle and represents a new contract surface, multi-step initiative, or design change ("add an end-to-end test that exercises every chain", "phase out manager-feedback.md once all consumers are on v1.5+", "introduce a per-skill effort-floor table"). Two append shapes are legal:
 
 - **Sub-item under the latest active phase**: locate the most-recent `### Phase N: <name>` block whose checklist still has open `[ ]` items, and append a new `- [ ] [<difficulty>] <one-line>` at the END of that phase's checklist. Use this when the feedback extends a phase already in flight.
 - **New phase block** at the very bottom of `## Phases`: when the feedback represents a distinct initiative not under any open phase. Format mirrors existing phase blocks: `### Phase <next-N>: <one-line title>` + a 1-paragraph context lede + a bulleted `- [ ]` checklist seeded with at least one item. Number `N` continues the existing sequence; do NOT renumber existing phases.
 
 In both shapes, the appended item(s) carry the same `(reason: user feedback <utc-iso>; chat <id>)` annotation either inline on the item or in the phase context paragraph. Do NOT renumber existing phases. Do NOT modify any existing item's `[ ]` / `[x]` state. Do NOT touch `## In flight`, `## Just shipped`, or `## Next up` in SPEC.md (those are TODO.md surfaces). Do NOT commit.
+
+**Bounded-item rule.** Every `- [ ]` item appended must name a *specific feature with a falsifiable acceptance criterion*, not a standing activity. Forbidden: "iterative improvement of X", "address remaining Y issues". Required instead: name the exact change (file/symbol) and its done-condition. Feedback that cannot be decomposed this way should be routed as outcome (c) instead.
 
 **(c) Soft steering — write a `manager-translated user feedback` entry to `manager-notes.md`.** Use when the feedback is shape-ish — about the system's posture, taste, priorities, or how-the-supervisor-should-weigh-things — rather than a discrete work item. Examples: "you've been over-promoting transferables; be more conservative", "stop suggesting overnight runs unless I ask", "I want to see more cost data in the digest". The user wants the system to BEHAVE differently, not for a specific change to ship.
 
@@ -560,6 +564,8 @@ Field rules:
 - `<gap-summary>` — terse: `<check_result> <target_op> <target_value>, age <gap_age_days>d` (e.g. `7 != 0, age 12d`).
 - `<one-sentence rationale>` — why THIS candidate moves THIS objective forward. One sentence; saving the longer "what does the user need to know" reasoning for the Telegram announcement below.
 
+**Bounded-item rule.** The drafted description must name a *specific feature with a falsifiable acceptance criterion* — not a standing activity. Forbidden: "continue improving X" or "iterative polish on Y". Required: state the exact shippable change and its done-condition (e.g. "add adversarial test for `X()` with empty-list input in `tests/test_x.py`"). A real but unbounded objective gap that resists specific naming should not be drafted; file a `docs/FUTURE-WORK.md` entry instead.
+
 Append all K candidates to the END of `<project>/docs/TODO.md > ## Next up` (after any pre-existing user-authored entries; existing queued items keep their order). Do NOT touch any other section. Do NOT commit; the change is left in the working tree, the dev cycle's normal §1 pick will see the candidates only after the user clears at least one `[unconfirmed:`-prefix.
 
 ### ε. Persist planner state
@@ -662,4 +668,4 @@ The `promote` handler intentionally does NOT spawn `/sst-promote-skill-proposal`
 
 ## Worker-lifecycle expectation
 
-The `bin/manager-bot.py` long-poll worker is NOT meant to run persistently in this framework. The chain driver (`sst-chain-driver`) starts the worker at chain-session start and stops it at chain-session end, so inbound bot commands are only collected while a chain is actually running. The manager's own invocation is independent (the cron / `/loop` trigger does not require the bot worker to be running); manager runs that fire while the worker is down simply find no new queued commands in `~/.claude/state/manager-bot-queue/` and skip §1 cleanly. If a user wants always-on inbound (uncommon), they keep the worker manually under tmux / systemd; the manager doesn't care either way.
+`bin/manager-bot.py` runs persistently as an always-on dispatcher (under tmux or systemd). The chain driver does NOT start or stop it. When a project-scoped bot command arrives, the dispatcher spawns a one-time manager process that re-reads project state at invocation time, replies, and exits — eliminating the stale-reply risk of the prior session-bound model. Manager invocations from the cron / `/loop` trigger are independent of the worker: they read whatever commands the worker has already queued in `~/.claude/state/manager-bot-queue/` and skip §1 cleanly when the queue is empty.

@@ -234,6 +234,12 @@ Rules:
 - If a finding also affects another sub-section or module, put the follow-up under the **most recent** sub-section (the one this review targets), not the older one. The idea is to work chronologically through the spec.
 - Do not move any existing `[x]` box to `[ ]`. If a previously-claimed item turns out to be incomplete, that is a **new** follow-up line, not a regression edit.
 
+**Bounded-item rule.** Every spec item filed must name a *specific feature with a falsifiable acceptance criterion*, not a standing activity. Every corresponding `## Next up` entry must be a *specific, completable action* whose done-state is unambiguous. Open-ended / recurring / catch-all items are forbidden.
+
+*Forbidden shape:* "address remaining edge cases in the X module", "continue improving Y", "iterative Z polish" — no natural end-state, will never flip to `[x]`.
+
+*Required instead:* decompose into concrete enumerated items, each naming a target file/symbol and a done-condition: "add adversarial test for `X.validate()` with empty-list input in `tests/test_x.py`"; "cap loop in `y.py:do_thing()` at 1000 iterations". A real but unbounded cleanup that resists this decomposition should not be filed.
+
 **Assigning difficulty from the finding's nature.** Difficulty answers "how much reasoning does the FIX cost?", not "how serious is the BUG?" — severity already covers seriousness. Default mapping:
 
 - `[easy]` — prose nit in a SKILL.md or doc, a single-line typo / stale number, hoisting a one-liner inside a heredoc, quoting a YAML scalar, applying a known-good migration to N call-sites, tagging frontmatter with a value the spec already names.
