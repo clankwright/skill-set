@@ -470,3 +470,52 @@ def test_run_iteration_no_contract_violation_when_commit_shipped():
     assert rc == 0
     assert "contract_violation" not in iter_manifest, \
         "contract_violation must NOT fire when a commit shipped"
+
+
+def _make_supervisor(skills_dir: Path, name: str) -> None:
+    d = skills_dir / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text("---\nname: " + name + "\n---\n", encoding="utf-8")
+
+
+def test_find_local_supervisor_prefers_proprietary(tmp_path, monkeypatch):
+    """A project-local *-supervisor wins over the transferable fallback."""
+    proj = tmp_path / "proj"
+    _make_supervisor(proj / ".claude" / "skills", "cm-supervisor")
+    home = tmp_path / "home"
+    _make_supervisor(home / ".claude" / "skills", "sst-supervisor")
+    monkeypatch.setenv("HOME", str(home))
+    assert sc.find_local_supervisor(str(proj)) == "cm-supervisor"
+
+
+def test_find_local_supervisor_falls_back_to_transferable(tmp_path, monkeypatch):
+    """No proprietary supervisor in cwd → fall back to transferable sst-supervisor in ~/.claude/skills."""
+    proj = tmp_path / "proj"
+    # A non-supervisor skill present, but no *-supervisor.
+    (proj / ".claude" / "skills" / "skill-set-manager").mkdir(parents=True)
+    (proj / ".claude" / "skills" / "skill-set-manager" / "SKILL.md").write_text("x", encoding="utf-8")
+    home = tmp_path / "home"
+    _make_supervisor(home / ".claude" / "skills", "sst-supervisor")
+    monkeypatch.setenv("HOME", str(home))
+    assert sc.find_local_supervisor(str(proj)) == "sst-supervisor"
+
+
+def test_find_local_supervisor_none_when_neither_present(tmp_path, monkeypatch):
+    """No proprietary supervisor and no transferable fallback → None."""
+    proj = tmp_path / "proj"
+    (proj / ".claude" / "skills").mkdir(parents=True)
+    home = tmp_path / "home"
+    (home / ".claude" / "skills").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    assert sc.find_local_supervisor(str(proj)) is None
+
+
+def test_find_local_supervisor_multiple_proprietary_returns_none(tmp_path, monkeypatch):
+    """Ambiguous (>1) proprietary supervisors → None, no fallback (user must pick)."""
+    proj = tmp_path / "proj"
+    _make_supervisor(proj / ".claude" / "skills", "cm-supervisor")
+    _make_supervisor(proj / ".claude" / "skills", "other-supervisor")
+    home = tmp_path / "home"
+    _make_supervisor(home / ".claude" / "skills", "sst-supervisor")
+    monkeypatch.setenv("HOME", str(home))
+    assert sc.find_local_supervisor(str(proj)) is None

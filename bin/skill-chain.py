@@ -1051,7 +1051,7 @@ def run_skill_with_retry(
         # condition keys on `eff_signal.get("reset_time")` rather than `signal
         # is None` so the wall-clock fills in whenever the structured payload
         # carries no reset under any of the four aliased field names.
-        eff_signal = dict(signal) if signal else {"type": "unknown", "status": "fallback"}
+        eff_signal: dict[str, Any] = dict(signal) if signal else {"type": "unknown", "status": "fallback"}
         text_reset_used = False
         if not eff_signal.get("reset_time"):
             text_reset = record.get("rate_limit_text_reset")
@@ -1193,27 +1193,36 @@ def load_chain(name: str, cwd: str) -> dict:
 
 
 def find_local_supervisor(cwd: str) -> str | None:
-    """Discover a project-local supervisor skill: <cwd>/.claude/skills/*-supervisor/SKILL.md.
+    """Discover a supervisor skill to auto-append.
 
-    Returns the skill name (folder name) if exactly one is found; None otherwise.
-    Multiple matches: prints a warning and returns None (the chain runs without
-    auto-supervisor; the user can still pass it explicitly).
+    Preference order:
+      1. A project-local proprietary supervisor at `<cwd>/.claude/skills/*-supervisor/SKILL.md`.
+         Exactly one match → use it. More than one → warn and return None (ambiguous;
+         the user must pick explicitly, and we do NOT silently fall back).
+      2. Fallback: the transferable `sst-supervisor` at
+         `~/.claude/skills/sst-supervisor/SKILL.md`, used when the project ships no
+         proprietary supervisor of its own (e.g. the skill-set repo itself). This lets
+         every project get meta-review + auto-promotion without authoring a wrapper.
+
+    Returns the skill name (folder name) or None when neither exists.
     """
     skills_dir = Path(cwd) / ".claude" / "skills"
-    if not skills_dir.is_dir():
-        return None
-    candidates = [
-        d for d in skills_dir.iterdir()
-        if d.is_dir() and d.name.endswith("-supervisor") and (d / "SKILL.md").exists()
-    ]
-    if not candidates:
-        return None
-    if len(candidates) > 1:
-        names = ", ".join(sorted(d.name for d in candidates))
-        print(c(f"[supervisor] multiple supervisor skills found ({names}); "
-                f"auto-append disabled, pass one explicitly.", ORANGE), flush=True)
-        return None
-    return candidates[0].name
+    if skills_dir.is_dir():
+        candidates = [
+            d for d in skills_dir.iterdir()
+            if d.is_dir() and d.name.endswith("-supervisor") and (d / "SKILL.md").exists()
+        ]
+        if len(candidates) > 1:
+            names = ", ".join(sorted(d.name for d in candidates))
+            print(c(f"[supervisor] multiple supervisor skills found ({names}); "
+                    f"auto-append disabled, pass one explicitly.", ORANGE), flush=True)
+            return None
+        if candidates:
+            return candidates[0].name
+    # No proprietary supervisor in cwd → fall back to the transferable.
+    if (Path.home() / ".claude" / "skills" / "sst-supervisor" / "SKILL.md").exists():
+        return "sst-supervisor"
+    return None
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
