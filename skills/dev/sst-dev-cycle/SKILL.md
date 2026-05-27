@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.4.8
+version: 1.5.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -65,6 +65,39 @@ Contract for every cycle:
    The chain runner recognizes this `[no-work] <one-line reason>` sentinel and aborts the loop entirely (no review, no supervisor, no further iterations), saving the per-iter overhead of running downstream skills against an empty commit. The bail is the correct response in steady state, not a defect. **Do NOT** pick a just-shipped item, invent speculative work, scope-creep on existing skills, or fabricate a `Next up` entry to consume. A user-provided override (a specific item or task in the prompt) suppresses the bail; queue-empty + spec-clean alone, with no override, fires it.
 
    Inherits to proprietary `<project>-dev-cycle` skills automatically via `transferable:`; no per-project change needed to opt in.
+
+7. **Phase-completion bail (branch-per-phase projects only).** Some consuming projects map each SPEC phase to its own `feature/<name>` branch and record the mapping in a `## Operational scope` section of `docs/SPEC.md` (one line per phase: HEAD branch → phase number). When that section exists, derive the **active phase** from the current branch BEFORE picking in §1:
+
+   - Read the SPEC's `## Operational scope` branch map and match `git branch --show-current` to its phase entry. **If the project has no `## Operational scope` section** (skill-set itself, and any project not using branch-per-phase), this bail cannot fire — skip it entirely and continue to §1, picking normally.
+   - When a match resolves an active phase `<N>`: that phase is **complete** iff every `- [ ]` item under phase `<N>`'s SPEC section is `- [x]` AND no `## Next up (queued for next cycle)` entry is scoped to phase `<N>` (an entry is "scoped to phase `<N>`" when its leading `<phase>.<n>` ID has `<phase> == N`, or its prose explicitly names that phase). In a branch-per-phase project only active-phase work is actionable on the current branch, so `## Next up` / SPEC items scoped to a *different* phase do NOT count and do NOT suppress this bail.
+   - **On a complete active phase:** first perform the §0-7a HUMAN.md handoff below (38.4), then print exactly one line on stdout and exit 0:
+
+     ```
+     [no-work] phase <N> complete on <branch>; awaiting human branch setup for phase <N+1>
+     ```
+
+   This is a **phase-scoped variant** of the §0-6 empty-queue bail, not a replacement. The global bail fires only when the WHOLE spec is `[x]`; this one fires when the *active* phase is done even though later phases still carry open `- [ ]` items. The chain runner recognizes any `[no-work] <reason>` line as a loop-aborting sentinel (same `terminated_by: "no_work_bail"` manifest path — confirmed by the `NO_WORK_SENTINEL_RE` regression tests in `tests/test_skill_chain.py`), so no runner change is needed. **Do NOT scope-creep onto a later phase's open items just because they exist:** the human owns the decision to merge the completed branch and open the next phase's branch. A later phase having open `- [ ]` items (in SPEC or `## Next up`) does NOT suppress this bail.
+
+   **7a. HUMAN.md handoff (fired ONLY as the first action of the §0-7 phase-completion bail, before the sentinel print).** Append a `## Blocking` entry to `docs/HUMAN.md` (create the file from `~/Dev/skill-set/templates/HUMAN.md` if absent) instructing the human to set up the next phase's branch. Assign the next unused `H<N>.<n>` ID for completed phase `<N>`:
+
+   ```
+   - [ ] H<N>.<n> [medium] **Phase <N> complete on <branch> — set up phase <N+1>**
+     Phase <N> is fully `[x]` on `<branch>` and no `## Next up` item is scoped to
+     it. The autonomous cycle cannot create branches or open PRs. Please: (1)
+     merge/PR `<branch>` into the integration branch; (2) create the phase <N+1>
+     branch `feature/<name>` from the project's integration branch (e.g.
+     `origin/main`); (3) add its `## Operational
+     scope` mapping line to `docs/SPEC.md` so the next cycle resolves the new
+     active phase.
+     Blocks: <first open SPEC ID of phase N+1, or "none" if unknown>
+     Verify: test "$(git branch --show-current)" != "<branch>"
+     Filed by: sst-dev-cycle at <utc-iso>.
+     Source: phase-completion bail on <branch>.
+   ```
+
+   **Idempotent.** Before appending, scan `docs/HUMAN.md` for any OPEN (`- [ ]`) `## Blocking` entry whose title already names "Phase `<N>` complete on `<branch>`" (same completed phase + same branch). If one exists, do NOT append a duplicate — skip straight to the sentinel print + exit. Re-running the bail on the same completed phase must leave `docs/HUMAN.md` byte-identical.
+
+   **Write-then-notify.** Immediately after a *fresh* append (not when the idempotency check skipped), invoke `bash bin/notify-human-md.sh <cwd> docs/HUMAN.md`. A missing/unconfigured Telegram env is a graceful skip (exit 0); a notification failure must never block the bail or the exit.
 
 ## 1. Decide what to work on
 

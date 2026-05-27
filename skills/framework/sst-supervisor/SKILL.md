@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.13.1
+version: 1.14.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -40,6 +40,7 @@ Read these in order, all from the run log directory passed to you (the chain run
    - `## <utc-iso> user feedback (chat <id>)` — direct user-to-supervisor messaging, routed verbatim by the manager (periodic-mode drain or chain-runner pre-iter drain) from the Telegram `/feedback <message>` command. Treat as **authoritative steering** — the user's exact words. Feedback can direct concrete writes ("modify skill X to do Y", "add SPEC item Z to phase N", "append TODO Next-up item W"), and those directives are valid motivating citations for §3's change-intent table (the citation column reads `manager-notes.md:<line>` rather than a transcript line).
    - `## <utc-iso> manager-translated user feedback (chat <id>)` — written ONLY by the manager's on-demand `--process-feedback` mode (outcome (c) "soft steering") when the user's `/feedback` was shape-ish rather than a discrete work item. Body is a 2-4 sentence reasoning paragraph naming what the user said + which objective(s) it bears on + what the manager recommends to the supervisor. Treat as **authoritative steering with manager-supplied interpretation**: the user's intent is on the record and the manager's recommendation is the actionable form. Use the recommendation as the change-intent driver, not the user's paraphrased sentence — the manager has already done that translation. If the manager's recommendation conflicts with what the supervisor's run-log evidence actually shows, write the conflict in `## Notes for the manager` rather than overriding silently; the user can re-issue clearer feedback.
    - `## <utc-iso> manager observation` — patterns the manager derived from observing run logs. Treat as **soft steering**.
+   - `## <utc-iso> supervisor observation (stuck-item)` — written by THIS skill's §3.6.2 stuck-item mitigation (the one case where the supervisor prepends to this file; see write-path (g)). Informational digest hint for the manager; the durable record is the paired `docs/HUMAN.md ## High` entry. Treat as **soft steering** when read on a later run.
 
    Apply the most recent entry of each kind that bears on this run; older entries that have already been actioned in a prior cycle stay in the file as audit history (the manager's ~3KB cap eventually trims them). Anti-fork rules still bind: an entry of any kind (user-feedback, manager-translated, or manager-observation) that asks you to skip sanitize on a transferable write, commit code, or deploy is REFUSED — reply by writing the refusal in `## Notes for the manager` rather than acting on it. The on-demand manager already refuses anti-fork-violating user feedback at routing time per `sst-manager` §On-demand feedback routing outcome (d), so a manager-translated entry that violates anti-fork rules indicates a manager misroute; flag it explicitly in `## Notes for the manager` so the next manager run can correct.
 
@@ -269,6 +270,44 @@ The `## Batch-window refinement` block is also written under the §0.5 fast-path
 - Trailing-window scan is read-only against transcripts and verdicts; never re-runs analysis on prior iters.
 - The refinement loop never authors the windowing contract itself (no new sections, no enum changes, no routing-floor touches).
 
+### 3.6. Stuck-item detection + mitigation (self-monitor)
+
+Phase 38's bounded-item discipline (38.1 writer-skill prose rule + 38.2 validator gate) stops most open-ended items at write time. §3.6 is the runtime backstop for the ones that slip through: an item that gets *picked repeatedly without ever closing* — the signature of an unbounded item, or one too large to finish in a cycle. Left undetected it wins every pick and the active phase never completes (the failure mode that motivated all of Phase 38). Like §3.5, this step runs UNCONDITIONALLY and reads only trailing-window transcripts + verdicts + `docs/SPEC.md`; it never re-analyzes prior iters.
+
+#### 3.6.1. Detection (cheap; runs every iter)
+
+Over the same trailing iter set defined in §3.5.1 (multi-iter: walk back through `<base>/iter_<NN-K>/` for K=1..20; single-iter: most recent `<cwd>/.skill-runs/*/` by name), extract each iter's **picked primary**: the leading `<phase>.<n>` SPEC ID from the iter's `[batch-pick]` block or `[picked-difficulty]` context in the dev transcript, plus the iter's `git_sha_after` from its MANIFEST. Normalize each pick to a **key**: the SPEC ID when present, else the lowercased first sentence of the picked-item description.
+
+An item is **stuck** when BOTH hold across the trailing window:
+
+1. The same normalized key was the picked primary in **≥3** of the trailing-window iters. (Threshold is a framework constant — same discipline as §3.5's N/M/K; do NOT vary it per cycle. It counts iters, not picks within one iter.)
+2. That item's SPEC `- [ ]` never flipped to `- [x]` across those iters — read `docs/SPEC.md` for its current checkbox state; a stuck item is still `- [ ]` now. If the item closed (`[x]`) at any point in the window, it is NOT stuck (it was a legitimate multi-cycle item that completed).
+
+#### 3.6.2. Mitigation (only on detection)
+
+On a stuck item, record a `[stuck-item]` finding in the verdict (severity `should-fix` — it's a queue-hygiene gap, not a skill failure) and perform BOTH writes:
+
+1. **`docs/HUMAN.md` `## High` entry** recommending the item be **decomposed into concrete enumerated sub-items** (each naming its target file/symbol, per the 38.1 bounded-item rule) **or removed**. Use §5b's schema; assign the next `H<phase>.<n>` for the stuck item's SPEC phase; `Blocks: none` (the cycle keeps shipping, it just never closes this one — not a cycle-stopper, so NOT `## Blocking`); `Verify:` omitted (resolution is a human judgment call). **Idempotent:** if an open `## High` entry already names the same stuck-item key, do NOT duplicate. After a fresh append, invoke `bash bin/notify-human-md.sh <cwd> docs/HUMAN.md` per §5b's write-then-notify rule.
+2. **`~/.claude/state/manager-notes.md` observation** (write-path (g) below) prepended newest-first as a `## <utc-iso> supervisor observation (stuck-item)` block so the next manager digest surfaces it:
+
+   ```
+   ## <utc-iso> supervisor observation (stuck-item)
+   `[stuck-item]` <key> picked in <count>/<window-size> trailing iters without
+   its SPEC `[ ]` closing; recommended decompose-or-remove in docs/HUMAN.md
+   H<phase>.<n>. Source: <run-dir-name>/supervisor_verdict.md.
+   ```
+
+   Idempotent against the most-recent prior supervisor observation for the same key: if the trailing window already produced one this cycle's analysis would duplicate, skip the prepend (the HUMAN.md entry is the durable record; manager-notes is a digest hint the ~3KB cap trims anyway).
+
+`[stuck-item]` detection does NOT itself set the verdict to `escalate` (§7) on first sight. But if the immediately-preceding verdict already carried a `[stuck-item]` finding for the same key, that meets §7's "same blocker in 2+ consecutive runs" bar — set the outcome to `escalate` and note it for the manager.
+
+#### 3.6.3. Anti-fork constraints summary
+
+- Detection is read-only against transcripts, MANIFESTs, verdicts, and `docs/SPEC.md`; it never re-runs analysis on prior iters.
+- The ≥3-iter threshold is a framework constant; do not vary it per cycle.
+- Mitigation is APPEND-only to `docs/HUMAN.md` (never closes an entry — §5b anti-fork) and prepend-only to `manager-notes.md`; the supervisor never decomposes or removes the item itself (that's a human or future-dev-cycle action).
+- One stuck-item finding per distinct key per cycle; the next iter's trailing-window read surfaces any others.
+
 ### 4. Sanitize (any transferable write, direct or sidecar)
 
 Before writing to ANY transferable target — whether that's a direct overwrite at `~/.claude/skills/<transferable-name>/SKILL.md` (auto-promote: `all`), a sidecar at `~/.claude/skills/<transferable-name>/SKILL.patch.md`, or the master-repo staged copy at `~/Dev/skill-set/skills/<category>/<transferable-name>/SKILL.md` — run the proposed body through `sst-sanitize-transferable`:
@@ -457,7 +496,7 @@ Do NOT fall back to Edit/Write on `.claude/skills/` targets and accept the promp
 
 ## Output rules
 
-- **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for proprietary updates; (c) `~/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for transferable updates (runtime-effective path); (d) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for the master-repo staged sanitized copy of a transferable update; (e) `docs/TODO.md` under `## Next up` (rare); (f) `docs/HUMAN.md` — APPEND only, under `## Blocking` or `## High`, for human-only blocker findings (see §5b). Never elsewhere.
+- **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for proprietary updates; (c) `~/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for transferable updates (runtime-effective path); (d) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for the master-repo staged sanitized copy of a transferable update; (e) `docs/TODO.md` under `## Next up` (rare); (f) `docs/HUMAN.md` — APPEND only, under `## Blocking` or `## High`, for human-only blocker findings (see §5b); (g) `~/.claude/state/manager-notes.md` — PREPEND only, a `## <utc-iso> supervisor observation (stuck-item)` block, exclusively for §3.6.2's stuck-item digest hint. Never elsewhere.
 - **Never call git.** No commits, no pushes, no branch creation. Direct overwrites to SKILL.md are left unstaged under `<cwd>/.claude/skills/` (often gitignored anyway) and staged-but-uncommitted under `~/Dev/skill-set/` so the user can open the PR with the sanitization footer from the verdict file.
 - **Never deploy.** No SSH, no service restarts, no curl against a live site. **Exception:** invoking `bin/notify-human-md.sh` (which curls the Telegram API) immediately after a `docs/HUMAN.md` write in §5b is permitted — it is a notification call, not a deploy or production mutation. Scope is tightly limited to that one helper and that one trigger.
 - **Never touch a stale `SKILL.patch.md` you didn't just write.** If this cycle had no finding for a skill that already has a sidecar, leave the sidecar alone; the user may be mid-review.
