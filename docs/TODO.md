@@ -43,6 +43,5 @@
   Order: blockers/highest-impact first.
 -->
 
-
-
+- [easy] [should-fix] 38.12 `bin/skill-chain.py:1551` Phase 36 pass-through guard must exclude auto-supervisor: change condition to `skills_to_run[i + 1] != auto_supervisor`; add `["sst-dev-cycle", "sst-supervisor"]` test confirming abort — review of 317470a
 
