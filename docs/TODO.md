@@ -24,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- 38.3+38.4+38.5 [hard batch] Phase 38 close-out: sst-dev-cycle §0-7 phase-completion bail (derive active phase from SPEC `## Operational scope` branch map → phase-scoped `[no-work]` sentinel) + §0-7a idempotent HUMAN.md `## Blocking` handoff with notify-human-md.sh; sst-supervisor §3.6 stuck-item detection (same item picked ≥3 trailing iters without `[ ]`→`[x]` → `[stuck-item]` finding + HUMAN.md `## High` + manager-notes write-path (g)); 7 runner no-work-bail regression tests (174 green); sanitize must-fix=0 on both transferables — by sst-dev-cycle at 2026-05-27T00:42:00Z
 - 38.2 [medium] validate_spec_item_quality in bin/validate-frontmatter.py: open-ended-marker check on SPEC.md open items + TODO Next-up bullets; backtick/quote exemption; concrete-target pass-through; 8 new tests, 167 green — by sst-dev-cycle at 2026-05-27T00:00:00Z
 - 38.6 [medium] find_local_supervisor transferable fallback in bin/skill-chain.py: falls back to ~/.claude/skills/sst-supervisor when no project-local *-supervisor; proprietary still wins, multi-match still None; 4 new tests, 159 green — by manual (direct change) at 2026-05-26T23:55:57Z
 - 38.1 [medium] bounded-item rule added to sst-dev-review + sst-supervisor + sst-manager (3 write surfaces): forbid open-ended/recurring items, require falsifiable acceptance criterion / concrete target; sanitize must-fix=0 — by skill-set-dev at 2026-05-26T23:55:57Z
@@ -33,7 +34,6 @@
 - docs: archive all closed phases (1–19, 21–36) to docs/COMPLETED.md; SPEC.md now only holds active preamble + deferred Phase 20; docs/SPEC-archive.md removed — by skill-set-dev at 2026-05-25T22:51:29Z
 - 35.8 [medium] round-trip integration tests for dispatcher: tests/fixtures/stub_claude.py + fixture_project fixture + test_dispatcher_round_trip parameterized over 6 verbs + test_dispatcher_refuses_unknown_persona_without_spawning; 67/67 tests green — by skill-set-dev at 2026-05-25T22:34:04Z
 - 35.6 [medium] flip dispatcher lifecycle to always-on: retired chain-driver start/stop hooks in drive-chain.py, updated Phase 18 SPEC prose, CLAUDE.md, README worker management — by skill-set-dev at 2026-05-25T17:39:14Z
-- 36.3 [easy] templates/SPEC.md contract_violation JSON: corrected "reason"→"kind", added "skill" field, removed "signals" key, updated guidance to "surface the `kind` field" — by skill-set-dev at 2026-05-25T17:18:24Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -43,9 +43,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [hard] 38.3 sst-dev-cycle phase-completion bail: derive active phase from Operational-scope branch map; phase-scoped [no-work] when all that phase's SPEC items are [x] and no Next-up item is scoped to it — reason: spec 38.3; the direct fix for infinite iteration on a completed phase.
-- [medium] 38.4 sst-dev-cycle HUMAN.md ## Blocking handoff on phase completion (authorize merge + create next feature branch + add Operational-scope mapping), idempotent, then notify-human-md.sh — reason: spec 38.4; pairs with 38.3.
-- [medium] 38.5 sst-supervisor stuck-item detection: flag an item picked in ≥3 trailing-window iters without its SPEC [ ]→[x] flip; file HUMAN.md ## High decompose/remove recommendation + manager-notes observation — reason: spec 38.5; active mitigation when the pattern recurs.
 - [medium] manager-bot.service template ships non-functional defaults: add `Environment="MANAGER_SKILL_NAME=1"` (dispatcher on), `Environment="CLAUDE_BIN=%h/.local/bin/claude"` (or document overriding), a user-mode variant (drop `User=`, `WantedBy=default.target`), and a README line on `loginctl enable-linger <user>` for WSL persistence — reason: user message 2026-05-26 (installed the service this session; out-of-box gave queue-only fallback + claude-not-on-PATH spawn failures).
 - [medium] manager-bot.py persona discovery only scans `~/.claude/skills/*-manager/`, missing project-local proprietary managers under `<project>/.claude/skills/`; the dispatcher returns "Unknown project token. Known: (none discovered)" until the user manually symlinks each proprietary manager into `~/.claude/skills/`; support a `MANAGER_SKILLS_EXTRA_ROOTS` env var (colon-separated) OR auto-discover via `~/.claude/state/manager-cursors.json` watched-project paths OR have `sst-setup-telegram` auto-symlink during install — reason: user message 2026-05-26 (had to manually symlink cm-manager + dahrouge-manager during service wire-up).
 - [medium] install-skills.sh flags every source-newer skill as DIVERGED, conflating "upstream got bumped" with "target was hand-edited"; the `-y` path then SKIPS those updates unless `--force` is passed, breaking the routine "pull canonical then re-deploy" workflow; distinguish UPDATE-from-source vs hand-edit DIVERGED via a `.installed-from-rev` marker file per target, OR by diffing against the git rev that last touched the source body — reason: user message 2026-05-26 (every refresh in this session required `--force`).

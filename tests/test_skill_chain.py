@@ -334,6 +334,116 @@ def test_run_iteration_blocked_on_human_bail_skips_remaining_skills():
         "sst-dev-review must NOT be called after blocked-on-human bail"
 
 
+# ---- [no-work] phase-completion sentinel variant (Phase 38.3) ----------------
+#
+# 38.3 adds a phase-scoped bail to sst-dev-cycle that emits
+# `[no-work] phase <N> complete on <branch>; awaiting human branch setup for
+# phase <N+1>`. The acceptance requires confirming bin/skill-chain.py's existing
+# NO_WORK_SENTINEL_RE + no-work bail path recognize this variant as a
+# loop-aborting [no-work] (no new runner code needed; these guard the contract
+# against a future regex tightening). The no-work bail path had ZERO tests
+# before this; these also backfill that coverage gap.
+
+_PHASE_COMPLETE_SENTINEL = (
+    "[no-work] phase 38 complete on feature/phase-38; "
+    "awaiting human branch setup for phase 39"
+)
+
+
+def test_no_work_sentinel_re_matches_phase_completion_variant():
+    """NO_WORK_SENTINEL_RE recognizes the 38.3 phase-completion sentinel."""
+    assert sc.NO_WORK_SENTINEL_RE.search(_PHASE_COMPLETE_SENTINEL) is not None
+
+
+def test_no_work_sentinel_re_captures_phase_completion_reason():
+    """The reason group captures the full phase-completion message text."""
+    m = sc.NO_WORK_SENTINEL_RE.search(_PHASE_COMPLETE_SENTINEL)
+    assert m is not None
+    assert m.group(1) == (
+        "phase 38 complete on feature/phase-38; "
+        "awaiting human branch setup for phase 39"
+    )
+
+
+def test_no_work_sentinel_re_matches_phase_completion_in_multiline_output():
+    """Phase-completion sentinel is found when embedded in surrounding output."""
+    output = (
+        "Read docs/SPEC.md; phase 38 has no open items on this branch.\n"
+        f"{_PHASE_COMPLETE_SENTINEL}\n"
+        "Exiting without picking work.\n"
+    )
+    assert sc.NO_WORK_SENTINEL_RE.search(output) is not None
+
+
+def test_blocked_on_human_re_does_not_match_phase_completion_variant():
+    """The phase-completion bail is a [no-work] variant, NOT blocked-on-human."""
+    assert sc.BLOCKED_ON_HUMAN_SENTINEL_RE.search(_PHASE_COMPLETE_SENTINEL) is None
+
+
+def test_no_work_bail_fires_for_phase_completion_when_no_commit():
+    """_no_work_bail_should_fire returns True for a phase-completion bail
+    record when no commit shipped (sha unchanged)."""
+    record = {"no_work_bail": (
+        "phase 38 complete on feature/phase-38; "
+        "awaiting human branch setup for phase 39"
+    )}
+    assert sc._no_work_bail_should_fire(record, "abc1234", "abc1234") is True
+
+
+def test_no_work_bail_suppressed_for_phase_completion_when_commit_shipped():
+    """A commit landing during the skill suppresses even a phase-completion
+    sentinel (false-positive guard: real work shipped)."""
+    record = {"no_work_bail": (
+        "phase 38 complete on feature/phase-38; "
+        "awaiting human branch setup for phase 39"
+    )}
+    assert sc._no_work_bail_should_fire(record, "abc1234", "def5678") is False
+
+
+def test_run_iteration_phase_completion_no_work_bail_skips_remaining_skills():
+    """run_iteration aborts after the dev skill fires the phase-completion
+    [no-work] variant: records no_work_bail on the iter manifest and never
+    calls the review skill. Mirrors the blocked-on-human integration test;
+    the no-work bail path had no integration coverage before 38.3."""
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    reason = (
+        "phase 38 complete on feature/phase-38; "
+        "awaiting human branch setup for phase 39"
+    )
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        if skill_name == "sst-dev-cycle":
+            return (0, {"no_work_bail": reason})
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("hard", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("opus", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-dev-review"],
+            None,    # iter_log_dir=None skips snapshot writes
+            None,    # auto_supervisor
+            1,       # iteration
+            1,       # total_iterations
+            "/tmp",  # cwd (everything patched, actual path irrelevant)
+        )
+
+    assert rc == 0, "phase-completion no-work bail must be a clean exit (rc=0)"
+    assert "no_work_bail" in iter_manifest, \
+        "iter_manifest must record no_work_bail after the phase-completion bail"
+    assert iter_manifest["no_work_bail"]["skill"] == "sst-dev-cycle"
+    assert iter_manifest["no_work_bail"]["reason"] == reason
+    assert calls == ["sst-dev-cycle"], \
+        "sst-dev-review must NOT be called after a phase-completion no-work bail"
+
+
 # ---- _incomplete_cycle_detected unit tests (Phase 36) -----------------------
 
 _incomplete_cycle_detected = sc._incomplete_cycle_detected
