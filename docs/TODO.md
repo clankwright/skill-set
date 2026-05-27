@@ -44,5 +44,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 38.10 bin/manager-bot.service:39 comment says "outside %h/Dev/" but covered ancestor is only %h/Dev/skill-set; a user with MANAGER_SKILLS_EXTRA_ROOTS pointing to %h/Dev/claim_management would not add that path and get write failures — review of 50733e1
 - [medium] install-skills.sh flags every source-newer skill as DIVERGED, conflating "upstream got bumped" with "target was hand-edited"; the `-y` path then SKIPS those updates unless `--force` is passed, breaking the routine "pull canonical then re-deploy" workflow; distinguish UPDATE-from-source vs hand-edit DIVERGED via a `.installed-from-rev` marker file per target, OR by diffing against the git rev that last touched the source body — reason: user message 2026-05-26 (every refresh in this session required `--force`).
 
