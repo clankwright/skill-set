@@ -4,6 +4,7 @@
 
 ## In flight
 
+
 <!--
   Exactly one line per currently-running skill, format:
   - [<skill-name> @ <utc-iso>] <one-line: what this skill is currently doing>
@@ -22,6 +23,7 @@
   phase blocks and `git log`.
 -->
 
+- [medium batch] manager rate-limit fixes: manager-idle-check.py cursor-field fix (reads `latest_run` with `last_run` fallback; idle-gate now skips idle projects, dahrouge confirmed IDLE) + 5 tests; sst-manager 1.17.0 model-floor opus to sonnet + README guidance; README manager cron-tick-spreading note; 213 green, sanitize clean. Proprietary cm/dahrouge/skill-set wrapper model-floors flipped to sonnet locally (gitignored). Implemented by sst-dev-cycle; closed manually after an incomplete-cycle abort, 2026-05-27T22:26:16Z
 - sst-dev-review 1.5.8 [easy]: hand-merge parser-behavior anti-pattern bullet from stale SKILL.patch.md sidecar (May 25, pre-38.1/38.11); discard sidecar; validator clean. Filed retroactively per direct-change convention — by manual (direct change) at 2026-05-27T13:30:00Z
 - [medium batch] manager idle pre-check + sst-setup-telegram symlink: bin/manager-idle-check.py (7 logic tests) + sst-manager 1.16.0 §Caller-side-idle-gate + sst-setup-telegram 1.1.0 §4 base-dir symlink; 13 new tests, 208 green; sanitize must-fix=0 on both transferables — by sst-dev-cycle at 2026-05-27T09:15:00Z
 - 38.11 + sst-dev-review 1.5.7: --force DIVERGED overwrite test + validator-invocation clarification; 1 new test, 195 green — by sst-dev-cycle at 2026-05-27T07:35:00Z
@@ -31,8 +33,6 @@
 - manager-bot.service [medium batch + 38.7]: user-mode unit (WantedBy=default.target, %h paths, no User=), MANAGER_SKILL_NAME=1, CLAUDE_BIN + MANAGER_SKILLS_EXTRA_ROOTS commented hints; manager-bot.py MANAGER_SKILLS_EXTRA_ROOTS env var + extra_roots param + cross-root dedup; README systemd install block with WSL linger note; 8 new tests, 182 green — by sst-dev-cycle at 2026-05-27T03:30:00Z
 - 38.3+38.4+38.5 [hard batch] Phase 38 close-out: sst-dev-cycle §0-7 phase-completion bail (derive active phase from SPEC `## Operational scope` branch map → phase-scoped `[no-work]` sentinel) + §0-7a idempotent HUMAN.md `## Blocking` handoff with notify-human-md.sh; sst-supervisor §3.6 stuck-item detection (same item picked ≥3 trailing iters without `[ ]`→`[x]` → `[stuck-item]` finding + HUMAN.md `## High` + manager-notes write-path (g)); 7 runner no-work-bail regression tests (174 green); sanitize must-fix=0 on both transferables — by sst-dev-cycle at 2026-05-27T00:42:00Z
 - 38.2 [medium] validate_spec_item_quality in bin/validate-frontmatter.py: open-ended-marker check on SPEC.md open items + TODO Next-up bullets; backtick/quote exemption; concrete-target pass-through; 8 new tests, 167 green — by sst-dev-cycle at 2026-05-27T00:00:00Z
-- 38.6 [medium] find_local_supervisor transferable fallback in bin/skill-chain.py: falls back to ~/.claude/skills/sst-supervisor when no project-local *-supervisor; proprietary still wins, multi-match still None; 4 new tests, 159 green — by manual (direct change) at 2026-05-26T23:55:57Z
-- 38.1 [medium] bounded-item rule added to sst-dev-review + sst-supervisor + sst-manager (3 write surfaces): forbid open-ended/recurring items, require falsifiable acceptance criterion / concrete target; sanitize must-fix=0 — by skill-set-dev at 2026-05-26T23:55:57Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -41,5 +41,8 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
+
+- [medium] Make sst-dev-review commit the dev-cycle's uncommitted work as a safety net instead of the chain aborting on the incomplete-cycle contract violation. Seen twice (Phase 38.1 and the 2026-05-28 manager-rate-limit batch): sst-dev-cycle does the edits and runs the nested sst-sanitize-transferable skill, then ends its turn without staging/committing or closing docs; Phase 36 `_incomplete_cycle_detected` then aborts the chain, skipping review+supervisor and wasting the run. Fix: on entry sst-dev-review detects a dirty tree with no dev commit, verifies the work is actually complete (full test suite green AND the picked SPEC/TODO item acceptance met), and if so stages + commits it and finishes the close (In-flight to Just shipped); bail only if the work is genuinely incomplete. Adjust bin/skill-chain.py so the Phase 36 guard does not pre-abort before sst-dev-review runs in a dev+review chain. Targets: skills/dev/sst-dev-review/SKILL.md (new orphaned-dev-commit recovery step) + bin/skill-chain.py + tests. Reason: user message 2026-05-28.
+
 
 
