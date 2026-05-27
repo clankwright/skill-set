@@ -23,6 +23,7 @@
   phase blocks and `git log`.
 -->
 
+- sst-dev-review 1.6.0 orphaned-cycle recovery + Phase 36 guard passthrough: review skill now recovers incomplete dev cycles (dirty tree + In-flight line) by verifying tests and committing; runner passes to review instead of aborting when a follower skill exists; 2 new tests (passes_to_review, aborts_without_next_skill), 214 green, sanitize must-fix=0 — by sst-dev-cycle at 2026-05-28T18:10:00Z
 - [medium batch] manager rate-limit fixes: manager-idle-check.py cursor-field fix (reads `latest_run` with `last_run` fallback; idle-gate now skips idle projects, dahrouge confirmed IDLE) + 5 tests; sst-manager 1.17.0 model-floor opus to sonnet + README guidance; README manager cron-tick-spreading note; 213 green, sanitize clean. Proprietary cm/dahrouge/skill-set wrapper model-floors flipped to sonnet locally (gitignored). Implemented by sst-dev-cycle; closed manually after an incomplete-cycle abort, 2026-05-27T22:26:16Z
 - sst-dev-review 1.5.8 [easy]: hand-merge parser-behavior anti-pattern bullet from stale SKILL.patch.md sidecar (May 25, pre-38.1/38.11); discard sidecar; validator clean. Filed retroactively per direct-change convention — by manual (direct change) at 2026-05-27T13:30:00Z
 - [medium batch] manager idle pre-check + sst-setup-telegram symlink: bin/manager-idle-check.py (7 logic tests) + sst-manager 1.16.0 §Caller-side-idle-gate + sst-setup-telegram 1.1.0 §4 base-dir symlink; 13 new tests, 208 green; sanitize must-fix=0 on both transferables — by sst-dev-cycle at 2026-05-27T09:15:00Z
@@ -42,7 +43,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] Make sst-dev-review commit the dev-cycle's uncommitted work as a safety net instead of the chain aborting on the incomplete-cycle contract violation. Seen twice (Phase 38.1 and the 2026-05-28 manager-rate-limit batch): sst-dev-cycle does the edits and runs the nested sst-sanitize-transferable skill, then ends its turn without staging/committing or closing docs; Phase 36 `_incomplete_cycle_detected` then aborts the chain, skipping review+supervisor and wasting the run. Fix: on entry sst-dev-review detects a dirty tree with no dev commit, verifies the work is actually complete (full test suite green AND the picked SPEC/TODO item acceptance met), and if so stages + commits it and finishes the close (In-flight to Just shipped); bail only if the work is genuinely incomplete. Adjust bin/skill-chain.py so the Phase 36 guard does not pre-abort before sst-dev-review runs in a dev+review chain. Targets: skills/dev/sst-dev-review/SKILL.md (new orphaned-dev-commit recovery step) + bin/skill-chain.py + tests. Reason: user message 2026-05-28.
 
 
 

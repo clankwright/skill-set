@@ -1532,6 +1532,11 @@ def run_iteration(
         # This is the runner-level enforcement of the "dev skill done = git push
         # succeeded" contract that prose-level Defenses 1-4 could not uphold.
         # Skipped when git SHA is unavailable (non-git harness).
+        #
+        # When a downstream skill follows (typically sst-dev-review), don't
+        # abort — record the violation and let the next skill attempt recovery
+        # (commit the orphaned work after verifying tests pass). Only abort
+        # immediately when the dev ran alone with no follower skill.
         if (
             i == 0
             and sha_before_skill is not None
@@ -1543,14 +1548,23 @@ def run_iteration(
                 "skill": skill,
                 "kind": "incomplete-cycle",
             }
-            print(c(
-                f"\n[contract-violation: incomplete-cycle] /{skill}: "
-                f"exited [ok] with no commit but docs/TODO.md indicates "
-                f"incomplete work (In-flight non-empty or "
-                f"Sanitize: must-fix=PENDING); aborting chain",
-                RED,
-            ), flush=True)
-            break
+            if i + 1 < len(skills_to_run):
+                print(c(
+                    f"\n[contract-violation: incomplete-cycle] /{skill}: "
+                    f"exited [ok] with no commit but docs/TODO.md indicates "
+                    f"incomplete work; passing to /{skills_to_run[i + 1]} "
+                    f"for orphaned-cycle recovery",
+                    ORANGE,
+                ), flush=True)
+            else:
+                print(c(
+                    f"\n[contract-violation: incomplete-cycle] /{skill}: "
+                    f"exited [ok] with no commit but docs/TODO.md indicates "
+                    f"incomplete work (In-flight non-empty or "
+                    f"Sanitize: must-fix=PENDING); aborting chain",
+                    RED,
+                ), flush=True)
+                break
 
     iter_manifest["finished_at"] = _utc_iso()
     iter_manifest["git_sha_after"] = _git_sha(cwd)
