@@ -124,6 +124,7 @@ The framework's canonical floor table:
 | :---                                                                        | :---          | :---           |
 | `sst-supervisor`, `sst-sanitize-transferable`                               | `opus`        | `xhigh`        |
 | `sst-dev-cycle`, `sst-dev-review`, `sst-skill-router`, `sst-editorial-pass`, `sst-iterative-writer`, `sst-literary-critic` | `sonnet` | `high` |
+| `sst-manager`                                                               | `sonnet`      | `high`         |
 | `sst-translator`, `sst-fact-checker`, `sst-promote-skill-proposal`, `sst-output-selector`, `sst-llm-judge-ranker`, `sst-email-control-loop`, `sst-setup-telegram` | `haiku` | `medium` |
 
 **Per-item difficulty labels** sit on every open SPEC item and TODO Next-up entry:
@@ -247,6 +248,7 @@ Three host options:
 
 ### Caveats
 
+- **Spread cron ticks when multiple personas share one Anthropic account.** Back-to-back manager ticks (e.g. `:00`/`:05`/`:10`) all run on the same rolling 5-hour quota window; if the first tick consumes most of the window, the second and third are rejected mid-run. Stagger ticks across hours instead: e.g. `:00`, `:20`, `:40` within the same hour, or spread across different hours altogether. The idle pre-check (`bin/manager-idle-check.py`) reduces quota burn when projects have no new activity, but cannot help when all ticks fire simultaneously.
 - **Single `getUpdates` consumer.** Telegram allows only one process polling `getUpdates` per bot. While the worker is running, an inline `curl .../getUpdates` for debugging will steal updates from it: stop the worker first.
 - **Sleep is fine; hibernate / `wsl --shutdown` is not.** Host sleep just freezes the worker; on wake the long-poll is re-established and Telegram replays any queued inbound (24h server-side queue). Hibernate or full shutdown requires manual relaunch (or a systemd unit with `Restart=always`).
 - **No webhook mode.** `manager-bot.py` is long-poll only; no public hostname or TLS cert needed. Webhook would be a separate worker.

@@ -18,6 +18,7 @@ _SST_MANAGER_SKILL = _REPO_ROOT / "skills" / "framework" / "sst-manager" / "SKIL
 _SST_SETUP_TELEGRAM = (
     _REPO_ROOT / "skills" / "framework" / "coms" / "sst-setup-telegram" / "SKILL.md"
 )
+_README = _REPO_ROOT / "README.md"
 
 
 def _load_module():
@@ -188,6 +189,41 @@ def test_idle_when_human_md_snapshot_matches(env):
     assert env.call_idle() is True, "Matching HUMAN.md snapshot must remain idle"
 
 
+# ── Cursor field-name compatibility ─────────────────────────────────────────
+
+def test_idle_with_real_manager_cursor_shape(env):
+    """Cursor written by sst-manager uses 'latest_run'; idle check must read it."""
+    run_dir = env.make_run_dir("2026-01-01T00-00-00Z_test-chain")
+    # Exact shape sst-manager produces (from ~/.claude/state/manager-cursors.json).
+    data = {
+        str(env.project_root): {
+            "latest_run": run_dir.name,
+            "planner": {"queue_empty_since_tick": None},
+            "human_md_snapshot": {},
+        }
+    }
+    env.cursors_path.write_text(json.dumps(data))
+    assert env.call_idle() is True, (
+        "Real manager cursor shape (latest_run key) must be recognized as idle; "
+        "is_manager_idle was reading 'last_run' which doesn't exist in live cursors"
+    )
+
+
+def test_idle_with_legacy_last_run_cursor_shape(env):
+    """Cursor written with legacy 'last_run' field must still be recognized via fallback."""
+    run_dir = env.make_run_dir("2026-01-01T00-00-00Z_test-chain")
+    data = {
+        str(env.project_root): {
+            "last_run": run_dir.name,
+            "human_md_snapshot": {},
+        }
+    }
+    env.cursors_path.write_text(json.dumps(data))
+    assert env.call_idle() is True, (
+        "Legacy cursor shape ('last_run' key) must still work via fallback"
+    )
+
+
 # ── SKILL.md prose checks ───────────────────────────────────────────────────
 
 def test_sst_manager_skill_documents_idle_precheck():
@@ -216,6 +252,42 @@ def test_sst_setup_telegram_skill_documents_base_dir_symlink():
     # Must describe idempotency
     assert "idempotent" in content.lower() or "already exists" in content.lower() or "if" in content.lower(), (
         "sst-setup-telegram SKILL.md must document idempotent symlink creation"
+    )
+
+
+def test_sst_manager_model_floor_is_sonnet():
+    """sst-manager SKILL.md frontmatter must declare model-floor: sonnet (not opus).
+
+    Managers compose digests and walk state rather than generating code, so
+    opus/high is overkill; three concurrent Opus/high ticks exhaust the shared
+    5-hour Anthropic limit so only the first persona's tick gets through.
+    """
+    text = _SST_MANAGER_SKILL.read_text()
+    # Frontmatter section (between first --- delimiters).
+    frontmatter_end = text.find("\n---", 3)
+    frontmatter = text[:frontmatter_end] if frontmatter_end != -1 else text[:500]
+    assert "model-floor: sonnet" in frontmatter, (
+        "sst-manager SKILL.md frontmatter must set model-floor: sonnet; "
+        "opus exhausts the 5-hour limit when multiple personas tick concurrently"
+    )
+
+
+def test_readme_documents_manager_model_floor():
+    """README canonical floor table must include sst-manager at sonnet tier (same line)."""
+    for line in _README.read_text().splitlines():
+        if "sst-manager" in line and "sonnet" in line:
+            return  # Found a table row with both tokens.
+    raise AssertionError(
+        "README floor table must have a row with both 'sst-manager' and 'sonnet'"
+    )
+
+
+def test_readme_documents_cron_tick_spreading():
+    """README must warn that concurrent persona ticks collide on the 5-hour limit."""
+    content = _README.read_text()
+    assert "spread" in content.lower() or "stagger" in content.lower(), (
+        "README must document cron-tick spreading to avoid rate-limit collision "
+        "when multiple persona managers share one Anthropic account"
     )
 
 

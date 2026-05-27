@@ -97,7 +97,7 @@ def is_manager_idle(
         last_run_name: str | None = cursor_entry
         human_snapshot: dict | None = None
     else:
-        last_run_name = cursor_entry.get("last_run")
+        last_run_name = cursor_entry.get("latest_run") or cursor_entry.get("last_run")
         raw_snapshot = cursor_entry.get("human_md_snapshot")
         human_snapshot = raw_snapshot if isinstance(raw_snapshot, dict) else None
 
