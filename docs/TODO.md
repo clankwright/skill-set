@@ -24,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- install-skills.sh .installed-body marker: distinguish upstream source UPDATE from hand-edit DIVERGED; 7 new tests, 194 green — by sst-dev-cycle at 2026-05-27T06:15:00Z
 - 38.10 [easy]: fix manager-bot.service ReadWritePaths comment: replace "outside %h/Dev/" with "outside any already-listed ReadWritePaths entry" + explicit sibling example; 2 new tests, 187 green — by sst-dev-cycle at 2026-05-27T05:05:00Z
 - 38.8+38.9 [easy batch]: close batch-sizing meta note; widen manager-bot.service ReadWritePaths from %h/.claude/state to %h/.claude %h/Dev/skill-set + clarifying comment; 3 new tests, 185 green — by sst-dev-cycle at 2026-05-27T04:10:00Z
 - manager-bot.service [medium batch + 38.7]: user-mode unit (WantedBy=default.target, %h paths, no User=), MANAGER_SKILL_NAME=1, CLAUDE_BIN + MANAGER_SKILLS_EXTRA_ROOTS commented hints; manager-bot.py MANAGER_SKILLS_EXTRA_ROOTS env var + extra_roots param + cross-root dedup; README systemd install block with WSL linger note; 8 new tests, 182 green — by sst-dev-cycle at 2026-05-27T03:30:00Z
@@ -45,5 +46,4 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] install-skills.sh flags every source-newer skill as DIVERGED, conflating "upstream got bumped" with "target was hand-edited"; the `-y` path then SKIPS those updates unless `--force` is passed, breaking the routine "pull canonical then re-deploy" workflow; distinguish UPDATE-from-source vs hand-edit DIVERGED via a `.installed-from-rev` marker file per target, OR by diffing against the git rev that last touched the source body — reason: user message 2026-05-26 (every refresh in this session required `--force`).
 
