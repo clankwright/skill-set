@@ -43,5 +43,7 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 38.8 bin/manager-bot.py iter_03 batch used 72k input tokens vs 200-300k medium band (undersize threshold 100k); install-skills.sh [medium] co-batchable item in docs/TODO.md was not picked — review of 1b58640 (group with batch-sizing-repeat)
+- [easy] [should-fix] 38.9 bin/manager-bot.service:35 ReadWritePaths=%h/.claude/state too narrow for dispatcher mode; ProtectSystem=strict blocks spawned claude subprocess from writing to ~/.claude/projects/ and project dirs; fix: widen to %h or at minimum %h/.claude %h/Dev/skill-set — review of 1b58640
 - [medium] install-skills.sh flags every source-newer skill as DIVERGED, conflating "upstream got bumped" with "target was hand-edited"; the `-y` path then SKIPS those updates unless `--force` is passed, breaking the routine "pull canonical then re-deploy" workflow; distinguish UPDATE-from-source vs hand-edit DIVERGED via a `.installed-from-rev` marker file per target, OR by diffing against the git rev that last touched the source body — reason: user message 2026-05-26 (every refresh in this session required `--force`).
 
