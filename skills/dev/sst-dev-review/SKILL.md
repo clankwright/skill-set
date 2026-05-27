@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.5.8
+version: 1.6.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -39,13 +39,37 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, `docs/FUTURE-WORK.md`, and `doc
 ## 0. Pre-flight
 
 1. Working directory is the project root (same repo as the commit you're reviewing). Activate any language environment the project uses.
-2. Git state check: **note and proceed**. Run `git status --porcelain` and capture the output verbatim. The review runs against the just-shipped cycle commit (HEAD by default, or the cumulative surface when the cycle shipped >1 commit) regardless of working-tree dirt; the dirt is captured as a "Working-tree state at review start" note in the §6 report and (when §4 fires) in the §5 commit body, then ignored. Rationale: the project's supervisor (when the project runs `sst-supervisor` or a `<project>-supervisor` proprietary counterpart) routinely leaves direct-overwritten edits to peer SKILL.md files uncommitted in `<cwd>/.claude/skills/*/` as its contract; parallel agent sessions and the user's own concurrent edits can also legitimately touch project source while a review runs. Halting on either case wastes the cycle's commit and forces the user to babysit the working tree. Concrete rules:
+2. **Orphaned-dev-cycle recovery.** Before the note-and-proceed pass, detect and recover any dev cycle that exited without committing. This fires when the chain runner's Phase 36 guard detected an incomplete dev cycle and routed this skill to attempt recovery instead of aborting:
+   a. Run `git status --porcelain`. If empty, skip to step 3 (clean tree, nothing to recover).
+   b. Read `docs/TODO.md`'s `## In flight` section (strip HTML comments). If it contains no `- [` bullet, skip to step 3 (dirty tree is unrelated noise — see step 3).
+   c. **Both signals present (dirty tree + live In-flight line).** Recovery path:
+      1. Run the project's full test suite (`pytest tests/ -q` or equivalent). If **any** test fails: print `[incomplete-cycle] tests failing in dirty tree; cannot auto-commit`, surface the failure detail to the user, and **exit**. Do NOT commit or push.
+      2. Tests pass. Extract the scope + description from the In-flight line (format: `- [<skill> @ <utc>] <description>`).
+      3. Inspect dirty files: `git diff --name-only` and `git ls-files --others --exclude-standard`.
+      4. If `docs/SPEC.md` has any `- [ ]` items covered by the In-flight scope that appear modified in the diff, flip them to `- [x]` now.
+      5. Finalize `docs/TODO.md`: delete the In-flight bullet from step (b); prepend to `## Just shipped`: `- <description from In-flight line> — by sst-dev-cycle at <utc from In-flight timestamp>`.
+      6. Stage all changed files by name: `git add <code-files> <test-files> docs/SPEC.md docs/TODO.md`. Never `git add -A`.
+      7. Commit:
+         ```bash
+         git commit -m "$(cat <<'EOF'
+         <Scope>: <description from the In-flight line>
+
+         Auto-committed by sst-dev-review orphaned-cycle recovery (Phase 36):
+         dev exited without staging. Full test suite green at recovery time.
+
+         Test count: <old> → <new>.
+         EOF
+         )"
+         ```
+      8. `git push origin <branch>`.
+   d. After a successful recovery commit, continue to step 3. The working tree may still carry supervisor-side `.claude/skills/*/` dirt — that is normal and handled by step 3.
+3. Git state check: **note and proceed**. Run `git status --porcelain` and capture the output verbatim. The review runs against the just-shipped cycle commit (HEAD by default, or the cumulative surface when the cycle shipped >1 commit) regardless of working-tree dirt; the dirt is captured as a "Working-tree state at review start" note in the §6 report and (when §4 fires) in the §5 commit body, then ignored. Rationale: the project's supervisor (when the project runs `sst-supervisor` or a `<project>-supervisor` proprietary counterpart) routinely leaves direct-overwritten edits to peer SKILL.md files uncommitted in `<cwd>/.claude/skills/*/` as its contract; parallel agent sessions and the user's own concurrent edits can also legitimately touch project source while a review runs. Halting on either case wastes the cycle's commit and forces the user to babysit the working tree. Concrete rules:
    - Capture the porcelain output. If non-empty, surface it as the "Working-tree state at review start" note in the §6 report and (when §4 fires) include it in the §5 commit body. Surfacing what wasn't part of the just-shipped commit is the value-add; reviewer-side rather than dev-side because the dev cycle has already committed (and pushed) by the time the review starts.
    - Do NOT stash, checkout, or modify any of the dirty files. They are out-of-scope for the review.
    - The §5 stage-narrowly rule is the structural guard: stage only the spec file (plus `docs/TODO.md` if a Next-up entry was added, plus `docs/FUTURE-WORK.md` if §4 routed findings there), never `git add -A` or `git add .`. Working-tree dirt cannot accidentally ride into the review commit if §5 is followed.
    - One exception still halts: if a dirty file is the spec file itself, `docs/TODO.md`, `docs/FUTURE-WORK.md`, or `docs/HUMAN.md` (the four files this skill writes to in §4), stop. Concurrent writers on the same files is the one collision the note-and-proceed pattern doesn't survive; surface to the user and exit.
-3. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported summary (no SHA in that format — a commit cannot contain its own hash; correlate the top Just-shipped line to HEAD, or to the matching commit via `git log --oneline --grep`).
-4. Identify the commit under review:
+4. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported summary (no SHA in that format — a commit cannot contain its own hash; correlate the top Just-shipped line to HEAD, or to the matching commit via `git log --oneline --grep`).
+5. Identify the commit under review:
    ```bash
    git log -1 --format='%H %s'
    ```

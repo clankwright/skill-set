@@ -501,17 +501,18 @@ def test_incomplete_cycle_detected_false_comment_text_not_bullet(tmp_path):
 # ---- run_iteration integration test (contract_violation, Phase 36) ----------
 
 
-def test_run_iteration_contract_violation_incomplete_cycle():
-    """Phase 36: dev exits [ok] with no commit and In-flight set → contract_violation.
+def test_run_iteration_contract_violation_passes_to_review():
+    """Phase 36: dev exits [ok] with no commit in a dev+review chain → violation
+    recorded but sst-dev-review IS called (recovery handoff, not abort).
 
     Patches:
-    - run_skill_with_retry: dev returns rc=0 with no sentinel; review never called
-    - _git_sha: always returns the same sha (no commit)
+    - run_skill_with_retry: all skills return rc=0 with no sentinel
+    - _git_sha: always returns the same sha (no commit from the mock)
     - _incomplete_cycle_detected: returns True (simulates dirty TODO.md)
     Asserts:
     - iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
-    - sst-dev-review is NOT invoked
-    - exit code is 0 (violation is a clean abort, not an error)
+    - sst-dev-review IS invoked (runner passes control for recovery)
+    - exit code is 0
     """
     h = ClaudeCodeHarness()
     calls: list = []
@@ -537,13 +538,61 @@ def test_run_iteration_contract_violation_incomplete_cycle():
             "/tmp",
         )
 
+    assert rc == 0, "contract-violation with a follower skill must be a clean exit (rc=0)"
+    assert "contract_violation" in iter_manifest, \
+        "iter_manifest must record contract_violation"
+    assert iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
+    assert iter_manifest["contract_violation"]["skill"] == "sst-dev-cycle"
+    assert calls == ["sst-dev-cycle", "sst-dev-review"], \
+        "sst-dev-review must be called for recovery when it follows the dev skill"
+
+
+def test_run_iteration_contract_violation_aborts_without_next_skill():
+    """Phase 36: dev exits [ok] with no commit in a solo-dev chain → abort.
+
+    When the dev skill runs alone (no follower), the old abort behavior is
+    preserved: contract_violation is recorded and the chain breaks.
+
+    Patches:
+    - run_skill_with_retry: dev returns rc=0 with no sentinel
+    - _git_sha: always returns the same sha (no commit)
+    - _incomplete_cycle_detected: returns True (simulates dirty TODO.md)
+    Asserts:
+    - iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
+    - no further skill is called
+    - exit code is 0 (violation is a clean abort, not an error)
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle"],
+            None,
+            None,
+            1,
+            1,
+            "/tmp",
+        )
+
     assert rc == 0, "contract-violation bail must be a clean exit (rc=0)"
     assert "contract_violation" in iter_manifest, \
         "iter_manifest must contain contract_violation after detection"
     assert iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
     assert iter_manifest["contract_violation"]["skill"] == "sst-dev-cycle"
     assert calls == ["sst-dev-cycle"], \
-        "sst-dev-review must NOT be called after contract_violation bail"
+        "no further skill must be called after contract_violation with no follower"
 
 
 def test_run_iteration_no_contract_violation_when_commit_shipped():
