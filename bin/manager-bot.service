@@ -32,7 +32,12 @@ StandardError=append:%h/.claude/state/manager-bot.log
 # Hardening — drop what the bot doesn't need.
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=%h/.claude/state
+# ReadWritePaths must cover every directory the dispatcher-spawned `claude` subprocess
+# writes to: ~/.claude/projects/ (session cache), the skill-set working dir (run logs,
+# skill state), and the state dir (queue, logs). %h/.claude covers both the state subdir
+# and projects/; %h/Dev/skill-set covers skill-run output. Add any extra project-root
+# paths from MANAGER_SKILLS_EXTRA_ROOTS here if those projects live outside %h/Dev/.
+ReadWritePaths=%h/.claude %h/Dev/skill-set
 PrivateTmp=yes
 
 [Install]
