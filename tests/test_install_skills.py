@@ -174,6 +174,38 @@ class TestMarkerFileManagement:
             ".installed-body must be updated to the new body after overwriting"
         )
 
+    def test_force_overwrites_diverged_and_updates_marker(self, tmp_path):
+        """--force on a DIVERGED (hand-edited) skill overwrites target and updates .installed-body to the new source body."""
+        src = tmp_path / "skills"
+        tgt = tmp_path / "target"
+        # Source at v2.
+        _make_skill(src, "myfakeskill", _FRONTMATTER, _BODY_V2)
+        # Target was hand-edited; marker records v1 as the last install.
+        tgt_skill = tgt / "myfakeskill"
+        tgt_skill.mkdir(parents=True)
+        (tgt_skill / "SKILL.md").write_text(
+            f"---\n{_FRONTMATTER}---\n{_BODY_EDITED}", encoding="utf-8"
+        )
+        (tgt_skill / ".installed-body").write_text(_BODY_V1, encoding="utf-8")
+
+        result = _run(src, tgt, "--force")
+        assert result.returncode == 0, result.stderr
+        assert "DIVERGED" in result.stdout, (
+            f"expected DIVERGED label in --force overwrite output;\n{result.stdout}"
+        )
+
+        # Key assertion: marker must reflect the new source body, not the old v1 or the hand-edited body.
+        marker = tgt_skill / ".installed-body"
+        assert marker.exists(), ".installed-body must exist after --force overwrite"
+        assert marker.read_text(encoding="utf-8") == _BODY_V2, (
+            ".installed-body must be updated to the new source body after --force overwrite of a DIVERGED target"
+        )
+        # Target SKILL.md body must now contain the source body.
+        tgt_body = (tgt_skill / "SKILL.md").read_text(encoding="utf-8")
+        assert _BODY_V2 in tgt_body, (
+            "target SKILL.md must be overwritten with source body after --force on DIVERGED"
+        )
+
     def test_diverged_skip_leaves_marker_unchanged(self, tmp_path):
         """In -y mode, a DIVERGED-skipped install must not modify .installed-body."""
         src = tmp_path / "skills"
