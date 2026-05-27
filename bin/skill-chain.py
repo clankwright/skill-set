@@ -1548,7 +1548,7 @@ def run_iteration(
                 "skill": skill,
                 "kind": "incomplete-cycle",
             }
-            if i + 1 < len(skills_to_run):
+            if i + 1 < len(skills_to_run) and skills_to_run[i + 1] != auto_supervisor:
                 print(c(
                     f"\n[contract-violation: incomplete-cycle] /{skill}: "
                     f"exited [ok] with no commit but docs/TODO.md indicates "

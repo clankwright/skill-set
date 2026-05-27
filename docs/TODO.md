@@ -23,6 +23,7 @@
   phase blocks and `git log`.
 -->
 
+- 38.12: Phase 36 pass-through guard excludes auto-supervisor: `skills_to_run[i+1] != auto_supervisor` prevents orphaned dev work reaching supervisor; 1 new test, 215 green — by sst-dev-cycle at 2026-05-28T19:15:00Z
 - sst-dev-review 1.6.0 orphaned-cycle recovery + Phase 36 guard passthrough: review skill now recovers incomplete dev cycles (dirty tree + In-flight line) by verifying tests and committing; runner passes to review instead of aborting when a follower skill exists; 2 new tests (passes_to_review, aborts_without_next_skill), 214 green, sanitize must-fix=0 — by sst-dev-cycle at 2026-05-28T18:10:00Z
 - [medium batch] manager rate-limit fixes: manager-idle-check.py cursor-field fix (reads `latest_run` with `last_run` fallback; idle-gate now skips idle projects, dahrouge confirmed IDLE) + 5 tests; sst-manager 1.17.0 model-floor opus to sonnet + README guidance; README manager cron-tick-spreading note; 213 green, sanitize clean. Proprietary cm/dahrouge/skill-set wrapper model-floors flipped to sonnet locally (gitignored). Implemented by sst-dev-cycle; closed manually after an incomplete-cycle abort, 2026-05-27T22:26:16Z
 - sst-dev-review 1.5.8 [easy]: hand-merge parser-behavior anti-pattern bullet from stale SKILL.patch.md sidecar (May 25, pre-38.1/38.11); discard sidecar; validator clean. Filed retroactively per direct-change convention — by manual (direct change) at 2026-05-27T13:30:00Z
@@ -43,5 +44,4 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 38.12 `bin/skill-chain.py:1551` Phase 36 pass-through guard must exclude auto-supervisor: change condition to `skills_to_run[i + 1] != auto_supervisor`; add `["sst-dev-cycle", "sst-supervisor"]` test confirming abort — review of 317470a
 

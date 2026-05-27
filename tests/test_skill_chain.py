@@ -595,6 +595,55 @@ def test_run_iteration_contract_violation_aborts_without_next_skill():
         "no further skill must be called after contract_violation with no follower"
 
 
+def test_run_iteration_contract_violation_aborts_when_next_is_auto_supervisor():
+    """Phase 38.12: dev exits [ok] with no commit in a dev+auto-supervisor chain → abort.
+
+    When the only follower skill is the auto-appended supervisor, the pass-through
+    guard must NOT fire — the auto-supervisor should not receive orphaned dev work.
+    The abort path is taken as if no follower existed.
+
+    Patches:
+    - run_skill_with_retry: dev returns rc=0 with no sentinel
+    - _git_sha: always returns the same sha (no commit)
+    - _incomplete_cycle_detected: returns True (simulates dirty TODO.md)
+    Asserts:
+    - iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
+    - sst-supervisor is NOT called (abort path taken, not recovery handoff)
+    - exit code is 0
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-supervisor"],
+            None,
+            "sst-supervisor",
+            1,
+            1,
+            "/tmp",
+        )
+
+    assert rc == 0, "contract-violation bail must be a clean exit (rc=0)"
+    assert "contract_violation" in iter_manifest, \
+        "iter_manifest must contain contract_violation after detection"
+    assert iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
+    assert iter_manifest["contract_violation"]["skill"] == "sst-dev-cycle"
+    assert calls == ["sst-dev-cycle"], \
+        "sst-supervisor must NOT be called when it is the auto-supervisor follower"
+
+
 def test_run_iteration_no_contract_violation_when_commit_shipped():
     """Phase 36: no violation when sha changes (real commit shipped).
 
