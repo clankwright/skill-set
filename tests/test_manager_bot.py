@@ -924,3 +924,100 @@ def test_dispatcher_refuses_unknown_persona_without_spawning(tmp_path, monkeypat
     assert len(popen_calls) == 0, (
         f"Popen must NOT be called for an unknown persona; was called {len(popen_calls)} time(s)"
     )
+
+
+# ── MANAGER_SKILLS_EXTRA_ROOTS (persona discovery across multiple roots) ────────
+
+def test_discover_extra_roots_param_finds_persona():
+    """extra_roots param causes _discover_manager_personas to scan additional roots."""
+    with tempfile.TemporaryDirectory() as primary_dir, \
+         tempfile.TemporaryDirectory() as extra_dir:
+        primary = Path(primary_dir)
+        extra = Path(extra_dir)
+        # Primary root is empty; persona lives in extra root only.
+        _make_manager_skill(extra, "proj", [{"path": "/home/rob/Dev/proj", "name": "proj"}])
+        result = mb._discover_manager_personas(primary, extra_roots=[extra])
+        personas = {r["persona"] for r in result}
+        assert "proj" in personas, f"Expected 'proj' in {personas}"
+
+
+def test_discover_extra_roots_param_deduplicates():
+    """Same persona in both primary and extra root is returned exactly once."""
+    with tempfile.TemporaryDirectory() as primary_dir, \
+         tempfile.TemporaryDirectory() as extra_dir:
+        primary = Path(primary_dir)
+        extra = Path(extra_dir)
+        _make_manager_skill(primary, "cm", [{"path": "/p1", "name": "cm"}])
+        _make_manager_skill(extra, "cm", [{"path": "/p2", "name": "cm"}])
+        result = mb._discover_manager_personas(primary, extra_roots=[extra])
+        cm_entries = [r for r in result if r["persona"] == "cm"]
+        assert len(cm_entries) == 1, f"Expected deduplication; got {len(cm_entries)} entries for 'cm'"
+
+
+def test_discover_extra_roots_global_honored(monkeypatch):
+    """When mb.MANAGER_SKILLS_EXTRA_ROOTS is set (no explicit extra_roots arg), the global is used."""
+    with tempfile.TemporaryDirectory() as primary_dir, \
+         tempfile.TemporaryDirectory() as extra_dir:
+        primary = Path(primary_dir)
+        extra = Path(extra_dir)
+        _make_manager_skill(extra, "global-proj", [{"path": "/some/path", "name": "global-proj"}])
+        monkeypatch.setattr(mb, "MANAGER_SKILLS_EXTRA_ROOTS", [extra])
+        result = mb._discover_manager_personas(primary)  # no explicit extra_roots
+        personas = {r["persona"] for r in result}
+        assert "global-proj" in personas, f"Expected 'global-proj' via global; got {personas}"
+
+
+def test_discover_extra_roots_combines_personas():
+    """Personas from primary AND extra root are both returned."""
+    with tempfile.TemporaryDirectory() as primary_dir, \
+         tempfile.TemporaryDirectory() as extra_dir:
+        primary = Path(primary_dir)
+        extra = Path(extra_dir)
+        _make_manager_skill(primary, "cm", [{"path": "/Dev/cm", "name": "cm"}])
+        _make_manager_skill(extra, "proj2", [{"path": "/Dev/proj2", "name": "proj2"}])
+        result = mb._discover_manager_personas(primary, extra_roots=[extra])
+        personas = {r["persona"] for r in result}
+        assert "cm" in personas, f"Primary root persona missing; got {personas}"
+        assert "proj2" in personas, f"Extra root persona missing; got {personas}"
+
+
+# ── service file content checks ─────────────────────────────────────────────────
+
+_SERVICE_FILE = Path(__file__).parent.parent / "bin" / "manager-bot.service"
+
+
+def test_service_file_has_manager_skill_name_env():
+    """service file must set MANAGER_SKILL_NAME so dispatcher mode is on by default."""
+    content = _SERVICE_FILE.read_text()
+    assert "MANAGER_SKILL_NAME" in content, (
+        "manager-bot.service must include MANAGER_SKILL_NAME env var to enable dispatcher mode"
+    )
+
+
+def test_service_file_is_user_mode_unit():
+    """service file must target default.target (user-mode unit), not multi-user.target."""
+    content = _SERVICE_FILE.read_text()
+    assert "WantedBy=default.target" in content, (
+        "manager-bot.service must use WantedBy=default.target for user-mode systemd unit"
+    )
+    assert "WantedBy=multi-user.target" not in content, (
+        "manager-bot.service must NOT use multi-user.target (system-mode target)"
+    )
+
+
+def test_service_file_no_user_directive():
+    """User-mode service template must not hardcode a User= directive (user units run as the invoking user)."""
+    content = _SERVICE_FILE.read_text()
+    lines = content.splitlines()
+    user_lines = [l for l in lines if l.startswith("User=")]
+    assert user_lines == [], (
+        f"manager-bot.service must not have a User= directive in a user-mode unit; found: {user_lines}"
+    )
+
+
+def test_service_file_uses_percent_h_for_home():
+    """service file must use %h (systemd home-dir specifier) rather than hardcoded /path/to/ placeholders for paths."""
+    content = _SERVICE_FILE.read_text()
+    assert "%h" in content, (
+        "manager-bot.service must use %h (systemd home specifier) so paths work without editing"
+    )

@@ -232,7 +232,17 @@ Three host options:
   tmux kill-session -t manager-bot
   tmux new-session -d -s manager-bot "..."   # same command as above
   ```
-- **systemd user-unit** (auto-restart, survives host reboot when lingering is enabled): `bin/manager-bot.service` is shipped as a template; edit the four `<...>` placeholders, drop it at `~/.config/systemd/user/manager-bot.service`, then `systemctl --user daemon-reload && systemctl --user enable --now manager-bot.service && loginctl enable-linger <user>`.
+- **systemd user-unit** (auto-restart, survives host reboot when lingering is enabled): `bin/manager-bot.service` is a ready-to-use template that already enables dispatcher mode (`MANAGER_SKILL_NAME=1`) and uses `%h` (systemd home specifier) for all paths. Edit only two values: `WorkingDirectory` and `TELEGRAM_ENV_FILE`. Then:
+  ```bash
+  cp bin/manager-bot.service ~/.config/systemd/user/manager-bot.service
+  # edit WorkingDirectory= and TELEGRAM_ENV_FILE= to match your paths
+  systemctl --user daemon-reload
+  systemctl --user enable --now manager-bot.service
+  # WSL and other headless hosts: enable linger so the user slice
+  # stays alive without an active login session
+  loginctl enable-linger "$USER"
+  ```
+  If `claude` is not on the service's PATH (common for pipx/uv installs), uncomment and set `CLAUDE_BIN` in the service file. For project-local proprietary managers not symlinked into `~/.claude/skills/`, uncomment and set `MANAGER_SKILLS_EXTRA_ROOTS`.
 - **rc.d** (FreeBSD and similar): `bin/manager-bot.rc.d` is the template. Copy to `/usr/local/etc/rc.d/manager-bot`, `chmod 755`, add `manager-bot_enable="YES"` to `/etc/rc.conf`, then `sudo service manager-bot start`.
 
 ### Caveats

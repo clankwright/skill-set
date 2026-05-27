@@ -17,17 +17,24 @@ Required env (typically from a .env file):
   TELEGRAM_CHAT_ID     — your numeric chat id (allowlist)
 
 Optional env:
-  MANAGER_STATE_DIR    — default ~/.claude/state
-  MANAGER_SKILL_NAME   — any truthy value enables on-demand command routing;
-                         the actual skill name is derived from the project token
-                         (e.g. token "cm" -> /cm-manager). When unset, every
-                         project-scoped command queues for the next periodic tick.
+  MANAGER_STATE_DIR          — default ~/.claude/state
+  MANAGER_SKILL_NAME         — any truthy value enables on-demand command routing;
+                               the actual skill name is derived from the project token
+                               (e.g. token "cm" -> /cm-manager). When unset, every
+                               project-scoped command queues for the next periodic tick.
+  MANAGER_SKILLS_EXTRA_ROOTS — colon-separated list of extra directories to scan for
+                               *-manager/SKILL.md persona files, in addition to the
+                               default ~/.claude/skills/. Use this for project-local
+                               proprietary managers that live under
+                               <project>/.claude/skills/ and are not symlinked into
+                               ~/.claude/skills/. Example (in manager-bot.service):
+                               Environment="MANAGER_SKILLS_EXTRA_ROOTS=%h/Dev/proj/.claude/skills"
 
 Discovery:
   Persona tokens are resolved by scanning ~/.claude/skills/*-manager/SKILL.md
-  for files with a `transferable:` key in their YAML frontmatter. Project-local
-  managers under <project>/.claude/skills/ are NOT discovered automatically —
-  symlink them into ~/.claude/skills/ so they appear in the known-persona registry.
+  (and any roots listed in MANAGER_SKILLS_EXTRA_ROOTS) for files with a
+  `transferable:` key in their YAML frontmatter. The first root that defines a
+  given persona wins; duplicates across roots are deduplicated by persona name.
 """
 
 import datetime as _dt
@@ -148,9 +155,20 @@ def _refusal_detail(known_personas: list[str]) -> str:
 
 # Default root for persona discovery; override in tests.
 SKILLS_ROOT = Path.home() / ".claude" / "skills"
+# Extra roots from MANAGER_SKILLS_EXTRA_ROOTS env var (colon-separated paths).
+# Appended to the scan list after SKILLS_ROOT; persona names are deduplicated
+# (first definition wins). Override in tests via monkeypatch.
+MANAGER_SKILLS_EXTRA_ROOTS: list[Path] = [
+    Path(p.strip())
+    for p in os.environ.get("MANAGER_SKILLS_EXTRA_ROOTS", "").split(":")
+    if p.strip()
+]
 
 
-def _discover_manager_personas(skills_root: Path | None = None) -> list[dict]:
+def _discover_manager_personas(
+    skills_root: Path | None = None,
+    extra_roots: list[Path] | None = None,
+) -> list[dict]:
     """Scan skills_root/*-manager/SKILL.md and return persona + project info.
 
     Each entry: {'persona': str, 'projects': [{'path': str, 'name': str}, ...]}.
@@ -172,71 +190,88 @@ def _discover_manager_personas(skills_root: Path | None = None) -> list[dict]:
     they are transferable template files (e.g. sst-manager), not real deployed
     persona instances. Proprietary persona instances always declare
     `transferable: sst-manager` (or similar) in their frontmatter.
+
+    `extra_roots` is a list of additional directories to scan, appended after
+    `skills_root`. When None, the module-level `MANAGER_SKILLS_EXTRA_ROOTS`
+    global (populated from the `MANAGER_SKILLS_EXTRA_ROOTS` env var) is used.
+    Persona names are deduplicated across roots; the first root that defines a
+    given persona wins.
     """
     import re as _re
     root = skills_root if skills_root is not None else SKILLS_ROOT
+    _extra_list = extra_roots if extra_roots is not None else MANAGER_SKILLS_EXTRA_ROOTS
+    all_roots = [root] + list(_extra_list)
     results = []
-    for skill_md in sorted(root.glob("*-manager/SKILL.md")):
-        folder = skill_md.parent.name  # e.g. "cm-manager"
-        if not folder.endswith("-manager"):
+    seen_personas: set[str] = set()
+    for scan_root in all_roots:
+        if not scan_root.exists():
             continue
-        body = skill_md.read_text(encoding="utf-8", errors="replace")
-        fm_match = _re.match(r"^---\s*\n(.*?)\n---", body, _re.DOTALL)
-        if not fm_match:
-            continue
-        frontmatter = fm_match.group(1)
-        if not _re.search(r"^transferable\s*:", frontmatter, _re.MULTILINE):
-            continue
-        folder_persona = folder[: -len("-manager")]
-        projects: list[dict] = []
-        operator_level = False
-        block_match = _re.search(r"```yaml\s*\n(.*?)```", body, _re.DOTALL)
-        if block_match:
-            block = block_match.group(1)
-            if _re.search(r"^operator-level\s*:\s*true\s*$", block, _re.MULTILINE):
-                operator_level = True
-            if "watched-projects:" in block:
-                # Walk the block line-by-line: each `- path: <val>` starts a
-                # project record; an immediately-following `  name: <val>`
-                # (any deeper-indented continuation lines, in practice) sets
-                # the explicit name. Falls back to the path's basename when
-                # name: is omitted.
-                in_wp = False
-                cur: dict | None = None
-                for raw in block.splitlines():
-                    line = raw.rstrip()
-                    if not line:
-                        continue
-                    if _re.match(r"^watched-projects\s*:", line):
-                        in_wp = True
-                        continue
-                    if in_wp and _re.match(r"^\S", line):
-                        # Left the watched-projects block (next top-level key).
-                        if cur is not None:
-                            projects.append(cur)
-                            cur = None
-                        in_wp = False
-                        continue
-                    if not in_wp:
-                        continue
-                    m_path = _re.match(r"^\s+-\s+path\s*:\s*(.+?)\s*$", line)
-                    if m_path:
-                        if cur is not None:
-                            projects.append(cur)
-                        path_val = m_path.group(1).strip()
-                        cur = {"path": path_val, "name": Path(path_val).name}
-                        continue
-                    m_name = _re.match(r"^\s+name\s*:\s*(.+?)\s*$", line)
-                    if m_name and cur is not None:
-                        cur["name"] = m_name.group(1).strip()
-                        continue
-                if cur is not None:
-                    projects.append(cur)
-        if operator_level and projects:
-            for proj in projects:
-                results.append({"persona": proj["name"], "projects": [proj]})
-        else:
-            results.append({"persona": folder_persona, "projects": projects})
+        for skill_md in sorted(scan_root.glob("*-manager/SKILL.md")):
+            folder = skill_md.parent.name  # e.g. "cm-manager"
+            if not folder.endswith("-manager"):
+                continue
+            body = skill_md.read_text(encoding="utf-8", errors="replace")
+            fm_match = _re.match(r"^---\s*\n(.*?)\n---", body, _re.DOTALL)
+            if not fm_match:
+                continue
+            frontmatter = fm_match.group(1)
+            if not _re.search(r"^transferable\s*:", frontmatter, _re.MULTILINE):
+                continue
+            folder_persona = folder[: -len("-manager")]
+            projects: list[dict] = []
+            operator_level = False
+            block_match = _re.search(r"```yaml\s*\n(.*?)```", body, _re.DOTALL)
+            if block_match:
+                block = block_match.group(1)
+                if _re.search(r"^operator-level\s*:\s*true\s*$", block, _re.MULTILINE):
+                    operator_level = True
+                if "watched-projects:" in block:
+                    # Walk the block line-by-line: each `- path: <val>` starts a
+                    # project record; an immediately-following `  name: <val>`
+                    # (any deeper-indented continuation lines, in practice) sets
+                    # the explicit name. Falls back to the path's basename when
+                    # name: is omitted.
+                    in_wp = False
+                    cur: dict | None = None
+                    for raw in block.splitlines():
+                        line = raw.rstrip()
+                        if not line:
+                            continue
+                        if _re.match(r"^watched-projects\s*:", line):
+                            in_wp = True
+                            continue
+                        if in_wp and _re.match(r"^\S", line):
+                            # Left the watched-projects block (next top-level key).
+                            if cur is not None:
+                                projects.append(cur)
+                                cur = None
+                            in_wp = False
+                            continue
+                        if not in_wp:
+                            continue
+                        m_path = _re.match(r"^\s+-\s+path\s*:\s*(.+?)\s*$", line)
+                        if m_path:
+                            if cur is not None:
+                                projects.append(cur)
+                            path_val = m_path.group(1).strip()
+                            cur = {"path": path_val, "name": Path(path_val).name}
+                            continue
+                        m_name = _re.match(r"^\s+name\s*:\s*(.+?)\s*$", line)
+                        if m_name and cur is not None:
+                            cur["name"] = m_name.group(1).strip()
+                            continue
+                    if cur is not None:
+                        projects.append(cur)
+            # Deduplicate: if a persona name was already emitted by a prior root, skip.
+            if operator_level and projects:
+                for proj in projects:
+                    if proj["name"] not in seen_personas:
+                        seen_personas.add(proj["name"])
+                        results.append({"persona": proj["name"], "projects": [proj]})
+            else:
+                if folder_persona not in seen_personas:
+                    seen_personas.add(folder_persona)
+                    results.append({"persona": folder_persona, "projects": projects})
     return results
 
 
