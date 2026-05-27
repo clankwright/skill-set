@@ -5,24 +5,39 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Edit these to match your environment.
-User=<username>
-WorkingDirectory=/path/to/skill-set
+# Edit WorkingDirectory and TELEGRAM_ENV_FILE to match your environment.
+# All other entries use %h (your home directory) and should work without changes.
+WorkingDirectory=%h/Dev/skill-set
 # TELEGRAM_ENV_FILE points at a .env-style file with TELEGRAM_BOT_TOKEN and
 # TELEGRAM_CHAT_ID. The bot also reads MANAGER_STATE_DIR if set (default
 # ~/.claude/state).
-Environment="TELEGRAM_ENV_FILE=/path/to/.config/manager-telegram.env"
-ExecStart=/usr/bin/python3 /path/to/skill-set/bin/manager-bot.py
+Environment="TELEGRAM_ENV_FILE=%h/.config/skill-set-telegram.env"
+# MANAGER_SKILL_NAME=1 enables on-demand command routing (dispatcher mode).
+# Without it every command queues for the next periodic manager tick instead
+# of spawning a manager skill inline and replying immediately.
+Environment="MANAGER_SKILL_NAME=1"
+# If `claude` is not on PATH in the service environment, set CLAUDE_BIN
+# explicitly. Common for pipx/uv installs under ~/.local/bin:
+#Environment="CLAUDE_BIN=%h/.local/bin/claude"
+# MANAGER_SKILLS_EXTRA_ROOTS: colon-separated list of extra directories to scan
+# for *-manager skill personas (project-local proprietary managers that are not
+# symlinked into ~/.claude/skills/ will be found here automatically).
+#Environment="MANAGER_SKILLS_EXTRA_ROOTS=%h/Dev/my_project/.claude/skills"
+ExecStart=/usr/bin/python3 %h/Dev/skill-set/bin/manager-bot.py
 Restart=always
 RestartSec=10
-StandardOutput=append:/path/to/.claude/state/manager-bot.log
-StandardError=append:/path/to/.claude/state/manager-bot.log
+StandardOutput=append:%h/.claude/state/manager-bot.log
+StandardError=append:%h/.claude/state/manager-bot.log
 
 # Hardening — drop what the bot doesn't need.
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/path/to/.claude/state
+ReadWritePaths=%h/.claude/state
 PrivateTmp=yes
 
 [Install]
-WantedBy=multi-user.target
+# User-mode target: install with `systemctl --user enable --now manager-bot.service`.
+# On WSL (and other always-on headless hosts) also run:
+#   loginctl enable-linger <your-username>
+# so the user slice stays alive without an active login session.
+WantedBy=default.target
