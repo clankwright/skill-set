@@ -1021,3 +1021,52 @@ def test_service_file_uses_percent_h_for_home():
     assert "%h" in content, (
         "manager-bot.service must use %h (systemd home specifier) so paths work without editing"
     )
+
+
+def _rw_paths(content: str) -> list[str]:
+    """Extract all path tokens from ReadWritePaths= lines in a service file."""
+    tokens: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("ReadWritePaths="):
+            value = stripped[len("ReadWritePaths="):]
+            tokens.extend(value.split())
+    return tokens
+
+
+def test_service_file_readwrite_paths_covers_claude_dir():
+    """ReadWritePaths must include %h/.claude (or broader %h) so the spawned claude subprocess can write session state."""
+    content = _SERVICE_FILE.read_text()
+    rw = _rw_paths(content)
+    # Accept %h (broadest) or exact %h/.claude; a sub-path like %h/.claude/state alone is NOT sufficient.
+    covers = "%h" in rw or "%h/.claude" in rw
+    assert covers, (
+        f"manager-bot.service ReadWritePaths ({rw}) must include %h/.claude (or broader %h) to allow "
+        "the dispatcher-spawned claude subprocess to write ~/.claude/projects/ session state"
+    )
+
+
+def test_service_file_readwrite_paths_covers_skill_set_dir():
+    """ReadWritePaths must include %h/Dev/skill-set (or broader) so spawned skills can write run-logs and skill state."""
+    content = _SERVICE_FILE.read_text()
+    rw = _rw_paths(content)
+    covers = "%h" in rw or "%h/Dev/skill-set" in rw or "%h/Dev" in rw
+    assert covers, (
+        f"manager-bot.service ReadWritePaths ({rw}) must include %h/Dev/skill-set (or broader %h) to allow "
+        "spawned manager skills to write to the skill-set working directory"
+    )
+
+
+def test_service_file_readwrite_paths_not_only_state():
+    """ReadWritePaths must NOT be narrowed to only %h/.claude/state; dispatcher mode needs broader write access."""
+    content = _SERVICE_FILE.read_text()
+    lines = content.splitlines()
+    rw_lines = [l.strip() for l in lines if l.strip().startswith("ReadWritePaths=")]
+    assert rw_lines, "manager-bot.service must have at least one ReadWritePaths= directive"
+    # If the only ReadWritePaths entry is the narrow state dir, the test fails.
+    narrow_only = all(l == "ReadWritePaths=%h/.claude/state" for l in rw_lines)
+    assert not narrow_only, (
+        "manager-bot.service ReadWritePaths is narrowed to %h/.claude/state only; "
+        "dispatcher mode also needs ~/.claude/projects/ and project dirs — widen to "
+        "%h/.claude and %h/Dev/skill-set (or broader %h)"
+    )
