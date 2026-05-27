@@ -37,9 +37,18 @@
 #
 # Divergence safety net:
 #   A target skill is DIVERGED when its SKILL.md body (everything after the
-#   YAML frontmatter) differs from the source. Frontmatter-only differences
-#   are treated as a regular UPDATE; divergent bodies indicate the target
-#   was hand-edited since install and overwriting would clobber that work.
+#   YAML frontmatter) has been hand-edited since the last install.  Frontmatter-
+#   only differences are treated as a regular UPDATE.
+#
+#   After each successful install/update, a .installed-body marker file is
+#   written alongside SKILL.md in $TARGET/<name>/.  On the next run, if the
+#   target body still matches the marker, the target was NOT hand-edited — the
+#   difference vs. the source is a pure upstream bump and shows as UPDATE.  If
+#   the target body differs from the marker, the target was hand-edited and
+#   shows as DIVERGED.  Skills installed before this marker was introduced have
+#   no marker file; those fall back to the conservative "bodies differ →
+#   DIVERGED" behavior until they are re-installed once to seed the marker.
+#
 #   Behavior:
 #     * -y mode (no --force): DIVERGED targets are SKIPPED with a warning.
 #       Regular NEW / UPDATE / unchanged targets proceed normally.
@@ -246,12 +255,29 @@ body_of() {
 }
 
 # is_diverged <source-SKILL.md> <target-SKILL.md>:
-#   0 (true)  if target body differs from source body (beyond frontmatter).
-#   1 (false) if bodies match, or target doesn't exist.
+#   0 (true)  if target body was hand-edited since last install (diverged).
+#   1 (false) if bodies match, target doesn't exist, or the source was bumped
+#             but the target is clean (matched its .installed-body marker).
+#
+# .installed-body marker: written alongside SKILL.md in $TARGET/<name>/ after
+# every successful install/update (see copy loop below). It contains the body
+# text that was last installed from the canonical source. If it exists and the
+# current target body matches it, the target has not been hand-edited — the
+# difference vs. the source is a pure upstream bump and is safe to overwrite.
+# Without a marker (pre-marker installs), fall back to the conservative
+# "bodies differ → DIVERGED" behavior for safety.
 is_diverged() {
     local src="$1" tgt="$2"
     [ -f "$tgt" ] || return 1
     cmp -s <(body_of "$src") <(body_of "$tgt") && return 1
+    # Bodies differ.  Check for .installed-body marker to tell UPDATE from DIVERGED.
+    local marker
+    marker="$(dirname "$tgt")/.installed-body"
+    if [ -f "$marker" ]; then
+        # If the target body still matches what was last installed, the target
+        # has not been hand-edited — only the upstream source moved.  Safe to update.
+        cmp -s <(body_of "$tgt") "$marker" && return 1
+    fi
     return 0
 }
 
@@ -358,6 +384,9 @@ for dir in "${skill_dirs[@]}"; do
     # Copy the whole skill dir (SKILL.md + any optional assets/, scripts/, references/).
     # -a preserves perms+timestamps; we don't pass --delete so target-only files survive.
     cp -a "$dir/." "$TARGET/$name/"
+    # Record the installed body so the next run can distinguish an upstream
+    # source update (safe to overwrite) from a hand-edited target (DIVERGED).
+    body_of "$dir/SKILL.md" > "$TARGET/$name/.installed-body"
     copied=$((copied + 1))
 done
 
