@@ -46,4 +46,5 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 38.11 `tests/test_install_skills.py`: add --force DIVERGED overwrite test verifying `.installed-body` updated to new source body — review of d485ab3
 
