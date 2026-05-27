@@ -36,7 +36,9 @@ ProtectSystem=strict
 # writes to: ~/.claude/projects/ (session cache), the skill-set working dir (run logs,
 # skill state), and the state dir (queue, logs). %h/.claude covers both the state subdir
 # and projects/; %h/Dev/skill-set covers skill-run output. Add any extra project-root
-# paths from MANAGER_SKILLS_EXTRA_ROOTS here if those projects live outside %h/Dev/.
+# paths from MANAGER_SKILLS_EXTRA_ROOTS here if those projects are not under an
+# already-listed ReadWritePaths entry (e.g. a sibling of %h/Dev/skill-set like
+# %h/Dev/claim_management is not covered and must be listed explicitly).
 ReadWritePaths=%h/.claude %h/Dev/skill-set
 PrivateTmp=yes
 

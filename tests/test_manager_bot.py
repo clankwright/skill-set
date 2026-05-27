@@ -1070,3 +1070,40 @@ def test_service_file_readwrite_paths_not_only_state():
         "dispatcher mode also needs ~/.claude/projects/ and project dirs — widen to "
         "%h/.claude and %h/Dev/skill-set (or broader %h)"
     )
+
+
+def test_service_file_rwpaths_comment_not_misleading_dev_ancestor():
+    """The EXTRA_ROOTS comment must not imply %h/Dev/ is a covered ReadWritePaths ancestor.
+
+    Only %h/Dev/skill-set is listed in ReadWritePaths.  A sibling like
+    %h/Dev/claim_management is NOT covered.  The old phrase "outside %h/Dev/"
+    implies the whole %h/Dev/ tree is already allowed, misleading operators.
+    """
+    content = _SERVICE_FILE.read_text()
+    assert "outside %h/Dev/" not in content, (
+        "manager-bot.service comment says 'outside %h/Dev/' but only %h/Dev/skill-set is in "
+        "ReadWritePaths; the comment misleads users into thinking the entire %h/Dev/ tree is "
+        "covered.  Fix: say 'outside any already-listed ReadWritePaths entry' and give a "
+        "concrete example (e.g. %h/Dev/claim_management must be listed explicitly)."
+    )
+
+
+def test_service_file_rwpaths_comment_mentions_explicit_listing():
+    """The EXTRA_ROOTS comment must explicitly warn that sibling project paths need listing.
+
+    After the fix the comment should state that any project NOT under an
+    already-listed ReadWritePaths ancestor must be added explicitly, so an
+    operator setting MANAGER_SKILLS_EXTRA_ROOTS to %h/Dev/claim_management
+    knows to also add %h/Dev/claim_management to ReadWritePaths.
+    """
+    content = _SERVICE_FILE.read_text()
+    has_explicit_guidance = (
+        "already-listed" in content
+        or "must be listed explicitly" in content
+        or "listed explicitly" in content
+    )
+    assert has_explicit_guidance, (
+        "manager-bot.service comment about MANAGER_SKILLS_EXTRA_ROOTS must explicitly state "
+        "that each project path not under an already-listed ReadWritePaths ancestor must be "
+        "added to ReadWritePaths (e.g. include 'must be listed explicitly')."
+    )

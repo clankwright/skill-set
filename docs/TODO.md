@@ -24,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- 38.10 [easy]: fix manager-bot.service ReadWritePaths comment: replace "outside %h/Dev/" with "outside any already-listed ReadWritePaths entry" + explicit sibling example; 2 new tests, 187 green — by sst-dev-cycle at 2026-05-27T05:05:00Z
 - 38.8+38.9 [easy batch]: close batch-sizing meta note; widen manager-bot.service ReadWritePaths from %h/.claude/state to %h/.claude %h/Dev/skill-set + clarifying comment; 3 new tests, 185 green — by sst-dev-cycle at 2026-05-27T04:10:00Z
 - manager-bot.service [medium batch + 38.7]: user-mode unit (WantedBy=default.target, %h paths, no User=), MANAGER_SKILL_NAME=1, CLAUDE_BIN + MANAGER_SKILLS_EXTRA_ROOTS commented hints; manager-bot.py MANAGER_SKILLS_EXTRA_ROOTS env var + extra_roots param + cross-root dedup; README systemd install block with WSL linger note; 8 new tests, 182 green — by sst-dev-cycle at 2026-05-27T03:30:00Z
 - 38.3+38.4+38.5 [hard batch] Phase 38 close-out: sst-dev-cycle §0-7 phase-completion bail (derive active phase from SPEC `## Operational scope` branch map → phase-scoped `[no-work]` sentinel) + §0-7a idempotent HUMAN.md `## Blocking` handoff with notify-human-md.sh; sst-supervisor §3.6 stuck-item detection (same item picked ≥3 trailing iters without `[ ]`→`[x]` → `[stuck-item]` finding + HUMAN.md `## High` + manager-notes write-path (g)); 7 runner no-work-bail regression tests (174 green); sanitize must-fix=0 on both transferables — by sst-dev-cycle at 2026-05-27T00:42:00Z
@@ -44,6 +45,5 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 38.10 bin/manager-bot.service:39 comment says "outside %h/Dev/" but covered ancestor is only %h/Dev/skill-set; a user with MANAGER_SKILLS_EXTRA_ROOTS pointing to %h/Dev/claim_management would not add that path and get write failures — review of 50733e1
 - [medium] install-skills.sh flags every source-newer skill as DIVERGED, conflating "upstream got bumped" with "target was hand-edited"; the `-y` path then SKIPS those updates unless `--force` is passed, breaking the routine "pull canonical then re-deploy" workflow; distinguish UPDATE-from-source vs hand-edit DIVERGED via a `.installed-from-rev` marker file per target, OR by diffing against the git rev that last touched the source body — reason: user message 2026-05-26 (every refresh in this session required `--force`).
 
