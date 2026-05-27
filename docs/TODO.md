@@ -47,4 +47,7 @@
   Order: blockers/highest-impact first.
 -->
 
+- [medium] sst-manager periodic-tick idle pre-check: before spawning the Opus walk, exit 0 when the watched project has no new commit since the cursor SHA in `~/.claude/state/manager-cursors.json`, no new `.skill-runs/` dir since the cursor, no file in `~/.claude/state/manager-bot-queue/`, and no `docs/HUMAN.md` content change — skip the agent run entirely on no-op ticks. Acceptance: a cheap pre-check (shell or Python) gates the LLM spawn in the cron path or `bin/skill-chain.py`; a test covers skip-when-idle vs run-when-new-commit. — reason: user message 2026-05-27 (3 manager crons now ≈$10/day, most ticks spawn Opus only to find nothing new).
+- [easy] sst-setup-telegram: during provisioning, create the base-dir fallback symlink `~/Dev/skill-set/telegram.env` pointing at the written credentials file, so `bin/notify-telegram.sh` step-3 resolution works for every caller without a per-caller `TELEGRAM_ENV_FILE`. Acceptance: setup creates the symlink idempotently (skips if present); README/SKILL.md documents it; the absence of this symlink was the silent cause of the 2026-05-27 missed cm-manager digest send. — reason: user message 2026-05-27.
+
 
