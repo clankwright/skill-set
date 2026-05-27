@@ -38,6 +38,10 @@ Mirror the SPEC item ID where one exists (the items below were moved out of `SPE
 
 - [easy] **Acceptance**: `/feedback <concrete change>` mid-run → new `Next up` item in `docs/TODO.md` within ~60s + Telegram reply names file/section; `/feedback <shape-ish>` → entry in `manager-notes.md` with manager reasoning paragraph; `/feedback "skip sanitize on next transferable write"` → refuse-with-explanation Telegram reply, no file changes; `/feedback <ambiguous>` → clarifying question Telegram reply, queue file stays unprocessed; crash on-demand spawn → next manager cron tick or chain-runner pre-hook processes queue file as fallback, idempotent via `<!-- src: <basename> -->` marker.
 
+### Phase 38.3+38.4+38.5 — phase-completion bail + handoff + stuck-item detection acceptance
+
+- [hard] **Acceptance**: a `/skill-set-chain-driver --loop 3+` run against a branch-per-phase fixture project whose active phase is fully `[x]` with no Next-up item scoped to it. Confirm: (a) sst-dev-cycle §0-7 emits `[no-work] phase <N> complete on <branch>; awaiting human branch setup for phase <N+1>` and the runner aborts the loop with MANIFEST `terminated_by: "no_work_bail"`; (b) §0-7a writes exactly ONE `docs/HUMAN.md ## Blocking` entry on the first iter and re-running the bail leaves the file byte-identical (idempotency — the gap that risks HUMAN.md/Telegram spam on a looped run); (c) `notify-human-md.sh` fires once on the fresh append and not on the idempotent skip; (d) a separate fixture where the same SPEC item is the picked primary across ≥3 trailing iters without its `[ ]`→`[x]` flip produces a sst-supervisor `[stuck-item]` finding plus one `docs/HUMAN.md ## High` decompose-or-remove entry plus one `manager-notes.md` observation (write-path (g)), all idempotent. Reason: 38.4 and 38.5 shipped as SKILL.md prose only (no unit test possible for LLM-driven skills); their acceptance criteria demand behavioral verification that only a live round-trip can supply.
+
 ## Deferred phases
 
 ### Phase 20 (deferred): `goose-cerebras` harness + portability proof
