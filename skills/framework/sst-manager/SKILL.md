@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Four modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, reads docs/HUMAN.md for active blockers (fires immediate Telegram alerts for new Blocking entries and auto-verifies Verify: lines on closed items), sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus docs/HUMAN.md plus the most recent run log, decides one of five outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, HUMAN.md blocker entry, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. On-demand command routing (--process-command <queue-file>) reads one project-scoped bot command from a queue file, dispatches to a per-verb handler (status, objectives, proposals, promote, pause, resume, ping), executes in the context of the target project, and replies via the project's notify-telegram.sh; each handler appends a one-line outcome to manager-notes.md. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.15.0
+version: 1.16.0
 ---
 
 # Manager
@@ -118,6 +118,53 @@ The proprietary counterpart's `objectives-path` file holds the bar this manager 
 **Prose-only bullets** are visible in digests under "Goals" but appear without the `✓ / →` evidence cell — instead a `?` or "(unscored)" marker. They never auto-flip; only the user edits them by hand. Use this form when a criterion is genuinely qualitative.
 
 **Anti-objectives section** (a level-2 heading typically named `## Anti-objectives` near the bottom) is read for steering only — the manager must NOT propose work that pushes toward an anti-objective in §Planner mode, and must NOT escalate progress against one in a digest. Anti-objective bullets are prose-only by construction (they have no `check:` block).
+
+## Caller-side idle gate
+
+Periodic-mode invocations (cron, `/loop`, chain driver) SHOULD run a cheap
+pre-check before spawning the manager LLM. Use `bin/manager-idle-check.py`,
+which exits 0 when all of the following are true for the watched project:
+
+1. No new `.skill-runs/` directory whose name sorts after the cursor's
+   last-seen run (run-dir names are UTC ISO timestamps, so lexicographic
+   order equals chronological order).
+2. No unprocessed files in `~/.claude/state/manager-bot-queue/` (files
+   under the `processed/` subdirectory are already handled and excluded).
+3. `docs/HUMAN.md` has no new open `## Blocking` entries not present in the
+   cursor's `human_md_snapshot`.
+
+If the cursor file has no entry for the project (first run), the script exits
+1 (work found) so the manager always runs on first invocation.
+
+**Integration pattern (cron or wrapper script):**
+
+```bash
+# Skip manager invocation when nothing is new.
+bin/manager-idle-check.py --project ~/Dev/my-project \
+  && { echo "manager-idle-check: idle, skipping."; exit 0; }
+# Work found (exit 1) — fall through to the manager invocation.
+/<persona>-manager
+```
+
+Or as a one-liner gate in the cron entry:
+
+```
+*/30 * * * *  bin/manager-idle-check.py --project ~/Dev/my-project || claude --print "/<persona>-manager"
+```
+
+`bin/manager-idle-check.py --help` lists all flags. The `--cursors` flag
+overrides the default `~/.claude/state/manager-cursors.json` path; `--queue-dir`
+overrides the default `~/.claude/state/manager-bot-queue/`.
+
+**Why gate?** Three or more manager cron ticks per day can cost roughly $10/day
+in Opus usage. Most ticks find nothing new. The idle gate adds a millisecond
+shell check in front of the multi-second LLM spawn and reduces Opus invocations
+to only the ticks where new activity (a new chain run, a queued bot command, or
+a new HUMAN.md blocker) actually exists.
+
+The manager skill's §3b already writes `human_md_snapshot` to the cursor after
+each tick; the idle gate reads that snapshot to detect new blocking entries
+without re-running the full LLM analysis.
 
 ## Process
 
