@@ -42,6 +42,8 @@ SCHEMA_PATH = REPO_ROOT / "schema" / "skill-set.schema.json"
 CHAIN_SCHEMA_PATH = REPO_ROOT / "schema" / "skill-chain.schema.json"
 SKILLS_DIR = REPO_ROOT / "skills"
 CHAINS_DIR = REPO_ROOT / "chains"
+SPEC_DEFAULT_PATH = REPO_ROOT / "docs" / "SPEC.md"
+TODO_DEFAULT_PATH = REPO_ROOT / "docs" / "TODO.md"
 
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
@@ -152,7 +154,7 @@ def validate_chain(path: Path, schema: dict) -> list[str]:
     return errors
 
 
-SPEC_PATH = REPO_ROOT / "docs" / "SPEC.md"
+SPEC_PATH = REPO_ROOT / "docs" / "SPEC.md"  # legacy alias used by validate_spec_ids
 _SPEC_BULLET_ID_RE = re.compile(r"^- \[[ xX]\] (\d+)\.(\d+[a-z]*)[\s:]")
 _SPEC_CHECKBOX_RE = re.compile(r"^- \[[ xX]\] ")
 _PHASE_HEADER_RE = re.compile(r"^### Phase (\d+)")
@@ -307,6 +309,160 @@ def validate_human_md(path: Path) -> list[str]:
     return errors
 
 
+# ---- validate_spec_item_quality (Phase 38.2) --------------------------------
+# Rejects open-ended / unbounded bullets in SPEC.md (open - [ ] items) and
+# in the ## Next up section of TODO.md.  A bullet is flagged when its task text
+# contains a "standing-activity" marker word (not inside backticks or quotes)
+# AND does NOT name a concrete target (file path, backtick-quoted symbol, or
+# a <phase>.<n> reference).
+
+# Denylist: words that mark a standing activity rather than a finite deliverable.
+_OPEN_ENDED_WORDS: frozenset[str] = frozenset({
+    "iterative", "iteratively",
+    "ongoing",
+    "polish", "polishing",
+    "cleanup",
+    "housekeeping",
+    "miscellaneous", "misc",
+    "various",
+    "general",
+    "improve", "improvement", "improvements", "improving",
+    "refactor", "refactoring",
+    "maintenance",
+})
+
+_NEXT_UP_HEADER_RE = re.compile(r"^## Next up", re.IGNORECASE)
+_ANY_SECTION_RE = re.compile(r"^## ")
+_BULLET_START_RE = re.compile(r"^- ")
+
+
+def _strip_quoted_spans(text: str) -> str:
+    """Remove backtick, double-quote, and single-quote spans from *text*."""
+    text = re.sub(r'`[^`\n]*`', "", text)
+    text = re.sub(r'"[^"\n]*"', "", text)
+    text = re.sub(r"'[^'\n]*'", "", text)
+    return text
+
+
+def _has_open_ended_word(task_text: str) -> bool:
+    """True if *task_text* contains a denylist word not inside backticks/quotes."""
+    clean = _strip_quoted_spans(task_text)
+    for word in _OPEN_ENDED_WORDS:
+        if re.search(r"\b" + re.escape(word) + r"\b", clean, re.IGNORECASE):
+            return True
+    return False
+
+
+def _has_concrete_target(task_text: str) -> bool:
+    """True if *task_text* names a concrete target.
+
+    Concrete targets are:
+    - Any content inside backticks (symbol, path, command).
+    - A slash-delimited file path (e.g. ``bin/validate-frontmatter.py``).
+    - A filename with a recognised extension (e.g. ``manager-bot.py``).
+    - A phase sub-item reference of the form N.n[letter] (e.g. ``38.2``, ``37.1a``).
+    """
+    # Backtick-quoted content: symbol or path.
+    if re.search(r"`[^`\n]+`", task_text):
+        return True
+    # Slash-delimited path (at least one slash between word characters).
+    if re.search(r"\b\w[\w.\-]*/[\w./\-]+", task_text):
+        return True
+    # Bare filename with a common tech extension.
+    if re.search(
+        r"\b[\w\-]+\.(?:py|sh|yaml|yml|json|md|js|ts|html|css|service|toml|cfg|ini|txt)\b",
+        task_text,
+    ):
+        return True
+    # Phase/sub-item reference like 38.2 or 37.1a (two or more digits.one-or-more-digits).
+    if re.search(r"\b\d{2,}\.\d+[a-z]*\b", task_text):
+        return True
+    return False
+
+
+def _extract_task_text_spec(line: str) -> str:
+    """Strip the ``- [ ] <id> [difficulty] `` prefix from a SPEC.md bullet line."""
+    text = re.sub(r"^- \[ \]\s*", "", line)
+    text = re.sub(r"^\d+\.\d+[a-z]*\s*", "", text)   # phase sub-item ID
+    text = re.sub(r"^\[[a-z\-]+\]\s*", "", text)      # difficulty bracket [medium] etc
+    text = re.sub(r"\*\*([^*]*)\*\*", r"\1", text)    # strip bold markers
+    return text
+
+
+def _extract_task_text_todo(line: str) -> str:
+    """Strip the ``- [difficulty] <id>`` prefix and trailing ``— reason:`` from TODO bullet."""
+    text = re.sub(r"^- \[[^\]]*\]\s*", "", line)      # remove - [medium] / - [x] etc
+    text = re.sub(r"^- ", "", text)                    # remove bare - prefix if no brackets
+    text = re.sub(r"^\d+\.\d+[a-z]*\s*", "", text)    # phase sub-item ID
+    # Strip trailing reason/source annotation: "— reason: ..." or "- reason: ..."
+    text = re.sub(r"\s*[—\-]\s*(?:reason|source)\s*:.*$", "", text, flags=re.IGNORECASE)
+    return text
+
+
+def validate_spec_item_quality(
+    spec_path: "Path | None" = None,
+    todo_path: "Path | None" = None,
+) -> list[str]:
+    """Fail on open-ended / unbounded items in SPEC.md and TODO.md.
+
+    Checks:
+    - Every open ``- [ ]`` checkbox in *spec_path* (SPEC.md).
+    - Every bullet in the ``## Next up`` section of *todo_path* (TODO.md).
+
+    A bullet is flagged when its task-description span contains a
+    standing-activity marker word (not inside backticks/quotes) AND does not
+    name a concrete target (file path, backtick-quoted symbol, or
+    ``<phase>.<n>`` reference).
+    """
+    if spec_path is None:
+        spec_path = SPEC_DEFAULT_PATH
+    if todo_path is None:
+        todo_path = TODO_DEFAULT_PATH
+
+    errors: list[str] = []
+
+    # --- SPEC.md: open - [ ] items only ---
+    if spec_path.exists():
+        for lineno, line in enumerate(
+            spec_path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if not re.match(r"^- \[ \]", line):
+                continue
+            task_text = _extract_task_text_spec(line)
+            if _has_open_ended_word(task_text) and not _has_concrete_target(task_text):
+                id_m = re.search(r"\b(\d+\.\d+[a-z]*)\b", line)
+                item_ref = id_m.group(1) if id_m else f"line {lineno}"
+                errors.append(
+                    f"{spec_path}:{lineno}: item {item_ref!r} uses an open-ended "
+                    f"marker without a concrete target (file path, backtick-quoted "
+                    f"symbol, or phase ref)"
+                )
+
+    # --- TODO.md: bullets in the ## Next up section ---
+    if todo_path.exists():
+        in_next_up = False
+        for lineno, line in enumerate(
+            todo_path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if _NEXT_UP_HEADER_RE.match(line):
+                in_next_up = True
+                continue
+            if in_next_up and _ANY_SECTION_RE.match(line):
+                in_next_up = False
+                continue
+            if not in_next_up or not _BULLET_START_RE.match(line):
+                continue
+            task_text = _extract_task_text_todo(line)
+            if _has_open_ended_word(task_text) and not _has_concrete_target(task_text):
+                errors.append(
+                    f"{todo_path}:{lineno}: Next-up item uses an open-ended marker "
+                    f"without a concrete target (file path, backtick-quoted symbol, "
+                    f"or phase ref)"
+                )
+
+    return errors
+
+
 def main() -> int:
     if not SCHEMA_PATH.exists():
         print(f"schema not found: {SCHEMA_PATH}", file=sys.stderr)
@@ -354,6 +510,10 @@ def main() -> int:
 
     human_md_path = REPO_ROOT / "docs" / "HUMAN.md"
     for e in validate_human_md(human_md_path):
+        print(e, file=sys.stderr)
+        total_errors += 1
+
+    for e in validate_spec_item_quality():
         print(e, file=sys.stderr)
         total_errors += 1
 

@@ -11,7 +11,6 @@
 -->
 
 
-
 ## Just shipped (last cycle)
 
 <!--
@@ -25,6 +24,7 @@
   phase blocks and `git log`.
 -->
 
+- 38.2 [medium] validate_spec_item_quality in bin/validate-frontmatter.py: open-ended-marker check on SPEC.md open items + TODO Next-up bullets; backtick/quote exemption; concrete-target pass-through; 8 new tests, 167 green — by sst-dev-cycle at 2026-05-27T00:00:00Z
 - 38.6 [medium] find_local_supervisor transferable fallback in bin/skill-chain.py: falls back to ~/.claude/skills/sst-supervisor when no project-local *-supervisor; proprietary still wins, multi-match still None; 4 new tests, 159 green — by manual (direct change) at 2026-05-26T23:55:57Z
 - 38.1 [medium] bounded-item rule added to sst-dev-review + sst-supervisor + sst-manager (3 write surfaces): forbid open-ended/recurring items, require falsifiable acceptance criterion / concrete target; sanitize must-fix=0 — by skill-set-dev at 2026-05-26T23:55:57Z
 - sst-manager SKILL.md worker-lifecycle paragraph rewritten to always-on dispatcher model (fixes stale Phase 35.6 contradiction at old line ~665) — by skill-set-dev at 2026-05-26T23:55:57Z
@@ -34,11 +34,6 @@
 - 35.8 [medium] round-trip integration tests for dispatcher: tests/fixtures/stub_claude.py + fixture_project fixture + test_dispatcher_round_trip parameterized over 6 verbs + test_dispatcher_refuses_unknown_persona_without_spawning; 67/67 tests green — by skill-set-dev at 2026-05-25T22:34:04Z
 - 35.6 [medium] flip dispatcher lifecycle to always-on: retired chain-driver start/stop hooks in drive-chain.py, updated Phase 18 SPEC prose, CLAUDE.md, README worker management — by skill-set-dev at 2026-05-25T17:39:14Z
 - 36.3 [easy] templates/SPEC.md contract_violation JSON: corrected "reason"→"kind", added "skill" field, removed "signals" key, updated guidance to "surface the `kind` field" — by skill-set-dev at 2026-05-25T17:18:24Z
-- 36.2 [easy] templates/SPEC.md: added "### Incomplete-cycle contract violation" section after "### Blocked-on-human bail" documenting runner signal, manifest shape, and chain-driver reporting guidance — by skill-set-dev at 2026-05-25T17:00:11Z
-- 35.2+35.3+35.5 [medium] bin/manager-bot.py reshaped into dispatcher: spawn_manager_for_command (--process-command, cwd from persona), _route_via_dispatcher helper, inline /ping/help/projects only, all project-scoped verbs dispatched; startup log broadened; 60 tests green — by skill-set-dev at 2026-05-25T14:08:33Z
-- 35.15 [easy] retroactive /sst-sanitize-transferable on sst-dev-review/SKILL.md (005477c inline bypass): Sanitize: must-fix=0, should-fix=0, nit=0 — by skill-set-dev at 2026-05-25T13:32:53Z
-- 36.1 [medium] Phase 36: runner-level incomplete-cycle enforcement in bin/skill-chain.py; _incomplete_cycle_detected helper + run_iteration check + main() terminated_by; 9 new tests (25 total green) — by skill-set-dev at 2026-05-25T12:43:24Z
-- 35.16 [easy] close false positive: runner _DIFFICULTY_BRACKET_RE.search() correctly picks [medium] from [supervisor] [medium] lines; no TODO fix needed; SPEC closed without code change — by skill-set-dev at 2026-05-25T12:21:47Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -48,7 +43,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] 38.2 validate-frontmatter.py validate_spec_item_quality: fail CI on open-ended-marker bullets in SPEC/TODO unless concrete targets enumerated, with backtick/quote exemption + tests — reason: spec 38.2; mechanical enforcement of 38.1.
 - [hard] 38.3 sst-dev-cycle phase-completion bail: derive active phase from Operational-scope branch map; phase-scoped [no-work] when all that phase's SPEC items are [x] and no Next-up item is scoped to it — reason: spec 38.3; the direct fix for infinite iteration on a completed phase.
 - [medium] 38.4 sst-dev-cycle HUMAN.md ## Blocking handoff on phase completion (authorize merge + create next feature branch + add Operational-scope mapping), idempotent, then notify-human-md.sh — reason: spec 38.4; pairs with 38.3.
 - [medium] 38.5 sst-supervisor stuck-item detection: flag an item picked in ≥3 trailing-window iters without its SPEC [ ]→[x] flip; file HUMAN.md ## High decompose/remove recommendation + manager-notes observation — reason: spec 38.5; active mitigation when the pattern recurs.

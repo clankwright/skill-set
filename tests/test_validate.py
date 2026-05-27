@@ -128,3 +128,122 @@ def test_human_md_sections_must_be_in_canonical_order(tmp_path):
     errors = vf.validate_human_md(p)
     assert any("order" in e.lower() or "Blocking" in e for e in errors), \
         f"Expected order error, got: {errors}"
+
+
+# ---------------------------------------------------------------------------
+# validate_spec_item_quality tests (SPEC 38.2)
+# ---------------------------------------------------------------------------
+
+def _write_spec_todo(
+    tmp_path: Path, spec_content: str = "", todo_content: str = ""
+) -> tuple[Path, Path]:
+    docs = tmp_path / "docs"
+    docs.mkdir(exist_ok=True)
+    sp = docs / "SPEC.md"
+    sp.write_text(spec_content, encoding="utf-8")
+    tp = docs / "TODO.md"
+    tp.write_text(todo_content, encoding="utf-8")
+    return sp, tp
+
+
+def test_validate_spec_item_quality_function_exists():
+    """validate_spec_item_quality must be defined on the module (SPEC 38.2)."""
+    assert hasattr(vf, "validate_spec_item_quality"), (
+        "validate_spec_item_quality not found in validate_frontmatter module"
+    )
+
+
+def test_vague_bullet_without_concrete_target_fails(tmp_path):
+    """(a) Bullet with open-ended marker and no concrete target fails."""
+    sp, tp = _write_spec_todo(
+        tmp_path,
+        spec_content=(
+            "### Phase 99\n\n"
+            "- [ ] 99.1 [medium] iterative cleanup of all components\n"
+        ),
+    )
+    errors = vf.validate_spec_item_quality(sp, tp)
+    assert errors, "Expected at least one error for vague bullet without concrete target"
+
+
+def test_vague_word_inside_backticks_passes(tmp_path):
+    """(b) Bullet where the denylist word is inside backticks does not trip."""
+    sp, tp = _write_spec_todo(
+        tmp_path,
+        spec_content=(
+            "### Phase 99\n\n"
+            "- [ ] 99.1 [medium] do not use `iterative` loops;"
+            " replace with batch call in `bin/foo.py`\n"
+        ),
+    )
+    errors = vf.validate_spec_item_quality(sp, tp)
+    assert errors == [], (
+        f"Expected no errors when denylist word is inside backticks, got: {errors}"
+    )
+
+
+def test_concrete_target_exempts_vague_word(tmp_path):
+    """(c) Bullet with a vague word but also a concrete file-path target passes."""
+    sp, tp = _write_spec_todo(
+        tmp_path,
+        spec_content=(
+            "### Phase 99\n\n"
+            "- [ ] 99.1 [medium] polish bin/validate-frontmatter.py:"
+            " add docstring to validate_spec_item_quality\n"
+        ),
+    )
+    errors = vf.validate_spec_item_quality(sp, tp)
+    assert errors == [], (
+        f"Expected no errors when concrete file-path target is present, got: {errors}"
+    )
+
+
+def test_closed_spec_items_not_checked(tmp_path):
+    """Closed [x] SPEC items are not checked even if they have vague wording."""
+    sp, tp = _write_spec_todo(
+        tmp_path,
+        spec_content=(
+            "### Phase 99\n\n"
+            "- [x] 99.1 [medium] iterative cleanup with no concrete target\n"
+        ),
+    )
+    errors = vf.validate_spec_item_quality(sp, tp)
+    assert errors == [], f"Closed items must not be flagged, got: {errors}"
+
+
+def test_todo_next_up_vague_item_fails(tmp_path):
+    """A vague ## Next up TODO bullet with no concrete target is flagged."""
+    sp, tp = _write_spec_todo(
+        tmp_path,
+        todo_content=(
+            "## Next up (queued for next cycle)\n\n"
+            "- [medium] ongoing general improvements to the UI — reason: spec 99.1\n"
+        ),
+    )
+    errors = vf.validate_spec_item_quality(sp, tp)
+    assert errors, "Expected error for vague Next-up item"
+
+
+def test_todo_next_up_concrete_item_passes(tmp_path):
+    """A concrete ## Next up TODO bullet with a file/symbol target passes."""
+    sp, tp = _write_spec_todo(
+        tmp_path,
+        todo_content=(
+            "## Next up (queued for next cycle)\n\n"
+            "- [medium] 38.2 validate-frontmatter.py: add validate_spec_item_quality"
+            " — reason: spec 38.2\n"
+        ),
+    )
+    errors = vf.validate_spec_item_quality(sp, tp)
+    assert errors == [], (
+        f"Expected no errors for concrete Next-up item, got: {errors}"
+    )
+
+
+def test_real_spec_and_todo_pass_quality_check():
+    """The current docs/SPEC.md and docs/TODO.md must pass the quality check."""
+    errors = vf.validate_spec_item_quality()
+    assert errors == [], (
+        f"Current SPEC.md/TODO.md has open-ended items without concrete targets:\n"
+        + "\n".join(errors)
+    )
