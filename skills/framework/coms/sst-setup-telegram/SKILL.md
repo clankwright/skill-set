@@ -2,7 +2,7 @@
 name: sst-setup-telegram
 description: End-to-end Telegram bot provisioning, guided-plus-automated. Walks the user through the BotFather steps that only they can do (those touch the user's Telegram app), and automates everything else — chat-id discovery via getUpdates, credentials written to a protected .env file, outbound + inbound round-trip test, optional service-unit install for a long-poll worker, and optional /setcommands push so command suggestions show up in the client. Works for any project that wants a Telegram channel for alerts, chatops, or bot-driven human-in-loop steering.
 user-invocable: true
-version: 1.0.1
+version: 1.1.0
 model-floor: haiku
 effort-floor: medium
 argument-hint: "[bot display name]  [--host systemd|rc.d|tmux|none]  [--env-path <path>]"
@@ -127,6 +127,28 @@ chmod 600 <env-path>
 ```
 
 Verify: `stat -c '%a %U' <env-path>` (Linux) or `stat -f '%Lp %Su' <env-path>` (BSD/mac) should print `600 <username>`. If the parent dir doesn't exist, create it first with `mkdir -p -m 700`.
+
+**Create the base-dir fallback symlink (idempotent).** The skill-set framework
+resolves Telegram credentials in this order: (1) caller-exported
+`TELEGRAM_BOT_TOKEN`; (2) `TELEGRAM_ENV_FILE` env var; (3) base-dir fallback
+`~/Dev/skill-set/telegram.env`. To make every project's `bin/notify-telegram.sh`
+call work without per-caller configuration, create this fallback symlink after
+writing the credentials file:
+
+```bash
+SYMLINK=~/Dev/skill-set/telegram.env
+if [ ! -e "$SYMLINK" ]; then
+    ln -s <env-path> "$SYMLINK"
+    echo "Created base-dir fallback symlink: $SYMLINK -> <env-path>"
+else
+    echo "Base-dir fallback symlink already exists at $SYMLINK (skipping)"
+fi
+```
+
+This step is idempotent: skip if the symlink (or a file) already exists at
+`~/Dev/skill-set/telegram.env`. If `~/Dev/skill-set/` does not exist (e.g. a
+non-skill-set project), print a note and skip gracefully — the fallback is only
+relevant when the skill-set framework is present.
 
 **Never print the token or chat-id after this point.** Reference them by pointing at the env-file path.
 

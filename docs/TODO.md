@@ -9,8 +9,6 @@
   - [<skill-name> @ <utc-iso>] <one-line: what this skill is currently doing>
   Rewrite (don't append) as the focus narrows. Empty when no skill is running.
 -->
-
-
 ## Just shipped (last cycle)
 
 <!--
@@ -24,6 +22,7 @@
   phase blocks and `git log`.
 -->
 
+- [medium batch] manager idle pre-check + sst-setup-telegram symlink: bin/manager-idle-check.py (7 logic tests) + sst-manager 1.16.0 §Caller-side-idle-gate + sst-setup-telegram 1.1.0 §4 base-dir symlink; 13 new tests, 208 green; sanitize must-fix=0 on both transferables — by sst-dev-cycle at 2026-05-27T09:15:00Z
 - 38.11 + sst-dev-review 1.5.7: --force DIVERGED overwrite test + validator-invocation clarification; 1 new test, 195 green — by sst-dev-cycle at 2026-05-27T07:35:00Z
 - install-skills.sh .installed-body marker: distinguish upstream source UPDATE from hand-edit DIVERGED; 7 new tests, 194 green — by sst-dev-cycle at 2026-05-27T06:15:00Z
 - 38.10 [easy]: fix manager-bot.service ReadWritePaths comment: replace "outside %h/Dev/" with "outside any already-listed ReadWritePaths entry" + explicit sibling example; 2 new tests, 187 green — by sst-dev-cycle at 2026-05-27T05:05:00Z
@@ -33,11 +32,6 @@
 - 38.2 [medium] validate_spec_item_quality in bin/validate-frontmatter.py: open-ended-marker check on SPEC.md open items + TODO Next-up bullets; backtick/quote exemption; concrete-target pass-through; 8 new tests, 167 green — by sst-dev-cycle at 2026-05-27T00:00:00Z
 - 38.6 [medium] find_local_supervisor transferable fallback in bin/skill-chain.py: falls back to ~/.claude/skills/sst-supervisor when no project-local *-supervisor; proprietary still wins, multi-match still None; 4 new tests, 159 green — by manual (direct change) at 2026-05-26T23:55:57Z
 - 38.1 [medium] bounded-item rule added to sst-dev-review + sst-supervisor + sst-manager (3 write surfaces): forbid open-ended/recurring items, require falsifiable acceptance criterion / concrete target; sanitize must-fix=0 — by skill-set-dev at 2026-05-26T23:55:57Z
-- sst-manager SKILL.md worker-lifecycle paragraph rewritten to always-on dispatcher model (fixes stale Phase 35.6 contradiction at old line ~665) — by skill-set-dev at 2026-05-26T23:55:57Z
-- bin/manager-bot.py docstring: added Discovery note that project-local *-manager skills must be symlinked into ~/.claude/skills/ to be found by _discover_manager_personas — by skill-set-dev at 2026-05-26T23:55:57Z
-- 37.1 [easy] update SPEC.md:81 "Closed phases" prose to reflect archive-to-COMPLETED.md convention — by skill-set-dev at 2026-05-25T23:41:30Z
-- docs: archive all closed phases (1–19, 21–36) to docs/COMPLETED.md; SPEC.md now only holds active preamble + deferred Phase 20; docs/SPEC-archive.md removed — by skill-set-dev at 2026-05-25T22:51:29Z
-- 35.8 [medium] round-trip integration tests for dispatcher: tests/fixtures/stub_claude.py + fixture_project fixture + test_dispatcher_round_trip parameterized over 6 verbs + test_dispatcher_refuses_unknown_persona_without_spawning; 67/67 tests green — by skill-set-dev at 2026-05-25T22:34:04Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -46,8 +40,5 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
-
-- [medium] sst-manager periodic-tick idle pre-check: before spawning the Opus walk, exit 0 when the watched project has no new commit since the cursor SHA in `~/.claude/state/manager-cursors.json`, no new `.skill-runs/` dir since the cursor, no file in `~/.claude/state/manager-bot-queue/`, and no `docs/HUMAN.md` content change — skip the agent run entirely on no-op ticks. Acceptance: a cheap pre-check (shell or Python) gates the LLM spawn in the cron path or `bin/skill-chain.py`; a test covers skip-when-idle vs run-when-new-commit. — reason: user message 2026-05-27 (3 manager crons now ≈$10/day, most ticks spawn Opus only to find nothing new).
-- [easy] sst-setup-telegram: during provisioning, create the base-dir fallback symlink `~/Dev/skill-set/telegram.env` pointing at the written credentials file, so `bin/notify-telegram.sh` step-3 resolution works for every caller without a per-caller `TELEGRAM_ENV_FILE`. Acceptance: setup creates the symlink idempotently (skips if present); README/SKILL.md documents it; the absence of this symlink was the silent cause of the 2026-05-27 missed cm-manager digest send. — reason: user message 2026-05-27.
 
 
