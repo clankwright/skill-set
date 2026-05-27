@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.5.7
+version: 1.5.8
 model-floor: sonnet
 effort-floor: high
 ---
@@ -302,4 +302,5 @@ Two forms — pick one, no follow-up question, no offer to fix.
 - **Don't escalate style to blocker.** A magic number in test-only code is not worth flagging at all under the severity bar — skip it.
 - **Don't pad the review.** If after honest examination you have zero blocker/should-fix items, report clean and stop. A zero-item or one-item review is a success signal. Nitpicks, stylistic preferences, cosmetic doc polish, minor duplication, and comment wording never go in the follow-ups.
 - **Don't review the review.** When you're done with the findings list, stop.
+- **Don't claim parser or runner behavior without reading the code.** If a finding hinges on how the chain runner (or any `bin/` script the project ships) parses a line — a difficulty bracket, a sentinel match, a header anchor — open the function and verify against its actual regex/logic before filing. A `re.search()` on `\[(easy|medium|hard)\]` scans the whole line and is robust to a leading source-tag bracket; a `re.match()` anchored to start is not. Don't assume which one is in use. A factually-incorrect parser claim creates a false-positive finding that wastes the next cycle and may motivate a "fix" that breaks behavior working as designed.
 - **Don't touch the working tree to "compare against HEAD~1."** Never `git checkout HEAD~1 -- .`, never chain `git stash` with `git checkout` of the prior commit. Either pattern can clobber the working tree (including a freshly popped stash) and require `git fsck --lost-found` to recover. Any prior-state inspection should use `git show HEAD~1 -- <path>` (read-only, doesn't touch the tree) or a separate worktree (`git worktree add /tmp/review-prev HEAD~1`, then remove when done).
