@@ -23,7 +23,7 @@
   phase blocks and `git log`.
 -->
 
-- 38.12: Phase 36 pass-through guard excludes auto-supervisor: `skills_to_run[i+1] != auto_supervisor` prevents orphaned dev work reaching supervisor; 1 new test, 215 green — by sst-dev-cycle at 2026-05-28T19:15:00Z
+- Removed orphaned `~/.claude/skills/sst-dev-review/SKILL.patch.md` (v1.5.7, dated 2026-05-25) from the install dir. The 1.5.8 record (below) and HUMAN.md H35.3 only cleared the repo `.claude/skills/` copy; the globally-installed sidecar persisted and the supervisor re-flagged it across the last three lngraph verdicts. Canonical `SKILL.md` is v1.6.0 (verified strict superset — the patch's only unique content, the parser anti-pattern bullet, is already at SKILL.md:329), so discard not promote; a stale-version sidecar left in place would downgrade the skill if `apply-skill-patch.py` ran — by manual (direct change) at 2026-06-02T07:12:03Z
 - sst-dev-review 1.6.0 orphaned-cycle recovery + Phase 36 guard passthrough: review skill now recovers incomplete dev cycles (dirty tree + In-flight line) by verifying tests and committing; runner passes to review instead of aborting when a follower skill exists; 2 new tests (passes_to_review, aborts_without_next_skill), 214 green, sanitize must-fix=0 — by sst-dev-cycle at 2026-05-28T18:10:00Z
 - [medium batch] manager rate-limit fixes: manager-idle-check.py cursor-field fix (reads `latest_run` with `last_run` fallback; idle-gate now skips idle projects, dahrouge confirmed IDLE) + 5 tests; sst-manager 1.17.0 model-floor opus to sonnet + README guidance; README manager cron-tick-spreading note; 213 green, sanitize clean. Proprietary cm/dahrouge/skill-set wrapper model-floors flipped to sonnet locally (gitignored). Implemented by sst-dev-cycle; closed manually after an incomplete-cycle abort, 2026-05-27T22:26:16Z
 - sst-dev-review 1.5.8 [easy]: hand-merge parser-behavior anti-pattern bullet from stale SKILL.patch.md sidecar (May 25, pre-38.1/38.11); discard sidecar; validator clean. Filed retroactively per direct-change convention — by manual (direct change) at 2026-05-27T13:30:00Z
@@ -44,4 +44,5 @@
   Order: blockers/highest-impact first.
 -->
 
+- [medium] 39.1 `sst-supervisor` §0.5.3 fast-path: abort on any `sst-dev-review`-reported finding (the §6 `Found <N> items: <B> blocker, <S> should-fix` template with N>0, and/or an appended `Review follow-ups` block), not just `ERROR`/`FAIL`/`Traceback`/`Exception` keyword hits — so a prose-only finding can no longer pass as `clean (fast-path)`. — spec Phase 39.1; lngraph supervisor verdict 2026-06-02T05-11-26Z iter_02 (recurring standing note since 2026-04-30)
 
