@@ -36,18 +36,6 @@ Each entry uses the form:
 
 (Important but not actively blocking the cycle. The dev cycle continues past these unless picked-item gating exists.)
 
-<!-- example pending-sidecar promotion entry — delete on instantiation
-- [ ] H<phase>.<n> [easy] **Promote sst-<skill-name> sidecar to transferable**
-  A supervisor-authored transferable improvement is waiting as a sidecar at
-  `~/.claude/skills/sst-<skill-name>/SKILL.patch.md`. Run `/sst-promote-skill-proposal`
-  to review and apply it. If the proposed change is unnecessary, simply delete the sidecar
-  file; the manager will auto-close this entry on its next periodic tick.
-  Blocks: none
-  Verify: test ! -e ~/.claude/skills/sst-<skill-name>/SKILL.patch.md
-  Filed by: sst-supervisor at <utc-iso>.
-  Source: <run-dir>/supervisor_verdict.md.
--->
-
 ## Medium
 
 ## Low

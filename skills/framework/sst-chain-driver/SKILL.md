@@ -2,7 +2,7 @@
 name: sst-chain-driver
 description: Single-session driver for a multi-iteration skill-chain run. Spawns `bin/skill-chain.py --chain <name> --loop N` as a subprocess via `bin/drive-chain.py`, watches the live event stream, posts Telegram updates at session start, each iteration boundary (commit + per-iter spend + cumulative), every rate-limit pause/resume, supervisor escalation, and session end. Honors a `--max-budget-usd` halt and a `--max-cycles` halt independently of the chain's own loop count. Distinct from sst-manager (cron-based, multi-project, periodic) and from sst-skill-router (in-process planner inside one user request). The proprietary counterpart supplies the watched-chain name, Telegram chat ID, and budget defaults.
 user-invocable: true
-version: 1.2.1
+version: 1.2.2
 argument-hint: <chain-name> [--loop N] [--max-budget-usd $X] [--max-cycles N]
 ---
 
@@ -11,7 +11,7 @@ argument-hint: <chain-name> [--loop N] [--max-budget-usd $X] [--max-cycles N]
 The chain driver is the missing top-level role between `sst-manager` (cadence-based, cross-project, reactive) and `bin/skill-chain.py` (the chain runner itself). It is invoked once per multi-iteration session, runs FOR THE WHOLE DURATION of that session, and posts Telegram updates as events fire so the user can supervise a long autonomous run from their phone.
 
 The chain driver NEVER:
-- edits a `SKILL.md` (that's the supervisor + `/sst-promote-skill-proposal`).
+- edits a `SKILL.md` (that's the supervisor's job — it edits skill source directly).
 - makes git commits or deploys (read-only across the working tree; write-only to the chain's own log dir + outbound Telegram).
 - decides which work to pick (the chain's skills handle that via the project's `docs/TODO.md`).
 
@@ -121,7 +121,7 @@ Telegram has already received the user-facing session-end message; this stdout l
 ## Hard rules
 
 - **Never run `bin/skill-chain.py` directly.** Always go through `bin/drive-chain.py`. The whole point is the watcher; bypassing it loses the budget gate and the Telegram stream.
-- **Never edit a `SKILL.md` from inside the chain driver.** That's `sst-supervisor` + `/sst-promote-skill-proposal`. The chain driver is read-only across `.claude/skills/`.
+- **Never edit a `SKILL.md` from inside the chain driver.** That's `sst-supervisor`'s job (it edits skill source directly). The chain driver is read-only across `.claude/skills/`.
 - **Never spawn a second chain driver from inside one.** Recursion is meaningless here; one session = one chain. If the user asks for two parallel runs, they invoke the skill twice.
 - **Never pass project-specific paths or chat IDs in the transferable's prose.** The proprietary counterpart owns those facts. The transferable parses them from the proprietary's frontmatter / body.
 - **Never silently drop a Telegram failure.** The helper writes failed sends to stderr with a `[chain-driver]` tag; the skill should leave that visible rather than swallowing it. If the user wants no Telegram at all, they pass `--no-telegram`.

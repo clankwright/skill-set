@@ -6,12 +6,11 @@ chain runs and the supervisor's old `--backup` invocation pattern:
 
 1. Empty `<run-dir>/proposals/` (and `<run-dir>/iter_NN/proposals/`) directories.
    The pre-Phase-11 contract created `proposals/` up front; Phase 11 routes drafts
-   to `<run-dir>/drafts/` and proposals into a sidecar at the skill's source dir
-   instead, so the empty dirs are pure leftover.
+   to `<run-dir>/drafts/` instead, so the empty dirs are pure leftover.
 
 2. `*SKILL.md.bak` files anywhere under `<project>/.claude/skills/`. Leftover
-   from the supervisor's prior `apply-skill-patch.py --backup` pattern (Phase 14
-   dropped the `--backup` default). Git history covers rollback; the tracked-but-
+   from the supervisor's prior `--backup` edit pattern (Phase 14 dropped the
+   `--backup` default). Git history covers rollback; the tracked-but-
    uncommitted `.bak` files just surface as dirty status every cycle.
 
 3. Orphaned `<run-dir>/drafts/` directories whose contents are older than N days
@@ -104,8 +103,8 @@ def find_empty_proposals(run_dirs: list[Path]) -> list[Path]:
 
 def find_bak_files(project_root: Path) -> list[Path]:
     """Return every `*SKILL.md.bak` under `<project>/.claude/skills/`. Match is
-    on filename suffix; that is the exact shape `apply-skill-patch.py --backup`
-    used to produce."""
+    on filename suffix; that is the exact shape the supervisor's prior
+    `--backup` edit pattern used to produce."""
     skills_root = project_root / ".claude" / "skills"
     if not skills_root.is_dir():
         return []

@@ -40,7 +40,7 @@ On close of every substantive change:
 The proprietary chains under `.claude/chains/` are skill-set's own dogfooding surface. Pick by intent:
 
 - **`/skill-set-chain-driver`** (canonical default; wraps `skill-set-cycle`, loop:3, $30 budget cap) — daily multi-item run that closes 1-3 queued items per session and posts Telegram updates at every iteration boundary, rate-limit pause, and session end. This is what the user invokes most days.
-- **`/skill-set-chain-driver --chain skill-set-overnight --max-budget-usd 80`** (or higher) — unattended overnight drain. Loops until failure / budget / Ctrl-C; randomized [5min, 2h] inter-iter delay keeps commit cadence human-shaped across many hours; auto-promote `all` so the supervisor's framework improvements land within the run.
+- **`/skill-set-chain-driver --chain skill-set-overnight --max-budget-usd 80`** (or higher) — unattended overnight drain. Loops until failure / budget / Ctrl-C; randomized [5min, 2h] inter-iter delay keeps commit cadence human-shaped across many hours; the supervisor edits and commits framework skill improvements directly within the run, so later iterations consume them.
 - **`bin/skill-chain.py --chain skill-set-cycle`** (no chain-driver wrap) — debug mode, no Telegram, no budget cap. Use when iterating on chain runner behavior or when you want a single quick item without the wrapper overhead.
 
 Both proprietary chains exist locally only (`.claude/` is gitignored as Claude Code runtime state). The transferable parents are `dev-cycle-with-review-looped` and `dev-cycle-overnight` under `chains/`; consuming projects build their own `<persona>-cycle` / `<persona>-overnight` proprietary chains the same way.

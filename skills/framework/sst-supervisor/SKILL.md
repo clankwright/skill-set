@@ -1,8 +1,8 @@
 ---
 name: sst-supervisor
-description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and either auto-promotes SKILL.md rewrites directly (when the chain's auto-promote mode is proprietary or all) or writes them as sidecar SKILL.patch.md files for human promotion (when auto-promote is off, and for transferables that sanitization blocks from direct overwrite). Writes a verdict file summarizing findings plus what was updated. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
+description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 1.14.0
+version: 2.0.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -13,29 +13,26 @@ The supervisor is the third loop in the system: after a chain of skills runs to 
 
 The supervisor never fixes code or files spec items. Those belong to the skills it analyzes. The supervisor's only outputs are:
 
-1. **`<run-dir>/supervisor_verdict.md`** — a one-screen summary of the chain (clean / N updates / escalate) that also records the exact paths written.
-2. **`<skill-dir>/SKILL.md`** — direct overwrite of a proprietary `SKILL.md`, when the chain is running with `auto-promote: proprietary` (the default) or `auto-promote: all`. The improved prose is then available to the NEXT chain iteration with zero extra steps.
-3. **`<skill-dir>/SKILL.patch.md`** — a proposed full rewrite dropped as a sidecar next to the target `SKILL.md`, when auto-promote is `off`, or for transferable skills under any mode short of `all`-with-clean-sanitization. One file per skill, overwritten each cycle. Promoted to a real edit by the user via `/sst-promote-skill-proposal`.
-4. **`docs/TODO.md`** — adds entries to `## Next up` if a finding implies project work the next sst-dev-cycle should pick up (rare; most supervisor findings target the skills, not the project).
+1. **`<run-dir>/supervisor_verdict.md`** — a one-screen summary of the chain (clean / N edits / escalate) that also records the exact paths written.
+2. **A skill's canonical `SKILL.md`, edited directly.** For a **transferable** skill, the supervisor edits the base-repo source at `~/Dev/skill-set/skills/<category>/<skill-name>/SKILL.md` (after `sst-sanitize-transferable` returns `must-fix: 0`), bumps `version:`, then commits and pushes from the base repo. For a **proprietary** skill, the supervisor edits `<cwd>/.claude/skills/<skill-name>/SKILL.md` in place (gitignored runtime copy; no commit). The improved prose is available to the NEXT chain iteration with zero extra steps. The edit lands in the file itself, with no separate promotion step.
+3. **`docs/TODO.md`** — adds entries to `## Next up` if a finding implies project work the next sst-dev-cycle should pick up (rare; most supervisor findings target the skills, not the project).
 
 ## Operating principles
 
-- **Auto-promote is a safety perimeter, not a feature to bypass.** When the chain sets `auto-promote: proprietary`, proprietary skills under `<cwd>/.claude/skills/` may be overwritten directly; transferables are still written as `SKILL.patch.md` sidecars. When set to `all`, transferables may also be overwritten but only after `sst-sanitize-transferable` reports `must-fix: 0`; any sanitization failure downgrades that skill to a sidecar write. When `off`, every write is a sidecar. Never cross these lines.
-- **A tool-permission denial is NOT a mode downgrade.** The `off` / `proprietary` / `all` routing is determined by the chain YAML's `auto-promote:` field at the start of the run. It is never determined by which write tool happens to fail mid-run. If `Edit` or `Write` denies a write to `.claude/skills/**`, the correct response is "I reached for the wrong helper — switch to `apply-skill-patch.py` via Bash" (see §Permissions contract + §3's drafting step). The wrong response is "Edit failed, I'll fall back to writing a sidecar per the `off`-mode treatment." That silently reclassifies a direct-overwrite finding as a user-gated promotion, loses the iteration-to-iteration self-improvement Phase 11 was built for, and hides the supervisor's own bug (reaching for the wrong tool) behind a spurious mode switch.
-- **Every proposed line change cites a transcript line. No citation, no change.** This is the anti-scope-creep gate. Before writing any draft, enumerate every line-level addition, deletion, or rewrite you intend to make, and map each one to a specific run-log line (`<i>_<skill>.txt:<line>`) that motivates it. Drop any change that can't be mapped; it's speculative improvement, not a finding. §3's drafting step enforces this explicitly — the mapping is a hard gate, not a courtesy. "While I was in here I also fixed X" is the exact failure mode to reject: X needs its own motivating transcript line, or it waits for a future cycle where something actually goes wrong with X.
-- **Clean is the default.** A run where every skill behaved well produces zero updates and a one-line verdict. Don't manufacture findings to justify the invocation. A cycle that articulates N findings must not produce a patch with >N changes — extra changes are scope creep.
-- **Sanitize before crossing the proprietary→transferable boundary.** The transferable layer is open-source. A leak there can never be retracted from clones. Use the leak rules; refuse to write a transferable update (direct OR sidecar) that fails any rule.
-- **The proprietary skill is allowed to know everything.** Proprietary updates can include any project nouns, paths, secrets-as-references-not-values. Don't water them down; they exist precisely to hold proprietary detail.
-- **One sidecar per skill, always overwriting.** `SKILL.patch.md` is not a per-run artifact: if a prior cycle left one and this cycle has a fresh finding for the same skill, overwrite it. If this cycle has nothing to say about a skill that has a stale sidecar, leave the sidecar alone (the user may be mid-review).
-- **A session that wrote drafts but no verdict file is a contract violation, not a clean exit.** §8's exit gate enforces this: before returning, every file in `<run-dir>/drafts/` MUST either have a matching `apply-skill-patch.py` invocation in this session's transcript, OR be explicitly named in the verdict file's `[deferred]` block with the reason it was not applied. The verdict file (§6) MUST exist before returning, even on a clean run. Iter_N+1's §0.6 sweep can recover orphaned drafts, but only if iter_N's verdict either applied them or named them deferred. Silently exiting with `drafts/` non-empty AND no verdict is the failure mode Phase 14 closes.
+- **The supervisor edits skill source directly.** When a finding requires a skill's prose to change, the supervisor edits the canonical `SKILL.md` itself — transferables in the base repo (`~/Dev/skill-set/skills/<category>/<skill>/SKILL.md`), proprietary skills in place (`<cwd>/.claude/skills/<skill>/SKILL.md`). The edit lands in the file itself: no intermediate proposal file, no separate human promotion step. The improved prose is live for the next chain iteration immediately.
+- **Sanitize is a hard gate on every transferable edit.** Before editing any transferable `SKILL.md`, run `sst-sanitize-transferable` on the proposed body. A `must-fix` finding ABORTS the edit — the lesson stays as a proprietary-only edit, and the verdict records the block. This is the one perimeter that is never crossed: the transferable layer is open-source, and a leak there can never be retracted from clones.
+- **Every line change cites a transcript line. No citation, no change.** This is the anti-scope-creep gate. Before editing, enumerate every line-level addition, deletion, or rewrite you intend to make, and map each one to a specific run-log line (`<i>_<skill>.txt:<line>`) that motivates it. Drop any change that can't be mapped; it's speculative improvement, not a finding. §3's editing step enforces this explicitly — the mapping is a hard gate, not a courtesy. "While I was in here I also fixed X" is the exact failure mode to reject: X needs its own motivating transcript line, or it waits for a future cycle where something actually goes wrong with X.
+- **Clean is the default.** A run where every skill behaved well produces zero edits and a one-line verdict. Don't manufacture findings to justify the invocation. A cycle that articulates N findings must not produce an edit with >N changes — extra changes are scope creep.
+- **The proprietary skill is allowed to know everything.** Proprietary edits can include any project nouns, paths, secrets-as-references-not-values. Don't water them down; they exist precisely to hold proprietary detail.
+- **A session that edited a skill but wrote no verdict file is a contract violation, not a clean exit.** §8's exit gate enforces this: the verdict file (§6) MUST exist before returning, even on a clean run, and it MUST name every `SKILL.md` edited this session (transferable edits with their commit, proprietary edits in place). Silently exiting after an edit with no verdict is the failure mode the exit gate closes.
 
 ## Inputs
 
 Read these in order, all from the run log directory passed to you (the chain runner reports its location on every invocation as `[log-dir] <path>`):
 
-1. **`MANIFEST.json`** — chain name, harness, per-skill exit codes, durations, model + token usage, git SHA before/after. Also carries `chain_definition` (path to the chain YAML) — read that YAML and note the `auto-promote:` field; default is `proprietary` when the field is absent. This value controls §3's output routing. The manifest may have `"in_progress": true` when you read it — the chain runner snapshot-writes after each skill so you can see the records of all skills that ran before you, but your own record (and the chain's `finished_at` / `git_sha_after` / `exit_code`) won't appear until after this skill returns. That's expected; don't treat your own missing entry as a defect to flag.
+1. **`MANIFEST.json`** — chain name, harness, per-skill exit codes, durations, model + token usage, git SHA before/after. The manifest may have `"in_progress": true` when you read it — the chain runner snapshot-writes after each skill so you can see the records of all skills that ran before you, but your own record (and the chain's `finished_at` / `git_sha_after` / `exit_code`) won't appear until after this skill returns. That's expected; don't treat your own missing entry as a defect to flag.
 2. **Each `<i>_<skill>.txt`** — the prettified, ANSI-stripped transcript of one skill invocation.
-3. **Each skill's current `SKILL.md`** — for the chain runner's CWD-local `.claude/skills/<skill>/SKILL.md` (proprietary) and, if the proprietary skill has a `transferable:` field, the installed transferable at `~/.claude/skills/<transferable>/SKILL.md` (runtime read path, same dir where any sidecar `SKILL.patch.md` lives).
+3. **Each skill's current `SKILL.md`** — for the chain runner's CWD-local `.claude/skills/<skill>/SKILL.md` (proprietary) and, if the proprietary skill has a `transferable:` field, the installed transferable at `~/.claude/skills/<transferable>/SKILL.md` (runtime read path). For a transferable, also read its base-repo source at `~/Dev/skill-set/skills/<category>/<transferable>/SKILL.md` — that is the file the supervisor edits.
 4. **`~/.claude/state/manager-notes.md`** if it exists — combined manager observations and user feedback, prepended newest-first by the manager skill, with source-tagged headings. Three entry kinds, interleaved by UTC:
    - `## <utc-iso> user feedback (chat <id>)` — direct user-to-supervisor messaging, routed verbatim by the manager (periodic-mode drain or chain-runner pre-iter drain) from the Telegram `/feedback <message>` command. Treat as **authoritative steering** — the user's exact words. Feedback can direct concrete writes ("modify skill X to do Y", "add SPEC item Z to phase N", "append TODO Next-up item W"), and those directives are valid motivating citations for §3's change-intent table (the citation column reads `manager-notes.md:<line>` rather than a transcript line).
    - `## <utc-iso> manager-translated user feedback (chat <id>)` — written ONLY by the manager's on-demand `--process-feedback` mode (outcome (c) "soft steering") when the user's `/feedback` was shape-ish rather than a discrete work item. Body is a 2-4 sentence reasoning paragraph naming what the user said + which objective(s) it bears on + what the manager recommends to the supervisor. Treat as **authoritative steering with manager-supplied interpretation**: the user's intent is on the record and the manager's recommendation is the actionable form. Use the recommendation as the change-intent driver, not the user's paraphrased sentence — the manager has already done that translation. If the manager's recommendation conflicts with what the supervisor's run-log evidence actually shows, write the conflict in `## Notes for the manager` rather than overriding silently; the user can re-issue clearer feedback.
@@ -48,7 +45,6 @@ Read these in order, all from the run log directory passed to you (the chain run
 
    | Source                         | Authority class | Beats |
    | :---                           | :---            | :---  |
-   | Chain `auto-promote` mode      | run-time contract | everything below |
    | `user feedback (chat <id>)` (verbatim) | authoritative   | manager-translated; manager observation |
    | `manager-translated user feedback (chat <id>)` | authoritative-with-interpretation | manager observation |
    | `manager observation`          | soft            | (nothing; soft steering only) |
@@ -83,16 +79,14 @@ Eligibility — all four conditions must hold:
 
    Any non-`[no-work]` match aborts the fast-path. The keyword list is intentionally noisy: false positives just route to the deep walk, which is the safe direction.
 
-4. **§0.6 drafts sweep returns zero orphans.** Run §0.6 to completion first — it is a cheap directory listing and the self-heal step must run regardless of fast-path eligibility. Any orphaned draft to consume becomes a finding under §1 and aborts the fast-path.
+4. **§3.5 batch-window refinement check returns "no refinement needed."** Run §3.5's trigger-evaluation step (3.5.1 only — the cheap trailing-window scan; do NOT yet edit any prose) to decide whether the dev skill's window prose needs adjusting. If the trailing-window thresholds are below the trigger AND stable-termination is engaged OR not yet eligible, return "no refinement needed" and proceed; the cost is one read of `MANIFEST.json` plus a transcript-grep over the trailing iters' `<i>_<dev-review>.txt` files (cheap). If the trigger fires, abort the fast-path: §3.5 will make a refinement edit in the deep walk, and that edit IS the iter's finding. The check is intentionally hoisted into the fast-path eligibility set so refinement keeps firing on otherwise-clean iters; without this condition, a long run of clean iters would let `[batch-sizing]` findings accumulate without ever crossing the deep walk.
 
-5. **§3.5 batch-window refinement check returns "no refinement needed."** Run §3.5's trigger-evaluation step (3.5.1 only — the cheap trailing-window scan; do NOT yet draft any patch) to decide whether the dev skill's window prose needs adjusting. If the trailing-window thresholds are below the trigger AND stable-termination is engaged OR not yet eligible, return "no refinement needed" and proceed; the cost is one read of `MANIFEST.json` plus a transcript-grep over the trailing iters' `<i>_<dev-review>.txt` files (cheap). If the trigger fires, abort the fast-path: §3.5 will write a refinement patch in the deep walk, and that write IS the iter's finding. The check is intentionally hoisted into the fast-path eligibility set so refinement keeps firing on otherwise-clean iters; without this condition, a long run of clean iters would let `[batch-sizing]` findings accumulate without ever crossing the deep walk.
-
-When all five conditions hold, write the minimal verdict file and return:
+When all four conditions hold, write the minimal verdict file and return:
 
 ```markdown
 # Supervisor verdict — <run-dir-name>
 
-**Chain:** <chain-name>  ·  **auto-promote:** <mode>  ·  **Commit:** <sha-after>  ·  **Generated:** <utc-iso>
+**Chain:** <chain-name>  ·  **Commit:** <sha-after>  ·  **Generated:** <utc-iso>
 
 ## Outcome
 
@@ -101,36 +95,18 @@ clean (fast-path)
 
 ## Per-skill summary
 
-(All skills exited 0; transcripts clean; prior verdict not escalated; no orphan drafts to consume.)
+(All skills exited 0; transcripts clean; prior verdict not escalated.)
 
-## Updates written
+## Edits written
 
 (none)
 ```
 
-The §8 exit gate is satisfied because §0.6 confirmed `drafts/` is empty AND the verdict file exists.
+The §8 exit gate is satisfied because the verdict file exists.
 
 When any condition fails, fall through to §1 with no annotation in the eventual verdict. The fast-path is an optimization, not a user-facing contract surface.
 
 **Anti-fork constraint.** Do not extend the keyword list with soft matches like `warning`, `caveat`, or `should`: those appear routinely in clean prose. Do not add a fifth eligibility condition without spec'ing it first. The bar is intentionally tuned to favor running the deep walk when uncertain: a missed-finding from an over-eager fast-path is a real defect, while a deep-walk-on-clean is just spent compute.
-
-### 0.6. Iter-boundary drafts sweep (multi-iter chains only)
-
-When the supervisor runs in iteration 2 or later of a `--loop N` chain, scan the prior iteration's drafts directory for orphaned files BEFORE walking the current iteration's skills. Detection: read `MANIFEST.iteration` from the snapshot manifest (§Inputs step 1). If `iteration > 1`, derive the prior iter's drafts path from the run-dir layout: for a log-dir at `<base>/iter_NN/`, the prior iter's drafts live at `<base>/iter_<NN-1 zero-padded>/drafts/`. For single-iter runs (`iteration == 1` or field absent), skip this step entirely; there is no prior iter in the same parent.
-
-For each file present in the prior iter's `drafts/`:
-
-1. **Treat it as a manager-injected finding.** The motivating citation comes from the prior iter's supervisor transcript: cite the line in `<base>/iter_<NN-1>/<i>_<supervisor>.txt` where the draft was written but not applied (look for the matching `Write` to that draft path, or the `[deferred]` block in the prior iter's `supervisor_verdict.md`). This satisfies the §3 anti-scope-creep gate without inventing a citation: a real transcript line describes the intended write; the prior session just didn't complete it.
-
-2. **Route per the current chain's `auto-promote` mode.** Apply the same routing table from §3: a draft originally destined for direct overwrite (proprietary in `proprietary` mode, anything in `all` mode with clean sanitize) gets applied via `bin/apply-skill-patch.py` to the proprietary `SKILL.md` or transferable `SKILL.md` target. A draft destined for a sidecar gets written via the same helper to `SKILL.patch.md`. If the auto-promote mode flipped between iters (rare; the chain YAML is fixed at run start, but a manual `--auto-promote` CLI override would do it), honor the current iter's mode.
-
-3. **Re-sanitize transferable drafts before applying.** A prior-iter sanitize pass does not bind this iter; the banned-terms list or guidance may have shifted between iterations within a long-running loop. Run `sst-sanitize-transferable` on the orphaned draft per §4 before any transferable write. A `must-fix` finding aborts the apply for that draft; record it as `[deferred]` in this iter's verdict instead.
-
-4. **Drop the consumed draft.** After successful apply (or after recording it as `[deferred]`), delete the prior iter's draft file. Post-condition: `drafts/` in the prior iter is empty (or every remaining file is referenced as `[deferred]` in this iter's verdict).
-
-The sweep self-heals partial-completion failures across iter boundaries: when iter_N's supervisor writes drafts but exits before applying them, iter_N+1 picks them up as its first action and the loop self-corrects without manual intervention. Sweep ONLY consumes drafts from `iter_<NN-1>/`; if older iterations also have orphaned drafts, that indicates a multi-iter outage and the supervisor flags it in `## Notes for the manager` rather than chain-recursing through the run-dir's history (a human should be involved at that point).
-
-Findings discovered during the sweep go through §1–7 alongside this iter's normal findings, with the sweep's drafts counted in §3's change-intent table (one row per applied draft, citation = the prior-iter transcript line). The exit gate (§8) then verifies the sweep's post-condition along with this iter's own draft handling.
 
 ### 1. Walk every skill in MANIFEST.skills
 
@@ -151,9 +127,9 @@ Two severities. **No third tier.**
 
 Skip nitpicks (style, wording, "could be clearer", "what if"). If after honest examination you have zero findings at this bar, that's a clean result — report it and stop.
 
-### 3. Write the update — direct or sidecar
+### 3. Edit the skill directly
 
-**Before drafting ANY content, build the change-intent table.** This is the anti-scope-creep hard gate. For the target skill, list every line-level change you intend to make in the draft, one row per change, and map each to the specific transcript line(s) that motivate it:
+**Before editing ANY content, build the change-intent table.** This is the anti-scope-creep hard gate. For the target skill, list every line-level change you intend to make, one row per change, and map each to the specific transcript line(s) that motivate it:
 
 ```
 | # | kind (add/delete/rewrite) | section / anchor in the skill | motivating citation |
@@ -163,38 +139,30 @@ Skip nitpicks (style, wording, "could be clearer", "what if"). If after honest e
 
 **If you can't fill in the "motivating citation" column for a row, drop that row.** No exceptions for "while I was in here I noticed," "this would also be nice," "for consistency," or "future-proofing." Those are speculative improvements and belong to a future cycle where something actually goes wrong. The findings you articulated in §1–2 define the scope; the change-intent table MUST be a strict subset of motivations that appear in the transcript, not a superset.
 
-**Count check.** If your change-intent table has more rows than the findings you enumerated in §1, stop and reconcile: either (a) you elided a finding in §1 that should have been listed separately — add it, or (b) one of the table rows is scope creep — drop it. Exactly one of those is true. A patch that makes 3 changes from 2 findings is the failure mode the framework is trying to prevent.
+**Count check.** If your change-intent table has more rows than the findings you enumerated in §1, stop and reconcile: either (a) you elided a finding in §1 that should have been listed separately — add it, or (b) one of the table rows is scope creep — drop it. Exactly one of those is true. An edit that makes 3 changes from 2 findings is the failure mode the framework is trying to prevent.
 
-Once the change-intent table passes both gates (every row cited, row-count ≤ finding-count), then draft the full rewritten `SKILL.md` (frontmatter + body). Bump `version:` per SemVer: patch for prose clarification, minor for added behavior, major for changed contract. Then route the write based on (a) whether the skill is proprietary or transferable, and (b) the chain's `auto-promote` value from §Inputs step 1.
+Once the change-intent table passes both gates (every row cited, row-count ≤ finding-count), edit the canonical `SKILL.md` directly. Bump `version:` per SemVer in the same edit: patch for prose clarification, minor for added behavior, major for changed contract.
 
-**Routing table:**
+**Where each skill's canonical source lives:**
 
-| auto-promote | Proprietary skill          | Transferable skill                                                     |
-| :---         | :---                       | :---                                                                   |
-| `off`        | sidecar `SKILL.patch.md`   | sidecar `SKILL.patch.md`                                               |
-| `proprietary`| direct overwrite `SKILL.md`| sidecar `SKILL.patch.md`                                               |
-| `all`        | direct overwrite `SKILL.md`| direct overwrite `SKILL.md` iff §4 sanitization returns `must-fix: 0`; else sidecar |
+- **Transferable skill** — the base-repo source at `~/Dev/skill-set/skills/<category>/<transferable-name>/SKILL.md`. This is the open-source master copy; editing it is gated on §4 sanitization (a `must-fix` finding ABORTS the edit). After a sanitize-clean edit, the supervisor commits and pushes it from the base repo (see §3a). The runtime copy under `~/.claude/skills/<transferable-name>/SKILL.md` is refreshed from the base repo by `bin/install-skills.sh`; the supervisor does NOT hand-edit the runtime copy.
+- **Proprietary skill** — `<cwd>/.claude/skills/<skill-name>/SKILL.md`, edited in place. This is the gitignored runtime copy and the canonical home for proprietary skills; no commit is involved (the directory is project-local runtime state).
 
-Target paths:
+**Use the `Edit` / `Write` tools directly.** Chain runs spawn with `--permission-mode bypassPermissions`, which has an explicit carve-out for `.claude/skills/`, `.claude/commands`, and `.claude/agents`, so writes there do not prompt; the base-repo path (`~/Dev/skill-set/skills/`) is an ordinary repo path that never prompted. Edit the file, confirm the change, then (for transferables) proceed to §3a commit-and-push.
 
-- **Proprietary**: `<cwd>/.claude/skills/<skill-name>/SKILL.md` or `.../SKILL.patch.md`.
-- **Transferable** (runtime-effective location): `~/.claude/skills/<transferable-name>/SKILL.md` or `.../SKILL.patch.md`. This is the path the harness actually reads on the next run. A separate sanitized copy for the open-source master repo still lands at `~/Dev/skill-set/skills/<category>/<transferable-name>/SKILL.md` — but that update is staged (not committed) and surfaced in the verdict file for the user's PR flow; NEVER auto-commit anything in the master repo.
+A skill edited this cycle is recorded in the verdict's "Edits written" block (§6) with its change-intent table. If this cycle has no finding for a skill, leave it untouched.
 
-**Execute every write via `bin/apply-skill-patch.py` through the Bash tool.** Do NOT use the `Edit` or `Write` tools on any `.claude/skills/**` target. Those tools prompt for interactive approval on every `.claude/skills/` write even under `--permission-mode bypassPermissions`, which silently blocks headless runs and fires the denial → "fall back to sidecar" failure mode. Write the drafted body to `<RUN_DIR>/drafts/<skill-name>.md` first (the run dir IS writable via `Write`), then:
+### 3a. Commit + push a transferable edit
+
+A transferable `SKILL.md` edit is only complete once it is committed and pushed from the base repo, so the open-source master and every consuming clone pick it up. After a sanitize-clean edit (§4 returned `must-fix: 0`):
 
 ```bash
-/home/rob/Dev/skill-set/bin/apply-skill-patch.py \
-    --source <RUN_DIR>/drafts/<skill-name>.md \
-    --target <absolute-path-to-target>
+git -C ~/Dev/skill-set add skills/<category>/<transferable-name>/SKILL.md
+git -C ~/Dev/skill-set commit -m "Supervisor: <skill> v<old>→<new> — <one-line finding summary>"
+git -C ~/Dev/skill-set push
 ```
 
-The `--target` is the path from the routing table above (`SKILL.md` for direct overwrite, `SKILL.patch.md` for sidecar). The helper is pre-allow-listed as `Bash(/home/rob/Dev/skill-set/bin/apply-skill-patch.py:*)`, so the Bash call does not prompt. `--backup` is intentionally omitted from the supervisor's automated path: git history covers rollback, and the `.bak` files otherwise surface as persistent untracked cruft in `git status` after every cycle. The flag still exists on the helper for ad-hoc human use, just don't pass it from the supervisor. See §Permissions contract for the full rationale.
-
-If the helper exits non-zero (e.g. target path rejected), that's a bug to report in the verdict, not an excuse to switch modes. Never "fall back" from direct overwrite to sidecar because one tool call failed.
-
-The `SKILL.patch.md` file is a **drop-in replacement**: it contains full YAML frontmatter + body, identical in shape to a normal SKILL.md. No proposal-wrapper headers, no rationale section in the file itself. All rationale + citations live in the verdict file (§6).
-
-If a prior cycle left a stale `SKILL.patch.md` on a skill that this cycle has no finding for, **do not touch it** — the user may be mid-review. Only overwrite a sidecar when this cycle has a fresh finding for that skill.
+This is the supervisor's ONLY git write surface, and it is scoped to the base repo's `skills/` tree — never the consuming project's repo (the dev cycle owns that), never a proprietary `.claude/skills/` path (gitignored), never a deploy. If the push fails (e.g. no network, non-fast-forward), record the local commit SHA in the verdict and note the push failure in `## Notes for the manager`; do NOT force-push and do NOT leave the edit uncommitted. Proprietary edits involve no git step at all.
 
 ### 3.5. Batch-window refinement loop (self-tune)
 
@@ -236,15 +204,15 @@ Refinements MUST stay inside the windowing-prose surface. Patches MUST NOT:
 - **Touch the per-skill model-floor / effort-floor table.** Routing floors are a separate concern (the routing spec phase); the refinement loop is windowing-only.
 - **Bundle a refinement with an unrelated improvement.** "While I was in here I also tightened §2's tone" is the scope-creep failure mode §3 already forbids; §3.5 inherits the same gate. The change-intent table for the refinement patch (§3) MUST contain exactly one row, and that row's motivating citation is the trigger-metadata line range from §3.5.1.
 
-If the trigger fires but the implicated change does not fit any of the three legal refinement kinds (e.g. the dev's prose has no chunk-shape entry that maps to the misbehaving cost shape, AND adding one would require renaming an existing entry), DO NOT write a hybrid patch. Record the refinement as `[deferred: shape-mismatch]` in the verdict (under "Updates written" with a one-line note explaining why the fix exceeds the legal refinement surface) and surface it in `## Notes for the manager`. The manager can route the case to the user as a SPEC change for a future cycle. The refinement loop is conservative on purpose: a too-broad patch that cascades into unrelated prose is worse than a deferred refinement that the user reviews directly.
+If the trigger fires but the implicated change does not fit any of the three legal refinement kinds (e.g. the dev's prose has no chunk-shape entry that maps to the misbehaving cost shape, AND adding one would require renaming an existing entry), DO NOT make a hybrid edit. Record the refinement as `[deferred: shape-mismatch]` in the verdict (under "Edits written" with a one-line note explaining why the fix exceeds the legal refinement surface) and surface it in `## Notes for the manager`. The manager can route the case to the user as a SPEC change for a future cycle. The refinement loop is conservative on purpose: a too-broad edit that cascades into unrelated prose is worse than a deferred refinement that the user reviews directly.
 
-#### 3.5.3. Write the refinement patch (only when trigger fires AND refinement is in-surface)
+#### 3.5.3. Apply the refinement edit (only when trigger fires AND refinement is in-surface)
 
-Author the full rewritten dev `SKILL.md` body — frontmatter (with bumped patch-level `version:`) + body with exactly the §3.5.2 prose change applied. SemVer guidance: a band-edge or chunk-shape-estimate adjustment is patch-level (clarification of existing prose); an empirical chunk-shape entry add is minor-level (added behavior in the windowing prose). No major bumps from §3.5; a major bump would imply contract change, which §3.5 is forbidden from authoring per §3.5.2.
+Edit the dev `SKILL.md` directly with exactly the §3.5.2 prose change applied, bumping `version:` in the same edit. SemVer guidance: a band-edge or chunk-shape-estimate adjustment is patch-level (clarification of existing prose); an empirical chunk-shape entry add is minor-level (added behavior in the windowing prose). No major bumps from §3.5; a major bump would imply contract change, which §3.5 is forbidden from authoring per §3.5.2.
 
-The dev skill is a `(transferable, proprietary)` pair. Write BOTH targets per the chain's `auto-promote:` mode using the §3 routing table: the transferable `sst-dev-cycle` AND its proprietary mirror named in the chain definition. Use `bin/apply-skill-patch.py` per §Permissions contract for both writes. Sanitize the transferable per §4 first; a `must-fix` finding aborts the transferable write and the proprietary mirror still receives the patch (so the loop's learning is not lost; the proprietary stays ahead of the transferable until the next sanitization-clean cycle promotes it). Record both writes in the verdict's "Updates written" block per §6.
+The dev skill is a `(transferable, proprietary)` pair. Edit BOTH per §3: the transferable `sst-dev-cycle` (base-repo source, sanitized per §4 then committed and pushed via §3a) AND its proprietary mirror named in the chain definition (in place under `<cwd>/.claude/skills/`). Sanitize the transferable per §4 first; a `must-fix` finding aborts the transferable edit and only the proprietary mirror receives the change (so the loop's learning is not lost; the proprietary stays ahead of the transferable until the next sanitization-clean cycle). Record both edits in the verdict's "Edits written" block per §6.
 
-The proprietary mirror's body typically inherits the windowing prose from the transferable verbatim plus project-specific overrides (chunk-shape estimates that include the project's own per-skill costs, e.g. a custom deploy step that doesn't exist in the transferable). When the refinement is to a piece of prose that exists ONLY in the proprietary mirror (not in the transferable), skip the transferable write entirely — record `transferable: (no change; refinement is in proprietary-specific prose only)` in the verdict.
+The proprietary mirror's body typically inherits the windowing prose from the transferable verbatim plus project-specific overrides (chunk-shape estimates that include the project's own per-skill costs, e.g. a custom deploy step that doesn't exist in the transferable). When the refinement is to a piece of prose that exists ONLY in the proprietary mirror (not in the transferable), skip the transferable edit entirely — record `transferable: (no change; refinement is in proprietary-specific prose only)` in the verdict.
 
 #### 3.5.4. Stable-termination bookkeeping (always written, even when no refinement)
 
@@ -255,12 +223,12 @@ Whether or not a refinement was written this iter, append a single block to the 
 
 - Trigger evaluation: <streak hit | total hit | below threshold | monitoring | insufficient window>
 - Trailing window scanned: iters <range>; `[batch-sizing]` findings: <count>; same-direction streak: <length> @ <difficulty>; total in trailing 20: <count>
-- Outcome: <patch written: sst-dev-cycle v<old>→v<new> + <proprietary-mirror> v<old>→v<new> | no refinement needed | deferred: shape-mismatch | monitoring (K=<n>)>
+- Outcome: <edit applied: sst-dev-cycle v<old>→v<new> + <proprietary-mirror> v<old>→v<new> | no refinement needed | deferred: shape-mismatch | monitoring (K=<n>)>
 ```
 
 The next iter's §3.5.1 reads this block from the trailing iters' verdicts to know whether stable-termination was previously in force. Continuity is the contract: a clean K-streak produces a single `monitoring (K=<n>)` block per iter (incrementing); a `[batch-sizing]` finding next iter resets the K counter to zero AND demotes the outcome to `below threshold` until the streak or total triggers fire again.
 
-The `## Batch-window refinement` block is also written under the §0.5 fast-path verdict (after the `## Updates written` block). Fast-path verdicts that omit the block break stable-termination continuity for downstream iters; the eligibility check at §0.5.5 already runs §3.5.1, so the block's content is computed regardless.
+The `## Batch-window refinement` block is also written under the §0.5 fast-path verdict (after the `## Edits written` block). Fast-path verdicts that omit the block break stable-termination continuity for downstream iters; the §0.5 condition #4 eligibility check already runs §3.5.1, so the block's content is computed regardless.
 
 #### 3.5.5. Anti-fork constraints summary
 
@@ -308,16 +276,16 @@ On a stuck item, record a `[stuck-item]` finding in the verdict (severity `shoul
 - Mitigation is APPEND-only to `docs/HUMAN.md` (never closes an entry — §5b anti-fork) and prepend-only to `manager-notes.md`; the supervisor never decomposes or removes the item itself (that's a human or future-dev-cycle action).
 - One stuck-item finding per distinct key per cycle; the next iter's trailing-window read surfaces any others.
 
-### 4. Sanitize (any transferable write, direct or sidecar)
+### 4. Sanitize before any transferable edit (hard gate)
 
-Before writing to ANY transferable target — whether that's a direct overwrite at `~/.claude/skills/<transferable-name>/SKILL.md` (auto-promote: `all`), a sidecar at `~/.claude/skills/<transferable-name>/SKILL.patch.md`, or the master-repo staged copy at `~/Dev/skill-set/skills/<category>/<transferable-name>/SKILL.md` — run the proposed body through `sst-sanitize-transferable`:
+Before editing the base-repo transferable source at `~/Dev/skill-set/skills/<category>/<transferable-name>/SKILL.md`, run the proposed body through `sst-sanitize-transferable`. This is a HARD GATE: a `must-fix` finding blocks the edit outright.
 
 1. Write the proposed body to a temp file (e.g. `<run-dir>/transferable-draft-<skill>.md`).
 2. Invoke `/sst-sanitize-transferable <draft-file> --project-context <path-to-proprietary-supervisor-SKILL.md>`.
 3. Read the resulting `<draft-file>.findings.md`. Categorize:
-   - **Any `must-fix` findings** → abort every transferable write for this skill (runtime path AND master-repo path). The lesson stays as a proprietary-only update, with a note in the verdict file: `(transferable promotion blocked by sst-sanitize-transferable findings; see <draft>.findings.md)`.
-   - **`should-fix` findings only** → either rewrite the draft to address them all, or downgrade to proprietary-only.
-   - **Zero findings or only `nit`** → safe to write the transferable targets. If `auto-promote: all`, overwrite the runtime `SKILL.md`; otherwise write the runtime-path sidecar `SKILL.patch.md`. In both cases, also write the master-repo sanitized copy (staged, not committed). Append the `Sanitization checklist` footer from the findings file to the verdict entry for that skill, filled with per-category counts.
+   - **Any `must-fix` findings** → abort the transferable edit for this skill. The lesson stays as a proprietary-only edit, with a note in the verdict file: `(transferable edit blocked by sst-sanitize-transferable findings; see <draft>.findings.md)`.
+   - **`should-fix` findings only** → either rewrite the draft to address them all, or keep the change proprietary-only.
+   - **Zero findings or only `nit`** → safe to edit the base-repo transferable source directly (§3), then commit and push it (§3a). Append the `Sanitization checklist` footer from the findings file to the verdict entry for that skill, filled with per-category counts.
 
 Sanitization is judgment-based; it's an LLM pass against `~/Dev/skill-set/templates/sanitization-guidance.md` plus the per-project banned-terms list. Do not try to grep — `sst-sanitize-transferable` exists precisely so the supervisor doesn't have to play regex games.
 
@@ -352,24 +320,7 @@ Placement: default to `## Blocking` for items that actively stop a SPEC item fro
 
 Assign the next unused `H<phase>.<n>` ID where `<phase>` matches the SPEC phase the action is gating. IDs are stable once assigned; gaps are valid.
 
-**Sidecar-promotion routing.** When writing a transferable `SKILL.patch.md` sidecar — any case in the routing table that produces a sidecar for a transferable skill (auto-promote `off` or `proprietary`, or `all` with sanitization blocked) — ALSO append to `docs/HUMAN.md` under `## High` immediately after the sidecar write. This is NOT a `## Blocking` entry: an unpromoted sidecar is a should-do, not a cycle-stopper; routing it to `## Blocking` would wrongly trip the `sst-dev-cycle §6b` bail. Format:
-
-```
-- [ ] H<phase>.<n> [easy] **Promote <transferable-skill-name> sidecar to transferable**
-  A supervisor-authored transferable improvement is waiting as a sidecar at
-  `<sidecar-path>`. Run `/sst-promote-skill-proposal` to review and apply it.
-  Blocks: none
-  Verify: test ! -e <sidecar-path>
-  Filed by: sst-supervisor at <utc-iso>.
-  Source: <run-dir-name>/supervisor_verdict.md.
-```
-
-Use `<phase>` matching the SPEC phase associated with the skill improvement. If the sidecar is not tied to any specific SPEC item, use `H0.<n>` (framework-level, not phase-specific). These entries are always `[easy]` — the human action is a single slash-command invocation.
-
-**Auto-clear path.** The sidecar HUMAN entry resolves in one of two ways:
-
-- **Promotion (normal):** the human runs `/sst-promote-skill-proposal`, which applies the sidecar and removes the `SKILL.patch.md` file. The human then flips the entry to `[x]`. The manager's §3b auto-verify step runs `test ! -e <sidecar-path>` on the next tick; it passes, so the entry moves to `## Done`.
-- **Discarded (manager close rule):** if the sidecar is deleted without promotion (e.g., the proposed change was judged unnecessary), the manager's §3b discarded-sidecar auto-close detects that the `Verify:` passes on the open `## High` entry and auto-closes it. This prevents `docs/HUMAN.md` from accumulating stale entries for improvements that were discarded rather than promoted. See `sst-manager §3b` for the discarded-sidecar auto-close rule.
+Note: a skill-prose improvement is NOT a HUMAN.md item. The supervisor edits skill source directly (§3) and, for transferables, commits and pushes it (§3a) — there is no human promotion step. `docs/HUMAN.md` is only for actions that genuinely require a human with out-of-band credentials.
 
 **Anti-fork constraint.** The supervisor MUST NOT flip `[ ]` → `[x]` on HUMAN.md entries. Closure is human-initiated (or auto-verified by the manager skill). Write APPEND-only; never remove or modify an existing open entry.
 
@@ -390,30 +341,29 @@ The helper diffs the file against the last-notified snapshot, composes a brief d
 ```markdown
 # Supervisor verdict — <run-dir-name>
 
-**Chain:** <chain-name>  ·  **auto-promote:** <off|proprietary|all>  ·  **Commit:** <sha-after>  ·  **Generated:** <utc-iso>
+**Chain:** <chain-name>  ·  **Commit:** <sha-after>  ·  **Generated:** <utc-iso>
 
 ## Outcome
 
-clean | <N> updates | escalate
+clean | <N> edits | escalate
 
 ## Per-skill summary
 
-- `<skill-name>` (`<sha-of-SKILL.md-before>`): <clean | <N> findings; direct overwrite | sidecar SKILL.patch.md | transferable blocked by sanitization>
+- `<skill-name>` (`<sha-of-SKILL.md-before>`): <clean | <N> findings; transferable edit committed | proprietary edit in place | transferable blocked by sanitization>
 - ...
 
-## Updates written
+## Edits written
 
-For each update, record the change-intent table from §3 verbatim. This is the auditable evidence that no row was added without a transcript-line citation. Readers (the manager skill, the user, the next supervisor run) can confirm at a glance that changes = findings.
+For each edit, record the change-intent table from §3 verbatim. This is the auditable evidence that no row was added without a transcript-line citation. Readers (the manager skill, the user, the next supervisor run) can confirm at a glance that changes = findings.
 
 ```
-- direct: <abs-path-to-SKILL.md> — v<old>→v<new>, <severity>, one-line summary.
+- transferable: <abs-path-to-base-repo-SKILL.md> — v<old>→v<new>, <severity>, one-line summary.
+  Committed + pushed: <base-repo commit SHA> (or "commit <SHA>; push failed: <reason>").
   Change-intent table:
     1. <kind> @ <section> — <motivating citation: <i>_<skill>.txt:<line>>
     2. <kind> @ <section> — <motivating citation: <i>_<skill>.txt:<line>>
-- sidecar: <abs-path-to-SKILL.patch.md> — v<old>→v<new>, <severity>, one-line summary.
+- proprietary: <abs-path-to-.claude/skills/SKILL.md> — v<old>→v<new>, <severity>, one-line summary.
   Change-intent table: (same shape)
-  Promote with: /sst-promote-skill-proposal
-- master-repo (staged, not committed): <path> — for transferable updates written in `all` mode with clean sanitization. User opens the PR.
 - (or: none)
 ```
 
@@ -421,7 +371,7 @@ A row without a citation in this section is a bug — re-verify before signing o
 
 ## Sanitization footers
 
-(Appended verbatim from `<draft>.findings.md` for each transferable write, per §4. Omit entirely when no transferable writes happened.)
+(Appended verbatim from `<draft>.findings.md` for each transferable edit, per §4. Omit entirely when no transferable edits happened.)
 
 ## Notes for the manager
 
@@ -437,7 +387,7 @@ Set the verdict outcome to `escalate` (and write a note to the manager) when:
 
 - The same blocker has surfaced in 2+ consecutive runs (the prior verdict_*.md files in adjacent run dirs will tell you).
 - The skill's commit landed on the wrong branch, on top of someone else's work, or rewrote history.
-- A `sst-sanitize-transferable` rejection happened (so the user knows the system caught something potentially sensitive, even though the proposal didn't ship to the master repo).
+- A `sst-sanitize-transferable` rejection happened (so the user knows the system caught something potentially sensitive, even though the transferable edit was blocked and stayed proprietary-only).
 
 Escalation does NOT change what the supervisor writes; it just sets a flag the manager will pick up and surface to the user.
 
@@ -445,61 +395,34 @@ Escalation does NOT change what the supervisor writes; it just sets a flag the m
 
 This is the LAST step of every supervisor session. Do not return until both invariants hold; the chain runner has no way to detect a partial-completion exit, so the discipline is enforced here.
 
-1. **Drafts directory accounted for.** List `<run-dir>/drafts/` (or for multi-iter runs, `<iter-dir>/drafts/`). For each file present, confirm one of:
-   - A matching `apply-skill-patch.py` invocation appears in this session's transcript AND the target file exists at the expected path; OR
-   - The verdict file (§6) carries a `[deferred]` block naming this draft and the reason it was not applied (e.g. `sst-sanitize-transferable` returned `must-fix`, the helper exited non-zero on path validation, the draft was rendered moot by a parallel finding).
+1. **Every edit is finished and recorded.** For each `SKILL.md` you edited this session, confirm one of:
+   - **Transferable**: the base-repo file was edited, sanitize returned `must-fix: 0`, AND a base-repo commit exists for it (§3a) — recorded in the verdict's "Edits written" block with the commit SHA (a failed push is acceptable but must be noted, per §3a); OR
+   - **Proprietary**: the `<cwd>/.claude/skills/` file was edited in place AND recorded in the verdict's "Edits written" block; OR
+   - The verdict file carries a `[deferred]` line naming the intended edit and the reason it was not applied (e.g. `sst-sanitize-transferable` returned `must-fix`, the change was rendered moot by a parallel finding).
 
-2. **Verdict file exists.** `<run-dir>/supervisor_verdict.md` MUST be written before returning, even when the outcome is `clean`. A clean run produces a one-line verdict (no findings, no updates) so the manager skill, the user, and the next iteration's §0.6 sweep can confirm the prior session completed cleanly. A clean run with no verdict file is indistinguishable from a partial-completion failure.
+2. **Verdict file exists.** `<run-dir>/supervisor_verdict.md` MUST be written before returning, even when the outcome is `clean`. A clean run produces a one-line verdict (no findings, no edits) so the manager skill and the user can confirm the prior session completed cleanly. A clean run with no verdict file is indistinguishable from a partial-completion failure.
 
-If either invariant fails, do not return. Either complete the missing apply step + verdict write, or write a `[deferred]` block per orphaned draft. The contract is simple: "drafts written → drafts applied OR explicitly deferred in verdict"; nothing falls through the cracks.
+If either invariant fails, do not return. Either finish the edit + commit (transferable) and the verdict write, or record a `[deferred]` line. The contract is simple: "edit intended → edit applied (and committed, for transferables) OR explicitly deferred in verdict"; nothing falls through the cracks.
 
-`[deferred]` block format (extends the §6 "Updates written" section):
-
-```
-- [deferred]: <abs-path-to-draft-in-run-dir> — would have written <direct|sidecar> to <abs-path-to-target>; not applied because <reason>. Picked up next iter via §0.6 sweep.
-```
-
-The next iter's §0.6 sweep treats a `[deferred]` draft as a manager-injected finding (the reason field is the citation-equivalent: a real prior-iter transcript artifact describes the intended write). A run that exits with a non-empty `drafts/` AND no `[deferred]` blocks AND no matching apply invocations is a contract violation; the next iter's sweep will still pick up the orphans, but the gap should be flagged in `## Notes for the manager`.
-
-## Permissions contract — write SKILL.md via the helper script, NOT via Edit/Write
-
-Claude Code's Edit/Write tools prompt for user approval on every write under `.claude/skills/**` — both `--dangerously-skip-permissions` and `--permission-mode bypassPermissions` have been empirically confirmed to still fire the prompt there, despite docs suggesting otherwise. That blocks every supervisor run whose only job is to rewrite a peer SKILL.md.
-
-**Therefore: do every direct-overwrite and sidecar write via `bin/apply-skill-patch.py`, invoked through the Bash tool.** The script writes the file in its own Python process, not via a Claude tool, so the tool-level permission gate doesn't apply. Bash-tool invocations are gated separately, and this script's invocation pattern is pre-allowed in global settings:
+`[deferred]` line format (extends the §6 "Edits written" section):
 
 ```
-Bash(/home/rob/Dev/skill-set/bin/apply-skill-patch.py:*)
+- [deferred]: <skill-name> — would have edited <transferable|proprietary> at <abs-path>; not applied because <reason>.
 ```
 
-Invoke like this (draft the full replacement body to a temp file first, then apply):
+A transferable edit left uncommitted in the base repo is a contract violation: either commit + push it (§3a) or revert the base-repo working-tree change and record the edit as `[deferred]`. Never leave the base repo dirty on exit.
 
-```bash
-# 1. Write the draft body (full frontmatter + body, a drop-in SKILL.md) to a
-#    temp location the Edit/Write tools ARE allowed to write to (the run-dir):
-<RUN_DIR>/drafts/<skill-name>.md
+## Permissions contract — edit SKILL.md directly via Edit/Write
 
-# 2. Apply it via the helper. --backup is intentionally omitted from the
-#    supervisor's automated path: git history covers rollback, and the
-#    .bak files surface as persistent untracked cruft otherwise. The flag
-#    still exists on the helper for ad-hoc human use; just don't pass it
-#    from the supervisor.
-/home/rob/Dev/skill-set/bin/apply-skill-patch.py \
-    --source <RUN_DIR>/drafts/<skill-name>.md \
-    --target <absolute-path-to-target-SKILL.md-or-SKILL.patch.md>
-```
+Chain runs spawn with `--permission-mode bypassPermissions`, which has an explicit carve-out for `.claude/skills`, `.claude/commands`, and `.claude/agents` (Claude Code routinely writes there), so Edit/Write to a proprietary `<cwd>/.claude/skills/<skill>/SKILL.md` does not prompt. The base-repo transferable source at `~/Dev/skill-set/skills/<category>/<skill>/SKILL.md` is an ordinary repo path that never prompted. So the supervisor edits both directly with the `Edit` / `Write` tools — there is no helper script and no intermediate file.
 
-The script refuses any target that isn't `SKILL.md` / `SKILL.patch.md` under an approved skills root (`~/.claude/skills/`, `<project>/.claude/skills/`, `~/Dev/skill-set/skills/`, `~/Dev/skill-set-personal/skills/`, or `~/.claude/commands/`, `~/.claude/agents/`). Anything outside exits with a clear `refusing:` message and non-zero status — don't try to work around it.
-
-Manual supervisor runs outside the chain runner will need the same global allow rule to avoid Bash prompts; that's a one-time setup. Chain runs spawn with `--permission-mode bypassPermissions`, which still allows Bash invocations of allow-listed patterns without prompts.
-
-Do NOT fall back to Edit/Write on `.claude/skills/` targets and accept the prompts. Do NOT paste the proposed body into `<RUN_DIR>/proposals/<skill>.patch.md` and call it a day — that's the pre-Phase-11 flow and skips the auto-promote that's the whole point of the mode. Use the helper.
+Manual supervisor runs outside the chain runner inherit the user's interactive permission mode; approve the `.claude/skills/` and base-repo writes when prompted. The git commit + push for a transferable edit (§3a) runs through the `Bash` tool against `~/Dev/skill-set/` only.
 
 ## Output rules
 
-- **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for proprietary updates; (c) `~/.claude/skills/<skill>/SKILL.md` or `SKILL.patch.md` for transferable updates (runtime-effective path); (d) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for the master-repo staged sanitized copy of a transferable update; (e) `docs/TODO.md` under `## Next up` (rare); (f) `docs/HUMAN.md` — APPEND only, under `## Blocking` or `## High`, for human-only blocker findings (see §5b); (g) `~/.claude/state/manager-notes.md` — PREPEND only, a `## <utc-iso> supervisor observation (stuck-item)` block, exclusively for §3.6.2's stuck-item digest hint. Never elsewhere.
-- **Never call git.** No commits, no pushes, no branch creation. Direct overwrites to SKILL.md are left unstaged under `<cwd>/.claude/skills/` (often gitignored anyway) and staged-but-uncommitted under `~/Dev/skill-set/` so the user can open the PR with the sanitization footer from the verdict file.
+- **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` for proprietary edits (in place); (c) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for transferable edits (base-repo source, committed + pushed per §3a); (d) `docs/TODO.md` under `## Next up` (rare); (e) `docs/HUMAN.md` — APPEND only, under `## Blocking` or `## High`, for human-only blocker findings (see §5b); (f) `~/.claude/state/manager-notes.md` — PREPEND only, a `## <utc-iso> supervisor observation (stuck-item)` block, exclusively for §3.6.2's stuck-item digest hint. Never elsewhere.
+- **Git is scoped to base-repo transferable edits only.** The supervisor commits + pushes a transferable `SKILL.md` edit from `~/Dev/skill-set/` (§3a) and does nothing else with git: never commits the consuming project's repo (the dev cycle owns that), never touches a proprietary `.claude/skills/` path with git (gitignored), never force-pushes, never creates branches.
 - **Never deploy.** No SSH, no service restarts, no curl against a live site. **Exception:** invoking `bin/notify-human-md.sh` (which curls the Telegram API) immediately after a `docs/HUMAN.md` write in §5b is permitted — it is a notification call, not a deploy or production mutation. Scope is tightly limited to that one helper and that one trigger.
-- **Never touch a stale `SKILL.patch.md` you didn't just write.** If this cycle had no finding for a skill that already has a sidecar, leave the sidecar alone; the user may be mid-review.
 
 ## When invoked with no run-log dir argument
 
