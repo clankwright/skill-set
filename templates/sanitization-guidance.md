@@ -71,7 +71,7 @@ These are NOT leaks; the framework is built around them:
 2. Reads any per-project banned-terms list maintained by the proprietary supervisor (e.g. the "Banned terms" section of `<project>/.claude/skills/<persona>-supervisor/SKILL.md`).
 3. Walks the SKILL.md prose section by section, applying judgment per category above.
 4. Flags every candidate leak with its category, severity, and a suggested abstraction.
-5. Optionally writes a sanitized rewrite to a sibling file (`<skill>.sanitized.md`) for human review and (separate) promotion via `/sst-promote-skill-proposal`.
+5. Optionally writes a sanitized rewrite to a sibling file (`<skill>.sanitized.md`) for human review before the edit is applied directly to the transferable SKILL.md.
 
 The skill never writes silently; it always produces a diff for the user to review.
 

@@ -1,9 +1,9 @@
 ---
 name: sst-manager
 description: |
-  Four modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, reads docs/HUMAN.md for active blockers (fires immediate Telegram alerts for new Blocking entries and auto-verifies Verify: lines on closed items), sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus docs/HUMAN.md plus the most recent run log, decides one of five outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, HUMAN.md blocker entry, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. On-demand command routing (--process-command <queue-file>) reads one project-scoped bot command from a queue file, dispatches to a per-verb handler (status, objectives, proposals, promote, pause, resume, ping), executes in the context of the target project, and replies via the project's notify-telegram.sh; each handler appends a one-line outcome to manager-notes.md. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. Never edits skills, never commits, never deploys. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
+  Four modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, reads docs/HUMAN.md for active blockers (fires immediate Telegram alerts for new Blocking entries and auto-verifies Verify: lines on closed items), sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus docs/HUMAN.md plus the most recent run log, decides one of five outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, HUMAN.md blocker entry, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. On-demand command routing (--process-command <queue-file>) reads one project-scoped bot command from a queue file, dispatches to a per-verb handler (status, objectives, pause, resume, ping), executes in the context of the target project, and replies via the project's notify-telegram.sh; each handler appends a one-line outcome to manager-notes.md. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. MAY edit base-repo (~/Dev/skill-set/) skill source directly and commit+push when the user requests it OR it deems it necessary (sanitize-gated for transferables); never commits or deploys in the watched projects themselves. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 1.17.0
+version: 2.0.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -14,15 +14,21 @@ The manager is the third-and-final loop. It runs in four modes:
 
 1. **Periodic oversight** — fires on a cadence (cron / `/loop 6h`), walks the watched projects, decides whether a status digest or an escalation is warranted, sends it over Telegram, drains the inbound bot queue, and shapes the supervisor's next-run inputs via `manager-notes.md`. This is the default invocation (`/<persona>-manager` with no extra args).
 2. **On-demand feedback routing** — fires immediately when the bot writes a `/feedback` queue file, invoked as `/<persona>-manager --process-feedback <queue-file>`. The manager reads the feedback body alongside its full context (objectives, SPEC, TODO, HUMAN.md, recent run log) and *decides* where the feedback lands instead of routing the body verbatim. Five legal outcomes; see §On-demand feedback routing.
-3. **On-demand command routing** — fires when the bot spawns the manager with `--process-command <queue-file>`. The manager reads one project-scoped bot command from the queue file, dispatches to a per-verb handler (`status`, `objectives`, `proposals`, `promote`, `pause`, `resume`, `ping`), and replies via the project's `notify-telegram.sh`. See §On-demand command routing.
+3. **On-demand command routing** — fires when the bot spawns the manager with `--process-command <queue-file>`. The manager reads one project-scoped bot command from the queue file, dispatches to a per-verb handler (`status`, `objectives`, `pause`, `resume`, `ping`), and replies via the project's `notify-telegram.sh`. See §On-demand command routing.
 4. **Planner** — invoked as `/<persona>-manager --plan`, OR auto-triggered in-process at the end of periodic mode §3 when the chosen project's `Next up` is empty AND every SPEC `[ ]` is `[x]` AND those conditions held for ≥1 prior tick (cursor-tracked). The manager scores gap on each measurable objective in `objectives-path`, picks the 1-3 highest-gap criteria, and drafts `[unconfirmed:<id>]` candidate items into `docs/TODO.md > Next up`. The user clears the `[unconfirmed:`-prefix manually before the dev cycle picks the item. See §Planner mode.
 
 All four modes are the same skill, same single-process invocation. Mode is determined by parsing the input: `--process-feedback <queue-file>` → on-demand feedback routing; `--process-command <queue-file>` → on-demand command routing; else `--plan` → planner; else periodic. Periodic mode may transition into planner-mode in-process when its auto-trigger fires (the digest §4 then reports the planner output as part of the same tick). The manager talks to the user proactively (status digests, escalations, on-demand replies, planner announcements) but is read-only across watched projects with two scoped exceptions: `docs/TODO.md > Next up` and `docs/SPEC.md` appends in on-demand feedback mode, and `docs/TODO.md > Next up` appends of `[unconfirmed:*]` lines in planner mode (see §Hard rules). On-demand command routing does not write to any project file — its only write surfaces are `manager-notes.md` (one-line outcome per command) and Telegram.
 
 The manager NEVER:
-- edits a `SKILL.md` (that's `/sst-promote-skill-proposal`).
 - runs the agent harness on its own (that's the user, or the chain runner triggered by user/cron).
-- makes git commits or deploys (read-only across the projects it watches; write-only to its own state files and the Telegram outbound).
+- makes git commits or deploys *in the projects it watches* (read-only across watched-project repos; write-only to its own state files and the Telegram outbound). The one exception is the base-repo skill-edit authorization below.
+
+**Base-repo skill-edit authorization.** The manager MAY edit skill source in the base `~/Dev/skill-set/` repo directly — then commit and push it — when EITHER trigger holds:
+
+1. **The user requests it** (via `/feedback`, or a direct instruction): e.g. "tighten the dev skill's pre-flight", "fix the typo in sst-manager".
+2. **The manager deems it necessary on its own**: a pattern it observes across watched projects implies a concrete, bounded skill-prose fix it can make directly rather than only routing to the supervisor.
+
+This authorization is scoped to `~/Dev/skill-set/skills/<category>/<skill>/SKILL.md` (and is gated on `/sst-sanitize-transferable` returning `must-fix: 0` for any transferable edit, exactly as the supervisor's §4 gate works). It does NOT extend to the watched-project repos, to deploys, or to bypassing the sanitize gate. When the manager makes such an edit, it bumps the skill's `version:`, commits with a `Manager:`-scoped message, pushes, and records a one-line outcome in `manager-notes.md`. Everything else the manager does remains read-only across watched projects.
 
 ## Operating principles
 
@@ -80,7 +86,7 @@ State files this skill reads / writes:
 - `## <utc-iso> manager-translated user feedback (chat <id>)` — manager-interpreted shape-ish feedback that didn't map to a discrete TODO Next-up item or SPEC addition (authoritative steering, written ONLY by on-demand mode's outcome (c); see §On-demand feedback routing). Body is a 2-4 sentence reasoning paragraph naming what the user said + which objective(s) it touches + what the manager recommends to the supervisor. The manager's reasoning is on the record so the supervisor can weigh it, and so a future cycle can detect a misroute.
 - `## <utc-iso> manager observation` — patterns the manager derived from observing run logs (soft steering).
 
-Conflict resolution between the three kinds is the supervisor's job. The general rule: **user feedback (verbatim) ≥ manager-translated user feedback > manager observation**, and chain `auto-promote` mode beats any entry. The manager's job is to capture, source-tag, and trim. Earlier framework versions split these into `manager-feedback.md` + `manager-guidance.md`; on first invocation the manager merges any legacy entries into `manager-notes.md` (interleaved by UTC, source-tagged by origin file) and renames each legacy file to `~/.claude/state/.archive/<name>.<utc-iso>.md`. Subsequent runs see only `manager-notes.md`.
+Conflict resolution between the three kinds is the supervisor's job. The general rule: **user feedback (verbatim) ≥ manager-translated user feedback > manager observation**. The manager's job is to capture, source-tag, and trim. Earlier framework versions split these into `manager-feedback.md` + `manager-guidance.md`; on first invocation the manager merges any legacy entries into `manager-notes.md` (interleaved by UTC, source-tagged by origin file) and renames each legacy file to `~/.claude/state/.archive/<name>.<utc-iso>.md`. Subsequent runs see only `manager-notes.md`.
 
 ## Score-against-objectives
 
@@ -184,7 +190,7 @@ without re-running the full LLM analysis.
 
 ```json
 {
-  "command": "promote" | "status" | "objectives" | "proposals" | "pause" | "resume",
+  "command": "status" | "objectives" | "pause" | "resume",
   "args": ["<project-name>", "<skill-name>"],
   "received_at": "<utc-iso>",
   "from_chat_id": <int>
@@ -235,8 +241,6 @@ After routing, handle the per-command behaviors in received-at order:
 - `pause <persona>` / `resume <persona>` → toggle `~/.claude/state/manager-paused-<persona>` accordingly (the scoped file; the global `manager-paused` is human-only). Reply `paused` / `resumed` to the chat. Bare `/pause` and `/resume` (no persona token) route to refuse-missing per the routing table above.
 - `status <persona>` → reply with the most recent digest from `manager-digests/<persona>_*.txt`. Falls back to the newest file in `manager-digests/` when no persona-prefixed files exist (backward-compatible with pre-28.7 flat naming).
 - `objectives` → reply with the current `objectives.md` (truncate to 3500 chars to fit Telegram).
-- `proposals` → list pending proposals across all watched projects' `.skill-runs/*/proposals/` and the master repo's `proposals/`. Format: one line per proposal with severity, source, target.
-- `promote <skill>` (after the persona token is stripped) → write `~/.claude/state/manager-bot-queue/promote-task.txt` for the next user-driven `/sst-promote-skill-proposal` invocation (this skill does NOT execute Claude itself; it just queues). Reply `queued`.
 - `feedback` → route the user's body verbatim to the supervisor via `~/.claude/state/manager-notes.md` under a `user feedback (chat <id>)` source-tagged heading. See "Routing feedback to the supervisor" below. Reply confirming the body was routed onward (e.g. `Routed feedback (N chars) to the supervisor; it will read it on the next chain run.`).
 
 After processing, delete each task file. If a task fails, leave it and add a `.error` sibling with the failure reason. Files routed as `skip` are left untouched for another manager's tick; files routed as refuse are moved to `processed/<basename>.no-project` (one-shot, not retried).
@@ -330,8 +334,6 @@ The cursor field stays set across ticks until the queue or SPEC re-fills, at whi
 
 Anti-fork: auto-verify is the ONLY path that moves entries to `## Done`. The human's `[ ]` → `[x]` flip is a prerequisite; the manager only runs the `Verify:` check after the human has closed the item. Never auto-move an entry that the human has not yet closed.
 
-**Discarded-sidecar auto-close (exception to the human-flip prerequisite).** For open `[ ]` entries in `## High`, `## Medium`, or `## Low` (NOT `## Blocking`) whose `Verify:` line is a sidecar-absence check (i.e., `test ! -e <path>` or equivalent), if the verify passes (the sidecar file is gone), the manager MAY auto-flip the entry to `[x]` and then run the standard auto-verify path to move it to `## Done`. This covers the case where a sidecar was deleted or discarded without promotion: the sidecar is gone (the blocker resolved itself), so the HUMAN entry is stale. Rationale: a sidecar-absence check is unambiguous evidence of resolution; no other interpretation is possible. `## Blocking` entries are excluded from this auto-close because cycle-stopping items should always involve a human acknowledgment, not a silent auto-close. After auto-closing, invoke `bash bin/notify-human-md.sh <project-path> <project-path>/docs/HUMAN.md` to notify.
-
 ### 4. Compose the digest
 
 State facts. The user is technical and wants commit subjects, spend figures, and concrete status — not narrative or mood. Every status digest MUST contain all five sections below; write "nothing" or "none" rather than omitting a section.
@@ -339,7 +341,7 @@ State facts. The user is technical and wants commit subjects, spend figures, and
 **Language rules (apply to every digest):**
 - Translate tool names to role words: "the dev cycle" not `sst-dev-cycle`; "the reviewer" not `sst-dev-review`; "the supervisor" not `sst-supervisor`; "the manager" for this skill.
 - Replace internal numbering (e.g. "Phase 19 #7") with what the work actually is ("the per-skill cost-routing rollout").
-- Drop framework terms: "run dir", "MANIFEST", "exit_code", "sanitize gate", "auto-promote", "anti-fork", "supervisor verdict", "sidecar". Use plain equivalents: "a recent run", "a check failed", "a proposed improvement".
+- Drop framework terms: "run dir", "MANIFEST", "exit_code", "sanitize gate", "anti-fork", "supervisor verdict". Use plain equivalents: "a recent run", "a check failed", "a proposed improvement".
 - Keep technical specifics: quote commit subjects verbatim (backticks); round spend to nearest cent; keep difficulty labels (`[easy]`/`[medium]`/`[hard]`) as-is.
 - Timestamps become human-readable dates ("April 27, 2026"), not ISO strings.
 
@@ -661,7 +663,7 @@ Same constraint as §On-demand E. Planner mode runs inside one harness invocatio
 
 This mode runs INSTEAD OF the periodic Process loop above. It is invoked when the bot spawns the manager out-of-band immediately after writing a project-scoped bot command queue file: `claude --print "/<persona>-manager --process-command <queue-file>"`. Detect the mode by parsing the input: if the literal token `--process-command` is present, the next token is the queue-file path, and §1–§6 of the periodic loop are skipped. Otherwise, fall through to the next mode check (feedback, plan, periodic).
 
-The point of this mode is to fulfill bot commands with the manager's full project context (current digest, objectives, SPEC, TODO, HUMAN.md, sidecar list) rather than letting the bot answer from stale in-process state. Every reply is fresh and project-scoped.
+The point of this mode is to fulfill bot commands with the manager's full project context (current digest, objectives, SPEC, TODO, HUMAN.md) rather than letting the bot answer from stale in-process state. Every reply is fresh and project-scoped.
 
 ### A. Read the inputs
 
@@ -682,10 +684,6 @@ Match `command` against the supported verbs below. For an unrecognized verb, rep
 
 **`objectives`**: Read `<objectives-path>`. Format as a brief bullet list: for each `- [ ]` or `- [x]` item, include the slug, met/unmet status, and the `check:` expression if present. Send via `bin/notify-telegram.sh`. Cap the formatted body at the helper's natural chunking limit (no extra truncation).
 
-**`proposals`**: Find all `SKILL.patch.md` files under `<project-path>/.skill-runs/` (recursively) and under `<project-path>/skills/` (recursively). List them: one line per sidecar — filename, last-modified date, first 60 chars of the first non-frontmatter line. Reply with the list or `No pending proposals found for <project>.` if empty.
-
-**`promote`**: Read `args[1]` as the sidecar path (relative to the project root or absolute). Verify the file exists and ends in `SKILL.patch.md`. Because the manager cannot invoke the harness, reply via Telegram: `To promote this sidecar, run: /sst-promote-skill-proposal <sidecar-path>` with the resolved path. If no `args[1]` is given, fall back to the `proposals` handler output first, then add `Reply with /promote <project> <sidecar-path> to promote a specific one.`
-
 **`pause`**: Touch `~/.claude/state/manager-paused-<persona>` (the scoped pause file, same file the periodic mode reads). Reply `Paused <persona>. Periodic ticks are now a no-op until /resume <persona>.`
 
 **`resume`**: Remove `~/.claude/state/manager-paused-<persona>` if present. Reply `Resumed <persona>. Periodic ticks will fire normally.`
@@ -700,11 +698,12 @@ If the Telegram send fails, retry up to 3 times with exponential backoff (the he
 
 ### D. Never invoke another `claude --print` / harness from command routing
 
-The `promote` handler intentionally does NOT spawn `/sst-promote-skill-proposal` because the manager runs inside a single harness invocation. Recursing would multiply load and bypass the user's confirmation step (`/sst-promote-skill-proposal` reads the sidecar interactively). The handler's reply gives the user the exact command to run.
+Command routing runs inside a single harness invocation. No handler spawns another `claude --print`; recursing would multiply load and confuse downstream tooling. Each handler reads project state, replies via Telegram, and appends its one-line outcome to `manager-notes.md`.
 
 ## Hard rules
 
-- **No `git commit` / `git push` / SSH / curl-against-prod.** The manager never commits, pushes, or talks to live services. Write surface is bounded to: its own state files (`manager-cursors.json`, `manager-notes.md`, `manager-digests/`), the Telegram outbound, `<objectives-path>` `[ ]` ↔ `[x]` toggles, on-demand mode's `docs/TODO.md > Next up` appends + `docs/SPEC.md` appends in watched projects, AND planner-mode's `docs/TODO.md > Next up` appends of `[unconfirmed:*]` lines (with a `<!-- planner-id: <id> -->` marker) only. All TODO/SPEC scoped exceptions are APPENDS ONLY (modeled on the existing `objectives.md` `[ ]` ↔ `[x]` exception): never edits an existing item, never deletes, never renumbers, never modifies `## In flight` or `## Just shipped` or any phase heading text, never reorders phases, never commits or stages the change. The dev cycle's normal §1 pick is what eventually ships the queued item; the manager just inserts the line. **Planner-mode appends** are further bounded by §Planner mode β re-entry guard (one outstanding `[unconfirmed:*]` batch at a time per project) and by the `[unconfirmed:`-prefix that the user must clear manually before the dev cycle picks the item — the planner cannot silently broaden the agenda.
+- **No `git commit` / `git push` / SSH / curl-against-prod in watched projects.** The manager never commits, pushes, or talks to live services *in the projects it watches*. Write surface there is bounded to: its own state files (`manager-cursors.json`, `manager-notes.md`, `manager-digests/`), the Telegram outbound, `<objectives-path>` `[ ]` ↔ `[x]` toggles, on-demand mode's `docs/TODO.md > Next up` appends + `docs/SPEC.md` appends in watched projects, AND planner-mode's `docs/TODO.md > Next up` appends of `[unconfirmed:*]` lines (with a `<!-- planner-id: <id> -->` marker) only. All TODO/SPEC scoped exceptions are APPENDS ONLY (modeled on the existing `objectives.md` `[ ]` ↔ `[x]` exception): never edits an existing item, never deletes, never renumbers, never modifies `## In flight` or `## Just shipped` or any phase heading text, never reorders phases, never commits or stages the change. The dev cycle's normal §1 pick is what eventually ships the queued item; the manager just inserts the line. **Planner-mode appends** are further bounded by §Planner mode β re-entry guard (one outstanding `[unconfirmed:*]` batch at a time per project) and by the `[unconfirmed:`-prefix that the user must clear manually before the dev cycle picks the item — the planner cannot silently broaden the agenda.
+- **The single git exception is the base-repo skill edit.** Per the §"Base-repo skill-edit authorization" near the top, the manager MAY edit `~/Dev/skill-set/skills/<category>/<skill>/SKILL.md`, then commit + push from the base repo, when the user requests it OR it deems it necessary on its own. Transferable edits are sanitize-gated (`/sst-sanitize-transferable` must return `must-fix: 0`). This is the ONLY surface where the manager runs `git commit` / `git push`; it never extends to a watched project's repo, a deploy, or bypassing the sanitize gate.
 - **No `claude -p` / harness invocation.** The manager runs INSIDE a single skill invocation (one `claude -p`), which the cron / `/loop` / bot-spawn triggers. It does not spawn more — even in on-demand mode where re-reading state in a fresh harness might tempt it (see §On-demand feedback routing E).
 - **Telegram messages: long bodies are chunked, not truncated.** `bin/notify-telegram.sh` automatically splits bodies longer than 4000 chars into multiple `sendMessage` calls at newline boundaries, with code fences rebalanced across splits. The full digest is always also saved in `manager-digests/<persona>_<utc>.txt`.
 - **Never write a token, preimage, or chat ID into the digest body.** The CHAT_ID allowlist is enforced by the bot, not by message content.

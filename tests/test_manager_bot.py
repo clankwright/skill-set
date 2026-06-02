@@ -212,12 +212,6 @@ def test_help_objectives_shows_project_token():
     assert "/objectives <project>" in reply
 
 
-def test_help_proposals_shows_project_token():
-    """SPEC 28.5: /help usage line for /proposals must show <project> as required."""
-    reply = mb.handle_command("/help", chat_id=1)
-    assert "/proposals <project>" in reply
-
-
 def test_help_token_required_not_optional():
     """SPEC 28.5: /help must state token is REQUIRED, not framed as a multi-persona tip."""
     reply = mb.handle_command("/help", chat_id=1)
@@ -310,15 +304,15 @@ def test_route_feedback_with_empty_body_refused_missing():
     assert action == "refuse-missing"
 
 
-def test_route_promote_takes_project_as_first_arg():
-    """`/promote cm <skill>` — args[0] is the project token, args[1] is the skill name."""
-    payload = {"command": "promote", "args": ["cm", "my-skill"], "from_chat_id": 1}
+def test_route_multiarg_takes_project_as_first_arg():
+    """A multi-arg command — args[0] is the project token, later args are payload."""
+    payload = {"command": "status", "args": ["cm", "extra"], "from_chat_id": 1}
     action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
     assert action == "act"
 
 
-def test_route_promote_for_other_persona_skipped():
-    payload = {"command": "promote", "args": ["skill-set", "some-skill"], "from_chat_id": 1}
+def test_route_multiarg_for_other_persona_skipped():
+    payload = {"command": "status", "args": ["skill-set", "extra"], "from_chat_id": 1}
     action, _ = mb.route_queue_payload(payload, my_persona="cm", known_personas=["cm", "skill-set"])
     assert action == "skip"
 
@@ -745,13 +739,13 @@ def test_startup_log_includes_verbs_when_routing_enabled(monkeypatch, caplog):
     # We test the log format string rather than running the full main() loop.
     with caplog.at_level(logging.INFO, logger="manager-bot"):
         mb.logger.info(
-            "on-demand command routing enabled (verbs: status, objectives, proposals, "
-            "promote, pause, resume, feedback, ping): claude=%s",
+            "on-demand command routing enabled (verbs: status, objectives, "
+            "pause, resume, feedback, ping): claude=%s",
             mb.CLAUDE_BIN,
         )
     assert "on-demand command routing enabled" in caplog.text
     assert "verbs:" in caplog.text
-    for verb in ("status", "objectives", "proposals", "pause", "resume", "feedback", "ping"):
+    for verb in ("status", "objectives", "pause", "resume", "feedback", "ping"):
         assert verb in caplog.text
 
 
@@ -774,7 +768,6 @@ _STUB_CLAUDE = _REPO_ROOT / "tests" / "fixtures" / "stub_claude.py"
 _DISPATCH_VERBS = [
     ("/status skill-set", "status"),
     ("/objectives skill-set", "objectives"),
-    ("/proposals skill-set", "proposals"),
     ("/pause skill-set", "pause"),
     ("/resume skill-set", "resume"),
     ("/ping skill-set", "ping"),

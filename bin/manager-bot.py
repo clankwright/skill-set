@@ -93,7 +93,7 @@ if not CHAT_ID_ALLOW:
 
 API = f"https://api.telegram.org/bot{TOKEN}"
 
-KNOWN_COMMANDS = {"status", "objectives", "proposals", "promote", "pause", "resume", "ping", "help", "feedback", "projects"}
+KNOWN_COMMANDS = {"status", "objectives", "pause", "resume", "ping", "help", "feedback", "projects"}
 
 # Commands that operate at the bot level and never target a specific persona.
 # They are always processed inline regardless of project token.
@@ -452,8 +452,6 @@ def handle_command(text: str, chat_id: int) -> str:
             "Manager bot commands:\n"
             "/status <project> — most recent manager digest\n"
             "/objectives <project> — current objectives.md\n"
-            "/proposals <project> — list pending skill-patch proposals\n"
-            "/promote <project> <skill> — queue a /promote-skill-proposal run\n"
             "/feedback <project> <message> — steer the supervisor; on-demand manager spawns if configured, otherwise queues for next periodic run\n"
             "/pause <project> — pause this persona's scheduled runs\n"
             "/resume <project> — resume this persona's scheduled runs\n"
@@ -488,9 +486,6 @@ def handle_command(text: str, chat_id: int) -> str:
         return "Registered personas:\n" + "\n".join(lines)
 
     # All project-scoped commands (including /ping <persona>) go through the dispatcher.
-    if cmd == "promote" and len(args) < 2:
-        return "Usage: /promote <project> <skill>"
-
     if not args:
         return f"Usage: /{cmd} <project>\n(project token required — run /projects to see known tokens)"
 
@@ -505,8 +500,8 @@ def main() -> int:
     logger.info("allowlisted chat: %s", CHAT_ID_ALLOW or "<any (insecure)>")
     if MANAGER_SKILL_NAME:
         logger.info(
-            "on-demand command routing enabled (verbs: status, objectives, proposals, "
-            "promote, pause, resume, feedback, ping): claude=%s",
+            "on-demand command routing enabled (verbs: status, objectives, "
+            "pause, resume, feedback, ping): claude=%s",
             CLAUDE_BIN,
         )
     else:

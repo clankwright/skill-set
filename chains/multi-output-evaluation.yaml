@@ -1,8 +1,7 @@
 name: multi-output-evaluation
 description: Given a directory of N candidate artifacts (drafts, designs, code variants), rank them on a stated dimension and pick the best. The skills assume the candidates already exist on disk in the project's standard output dir; this chain does not generate them.
-version: 1.1.0
+version: 1.2.0
 user-invocable: true
-auto-promote: "off"
 skills:
   - sst-llm-judge-ranker
   - sst-output-selector

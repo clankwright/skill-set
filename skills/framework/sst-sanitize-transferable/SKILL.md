@@ -1,8 +1,8 @@
 ---
 name: sst-sanitize-transferable
-description: Scan a transferable SKILL.md (or a draft transferable proposal) for proprietary leakage using LLM judgment, not regex. Reads the sanitization-guidance reference, any per-project banned-terms list maintained by the proprietary supervisor, and the target SKILL.md body. Produces a categorized findings list (must-fix / should-fix / nit) with concrete suggested rewrites for each, and optionally writes a fully-sanitized sibling file for human review. Never silently edits the target. Used by the supervisor before drafting a transferable proposal and by /sst-promote-skill-proposal before applying one.
+description: Scan a transferable SKILL.md (or a draft transferable rewrite) for proprietary leakage using LLM judgment, not regex. Reads the sanitization-guidance reference, any per-project banned-terms list maintained by the proprietary supervisor, and the target SKILL.md body. Produces a categorized findings list (must-fix / should-fix / nit) with concrete suggested rewrites for each, and optionally writes a fully-sanitized sibling file for human review. Never silently edits the target. Used as a hard pre-write gate by whoever edits a transferable directly — the supervisor on its automated edits, or a human/manager on a manual edit.
 user-invocable: true
-version: 1.0.1
+version: 1.1.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -11,12 +11,12 @@ effort-floor: xhigh
 
 The framework's open-source master repo holds transferable skills. Anything that lands here can't be retracted from clones. Sanitization is judgment-based: regex grep is too brittle (false positives on backticked examples, false negatives on novel project nouns), so this skill applies an LLM pass instead.
 
-This skill **never silently edits** the target. It reports findings and (optionally) writes a sibling `.sanitized.md` file the user reviews and promotes via `/sst-promote-skill-proposal`.
+This skill **never silently edits** the target. It reports findings and (optionally) writes a sibling `.sanitized.md` file for review before the edit is applied directly to the transferable SKILL.md.
 
 ## When to invoke
 
-- Before the supervisor writes a transferable proposal: `/sst-sanitize-transferable <draft.md>`.
-- Before `/sst-promote-skill-proposal` applies a transferable proposal: it calls this skill internally on the proposed body.
+- Before the supervisor edits a transferable directly: `/sst-sanitize-transferable <draft.md>` — a `must-fix` finding blocks the edit.
+- Before any manual edit to a transferable `skills/*/SKILL.md` is committed: run this skill on the proposed body as a hard gate.
 - Manually, on any existing `skills/*/SKILL.md` to audit it for accumulated leakage.
 
 ## Inputs
@@ -86,10 +86,10 @@ If the user passes `--write-sanitized`, also produce `<target>.sanitized.md` wit
 ```
 Sanitized version written to <target>.sanitized.md.
 Diff: diff -u <target> <target>.sanitized.md
-Promote with: /sst-promote-skill-proposal <target>.sanitized.md
+Apply by copying the sanitized body over <target> once the diff is reviewed.
 ```
 
-If the user passes `--in-place`, refuse — sanitization is never applied silently. The user always reviews the diff before promoting.
+If the user passes `--in-place`, refuse — sanitization is never applied silently. The reviewer always reads the diff before the edit is applied.
 
 ### 5. Sanitization checklist footer (for proposals)
 
@@ -112,11 +112,11 @@ The user / reviewer ticks each box AFTER manually re-confirming. The sanitize sk
 
 ## Hard rules
 
-- **Never edit the target file.** Only the user, via `/sst-promote-skill-proposal`, applies sanitized rewrites.
+- **Never edit the target file.** This skill only reports; whoever is editing (the supervisor, or a human/manager) applies the sanitized rewrite after reviewing the diff.
 - **Never call git.** No commits, no pushes, no branch creation.
 - **Sanitization is per-skill.** Don't bundle scans across multiple skills in one report; each skill gets its own report file.
 - **When in doubt, file it as a finding.** False-positives are cheap (the human reviewer overrides); false-negatives are permanent leaks in clones.
 
 ## Skipping the scan
 
-There is no `--force` flag. If you want to ship something without scanning, don't call this skill — but then `/sst-promote-skill-proposal` will refuse the transferable promotion (it requires this skill's report sibling-file to exist with timestamp newer than the target).
+There is no `--force` flag. If you want to ship something without scanning, don't call this skill — but then the transferable edit is unsanitized and must not be committed. The supervisor treats a `must-fix` finding (or a missing scan) as a hard block on any direct edit to a transferable.

@@ -21,9 +21,8 @@ The pairing is the unit of reuse. The transferable holds the *method* (TDD cycle
 - `bin/install-skills.sh` — deploys transferable skills into the harness's user-skills directory (default `~/.claude/skills/<name>/`, flat — categories are dropped on install). Update-only by default: only skills already installed are refreshed; new ones are skipped. Use `--install <name>` to add a skill for the first time, or `--list-new` to see what's available. Claude Code only scans direct children of its skills dir, so the layout must stay flat.
 - `bin/manager-bot.py` — long-poll Telegram bot for the manager skill.
 - `templates/SPEC.md`, `templates/TODO.md` — the canonical handoff docs every project must keep.
-- `templates/sanitization-guidance.md` — the rubric the `sst-sanitize-transferable` skill applies before any transferable promotion.
+- `templates/sanitization-guidance.md` — the rubric the `sst-sanitize-transferable` skill applies as a hard gate before any direct edit to a transferable skill.
 - `schema/` — JSON Schema specs the validator (and CI) lint against.
-- `proposals/` — supervisor-generated transferable-skill patches awaiting human review.
 
 ## Three loops
 
@@ -51,8 +50,6 @@ loop: 3                         # default 1; N>1 runs the sequence N times; 0 = 
 loop-delay: 0                   # seconds to sleep between iterations (default 0)
 loop-delay-random: [60, 3600]   # OR sample uniform-random delay per boundary; mutually exclusive with loop-delay
 
-auto-promote: proprietary       # "off" | proprietary (default) | all  # NOTE: "off" must be quoted (YAML 1.1 parses bare `off` as boolean false)
-
 on-rate-limit: pause            # fail | pause (default) | pause-with-cap
 max-rate-limit-pause-seconds: 28800   # cap on a single pause when on-rate-limit is pause-with-cap
 max-pauses-per-session: 3             # hard cap on rate-limit pauses per skill per chain run
@@ -61,7 +58,7 @@ user-invocable: true            # default true; false = chain-only, not picked b
 auto-supervisor: true           # default true; false = don't auto-append the project's supervisor
 ```
 
-CLI flags (`--loop`, `--loop-delay`, `--auto-promote`, `--on-rate-limit`, etc.) override the corresponding YAML field per invocation. Schema reference: `schema/skill-chain.schema.json`.
+CLI flags (`--loop`, `--loop-delay`, `--on-rate-limit`, etc.) override the corresponding YAML field per invocation. Schema reference: `schema/skill-chain.schema.json`.
 
 ### Loop mode
 
@@ -91,17 +88,16 @@ Pick the dev chain by intent:
 
 A proprietary `<persona>-chain-driver` skill (e.g. `skill-set-chain-driver`) carries the chain name + cap defaults so the user types `/<persona>-chain-driver` with no flags. Override `--loop`, `--max-budget-usd`, or `--max-cycles` on the CLI for a one-off shape change.
 
-### Auto-promote
+### Skill self-improvement (direct edit + commit)
 
-The supervisor (auto-appended to every chain unless `auto-supervisor: false`) writes proposed `SKILL.md` rewrites by routing on this field:
+The supervisor (auto-appended to every chain unless `auto-supervisor: false`) edits skill source directly when a finding requires a skill's prose to change — there is no proposal file and no separate promotion step:
 
-| `auto-promote` | Proprietary skill            | Transferable skill                                                                                |
-| :---           | :---                         | :---                                                                                              |
-| `off`          | sidecar `SKILL.patch.md`     | sidecar `SKILL.patch.md`                                                                          |
-| `proprietary`  | direct overwrite `SKILL.md`  | sidecar `SKILL.patch.md`                                                                          |
-| `all`          | direct overwrite `SKILL.md`  | direct overwrite iff `sst-sanitize-transferable` reports `must-fix: 0`; else sidecar `SKILL.patch.md` |
+| Skill kind   | What the supervisor does                                                                                                  |
+| :---         | :---                                                                                                                      |
+| Proprietary  | edits `<cwd>/.claude/skills/<skill>/SKILL.md` in place (gitignored runtime copy; no commit). Live for the next iteration. |
+| Transferable | edits the base-repo source `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md`, gated on `sst-sanitize-transferable` returning `must-fix: 0`, then bumps `version:`, commits, and pushes from the base repo. |
 
-Default is `proprietary`: the supervisor's lessons land immediately on proprietary skills (so a multi-iteration loop converges within the run), but transferable changes still go to a sidecar for human review via `/sst-promote-skill-proposal`. Pick `off` for content / research / evaluation chains where skill self-modification is unwanted; pick `all` on dev loops where you want transferable improvements to land within the same run as well (the sanitize gate blocks proprietary leakage). Rolling back an unwanted direct overwrite is `git checkout <skill-dir>/SKILL.md`.
+The supervisor's lessons land immediately: proprietary edits are live for the next iteration of a multi-iteration loop, and a sanitize-clean transferable edit is committed and pushed within the same run so the open-source master and every clone pick it up. A `must-fix` sanitization finding blocks the transferable edit and keeps the lesson proprietary-only. Rolling back an unwanted edit is `git checkout <skill-dir>/SKILL.md` (or `git revert` on the base-repo commit). The manager has the same base-repo edit authorization when the user requests it or it deems an edit necessary; see `sst-manager`.
 
 ### Rate-limit handling
 
@@ -125,7 +121,7 @@ The framework's canonical floor table:
 | `sst-supervisor`, `sst-sanitize-transferable`                               | `opus`        | `xhigh`        |
 | `sst-dev-cycle`, `sst-dev-review`, `sst-skill-router`, `sst-editorial-pass`, `sst-iterative-writer`, `sst-literary-critic` | `sonnet` | `high` |
 | `sst-manager`                                                               | `sonnet`      | `high`         |
-| `sst-translator`, `sst-fact-checker`, `sst-promote-skill-proposal`, `sst-output-selector`, `sst-llm-judge-ranker`, `sst-email-control-loop`, `sst-setup-telegram` | `haiku` | `medium` |
+| `sst-translator`, `sst-fact-checker`, `sst-output-selector`, `sst-llm-judge-ranker`, `sst-email-control-loop`, `sst-setup-telegram` | `haiku` | `medium` |
 
 **Per-item difficulty labels** sit on every open SPEC item and TODO Next-up entry:
 
@@ -154,7 +150,7 @@ Routing flow: the runner pre-parses the next item's difficulty BEFORE invoking t
 
 The dev + review run on Sonnet+high (effort floor wins on the effort axis; model floor matches the item tier on the model axis); the supervisor still runs on Opus+xhigh because its floors win on both axes regardless of item difficulty. A `[hard]` item by the same chain would lift dev + review to Opus+high (item tier wins on both axes); an `[easy]` item by `sst-translator` would run on Haiku+low (floors match the item tier).
 
-**Throughput impact.** Combined with the dev/review tier dropping from Opus+xhigh to Sonnet+high on most items, routing review-class work to Sonnet+medium and mechanical work to Haiku+low cuts quota burn per iter to ~25-35% of an all-Opus+xhigh baseline (~3-4× more iters per Max window). Supervisor + sanitize stay on Opus+xhigh on every cycle since their floors are absolute; auto-promoted transferable rewrites are still authored at the supervisor's Opus+xhigh route.
+**Throughput impact.** Combined with the dev/review tier dropping from Opus+xhigh to Sonnet+high on most items, routing review-class work to Sonnet+medium and mechanical work to Haiku+low cuts quota burn per iter to ~25-35% of an all-Opus+xhigh baseline (~3-4× more iters per Max window). Supervisor + sanitize stay on Opus+xhigh on every cycle since their floors are absolute; transferable skill edits committed by the supervisor are still authored at the supervisor's Opus+xhigh route.
 
 **Anti-fork rule.** Floors are declared in SKILL.md frontmatter; the runner reads them, never invents them. The `max()` resolution rule binds at both axes — there is no path that lets an item difficulty drop a skill below its floor, and no fifth resolution input that bypasses both axes. If a new skill class needs a different floor pair, add the frontmatter values; don't branch the resolver.
 

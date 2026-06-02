@@ -4,7 +4,6 @@
 
 ## In flight
 
-
 <!--
   Exactly one line per currently-running skill, format:
   - [<skill-name> @ <utc-iso>] <one-line: what this skill is currently doing>
@@ -23,6 +22,7 @@
   phase blocks and `git log`.
 -->
 
+- Phase 40 [hard batch, 40.1-40.6] remove sidecar/auto-promote mechanism wholesale: `sst-supervisor` 2.0.0 + `sst-manager` 2.0.0 rewritten to a direct-edit-and-commit model (no `SKILL.patch`/`auto-promote`/`proposals`/`promote` machinery; manager authorized to edit base-repo skills directly on user-request OR own judgment); dropped `auto-promote` from all 7 chains + schema + skill-chain.py comment; deleted `sst-promote-skill-proposal/` and `bin/apply-skill-patch.py`; scrubbed `sst-sanitize-transferable` 1.1.0, `sst-chain-driver` 1.2.2, README, CLAUDE.md, templates, manager-bot.py `/promote` verb; retired `tests/test_phase32.py`, added `tests/test_phase40.py` (19 cases incl. active-surface grep-guard); 218 green, validator clean. Implemented by sst-dev-cycle; closed manually after the cycle hit error_max_turns post-validator without committing, at 2026-06-03T01:00:00Z
 - Removed orphaned `~/.claude/skills/sst-dev-review/SKILL.patch.md` (v1.5.7, dated 2026-05-25) from the install dir. The 1.5.8 record (below) and HUMAN.md H35.3 only cleared the repo `.claude/skills/` copy; the globally-installed sidecar persisted and the supervisor re-flagged it across the last three lngraph verdicts. Canonical `SKILL.md` is v1.6.0 (verified strict superset — the patch's only unique content, the parser anti-pattern bullet, is already at SKILL.md:329), so discard not promote; a stale-version sidecar left in place would downgrade the skill if `apply-skill-patch.py` ran — by manual (direct change) at 2026-06-02T07:12:03Z
 - sst-dev-review 1.6.0 orphaned-cycle recovery + Phase 36 guard passthrough: review skill now recovers incomplete dev cycles (dirty tree + In-flight line) by verifying tests and committing; runner passes to review instead of aborting when a follower skill exists; 2 new tests (passes_to_review, aborts_without_next_skill), 214 green, sanitize must-fix=0 — by sst-dev-cycle at 2026-05-28T18:10:00Z
 - [medium batch] manager rate-limit fixes: manager-idle-check.py cursor-field fix (reads `latest_run` with `last_run` fallback; idle-gate now skips idle projects, dahrouge confirmed IDLE) + 5 tests; sst-manager 1.17.0 model-floor opus to sonnet + README guidance; README manager cron-tick-spreading note; 213 green, sanitize clean. Proprietary cm/dahrouge/skill-set wrapper model-floors flipped to sonnet locally (gitignored). Implemented by sst-dev-cycle; closed manually after an incomplete-cycle abort, 2026-05-27T22:26:16Z
@@ -44,11 +44,5 @@
   Order: blockers/highest-impact first.
 -->
 
-- [hard] 40.1 `sst-supervisor` direct-edit rewrite: replace the whole sidecar/auto-promote machinery (§3 routing table, §4 sidecar fallback, §5b HUMAN.md promotion entries, §6 sidecar verdict fields, §Permissions apply-skill-patch clauses, §0.6 drafts→sidecar) with a direct-edit model — edit `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` directly (sanitize-clean gate), bump version, commit, push. No `SKILL.patch.md`/`auto-promote` strings left. — spec 40.1 (user directive 2026-06-02: "sidecars are a pain, supervisors edit skills directly in base repo, commit+push")
-- [medium] 40.2 `sst-manager` direct-edit authorization: add instruction that the manager MAY edit base-repo (`~/Dev/skill-set/`) skills directly + commit + push when the user requests OR it deems necessary on its own; remove §3b.2 proposals/promote handlers, discard-sidecar auto-close, and all `/sst-promote-skill-proposal`/sidecar references. — spec 40.2 (user directive 2026-06-02)
-- [medium] 40.3 Drop `auto-promote` from all 7 `chains/*.yaml` + the overnight description line; grep `bin/{skill-chain,drive-chain,manager-bot}.py` for any reader and neutralize so its absence isn't an error. — spec 40.3 (user directive 2026-06-02)
-- [medium] 40.4 Delete `skills/framework/sst-promote-skill-proposal/` + `bin/apply-skill-patch.py`; update `sst-sanitize-transferable` (drop "apply via /sst-promote-skill-proposal"), `templates/HUMAN.md` (sidecar example), `templates/sanitization-guidance.md`, `bin/manager-bot.py` /promote help, `bin/clean-skill-runs.py` docstring. No `/sst-promote-skill-proposal` or `apply-skill-patch.py` ref outside SPEC-archive. — spec 40.4 (user directive 2026-06-02)
-- [easy] 40.5 README + CLAUDE.md: rewrite the auto-promote routing table, `proposals/` line, promote-skill tier row, and overnight-chain note to the direct-edit-and-commit model. — spec 40.5 (user directive 2026-06-02)
-- [medium] 40.6 Retire `tests/test_phase32.py` sidecar tests; add direct-edit contract tests + a grep-guard that fails if any sidecar/`auto-promote`/`sst-promote-skill-proposal` term reappears on the active skill/chain surface. — spec 40.6 (user directive 2026-06-02)
 - [medium] 39.1 `sst-supervisor` §0.5.3 fast-path: abort on any `sst-dev-review`-reported finding (the §6 `Found <N> items: <B> blocker, <S> should-fix` template with N>0, and/or an appended `Review follow-ups` block), not just `ERROR`/`FAIL`/`Traceback`/`Exception` keyword hits — so a prose-only finding can no longer pass as `clean (fast-path)`. — spec Phase 39.1; lngraph supervisor verdict 2026-06-02T05-11-26Z iter_02 (recurring standing note since 2026-04-30)
 

@@ -1,10 +1,9 @@
 name: dev-cycle-with-review-looped
-description: Multi-iteration variant of dev-cycle-with-review. Runs sst-dev-cycle then sst-dev-review three times in a row so a single invocation knocks out three queued items from `TODO.md > Next up` without a human re-invoking between them. Auto-promote is `all` so the supervisor's transferable improvements land within the same run (after sst-sanitize-transferable clears them) and later iterations can pick them up. Default loop-delay-random is [300, 1800] (5-30min jitter between iterations) so the commit-cadence trail on multi-iter runs stays human-shaped instead of firing iterations back-to-back; override with --loop-delay or --loop-delay-random at invocation.
-version: 1.3.0
+description: Multi-iteration variant of dev-cycle-with-review. Runs sst-dev-cycle then sst-dev-review three times in a row so a single invocation knocks out three queued items from `TODO.md > Next up` without a human re-invoking between them. The supervisor edits and commits skill improvements directly within the same run (transferables after sst-sanitize-transferable clears them) so later iterations can pick them up. Default loop-delay-random is [300, 1800] (5-30min jitter between iterations) so the commit-cadence trail on multi-iter runs stays human-shaped instead of firing iterations back-to-back; override with --loop-delay or --loop-delay-random at invocation.
+version: 1.4.0
 user-invocable: true
 loop: 3
 loop-delay-random: [300, 1800]
-auto-promote: all
 skills:
   - sst-dev-cycle
   - sst-dev-review
