@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.5.0
+version: 1.6.2
 model-floor: sonnet
 effort-floor: high
 ---
@@ -41,7 +41,7 @@ Contract for every cycle:
 
 1. Confirm the working directory is the project root (check for `.git`, the project's config/manifest file).
 2. Activate any language-specific environment the project uses (venv, node_modules, etc.).
-3. Confirm `git status` is clean. If there are staged or modified files from a prior aborted run, inspect them and either commit them (if they represent finished work) or stash/discard them before starting — do not silently include them in this cycle's commit. **Exception:** the project's supervisor (when the project runs `sst-supervisor` or a `<project>-supervisor` proprietary counterpart) routinely leaves direct-overwritten edits to peer SKILL.md files uncommitted in `<cwd>/.claude/skills/*/`. Per the supervisor's contract, those files are NOT part of any dev cycle and must NOT trigger a stop. Concretely: if `git status --porcelain` shows ONLY paths under `.claude/skills/`, proceed without stashing or checking out. Any other modified or untracked files (project code, tests, docs, configs) — apply the original rule.
+3. Confirm `git status` is clean. If there are pre-existing staged, modified, or untracked files — whether left by a prior aborted run OR produced outside any cycle (notebook/REPL execution outputs, regenerated lockfiles, build artifacts, formatter sweeps) — inspect each and dispose of it BEFORE starting: if a change is unrelated finished work worth keeping, commit it in its OWN separate commit first, so this cycle's commit stays scoped to the work you pick; otherwise stash or discard it. Do NOT carry a pre-existing change into this cycle's feature commit — **documenting it in the commit message does not make this OK** ("not *silently*" is not the bar; "not at all" is). Folding unrelated churn (a regenerated notebook, a lockfile bump) into a feature commit breaks per-commit review, `git bisect`, and `git revert`, and contradicts §7's "stage only the files you changed." **Exception:** the project's supervisor (when the project runs `sst-supervisor` or a `<project>-supervisor` proprietary counterpart) routinely leaves direct-overwritten edits to peer SKILL.md files uncommitted in `<cwd>/.claude/skills/*/`. Per the supervisor's contract, those files are NOT part of any dev cycle and must NOT trigger a stop. Concretely: if `git status --porcelain` shows ONLY paths under `.claude/skills/`, proceed without stashing or checking out. Any other modified or untracked files (project code, tests, docs, configs, generated artifacts) — apply the rule above.
 4. Read `docs/SPEC.md` (or the project's primary spec — see §1) end-to-end.
 5. Read `docs/TODO.md` end-to-end. If missing, create it from `~/Dev/skill-set/templates/TODO.md` and stage it for inclusion in this cycle's single commit; do NOT make a separate "create TODO" commit.
 
@@ -216,6 +216,8 @@ Emission order at iter start, top to bottom: TodoWrite → `## In flight` line �
 
 Record the full-suite pass count before your change. After, it must be `old_count + <new_tests>` (or higher, if you incidentally fixed a flake). If it drops, you broke something — fix before continuing.
 
+**A default-filtered suite can hide a broken deliverable.** Many projects exclude slow or environment-dependent tests from the default runner invocation — opt-in markers (`notebook`, `integration`, `e2e`, `slow`, `live`) or a separate suite directory; check the test config (`pytest.ini` / `addopts`, the `Makefile`'s test targets, `package.json` scripts) so you know what the default run actually executes. The default "full suite" then reports green without ever running those tests. When the change you shipped is an **executable artifact** (a notebook, a script, a migration, a generated config) OR touches a code path that only a default-excluded test exercises, run those excluded tests explicitly before the gate counts as passed — e.g. `<test-runner> -m <marker> <your-test-file>`. A green default run that skipped your deliverable's own execution test is a false green: it proves the code you did not exercise still imports, not that the artifact you shipped actually runs. Do not flip the SPEC item to `[x]` on a false green — that ships a broken deliverable that the next reviewer has to catch.
+
 On failure:
 - Read the actual assertion. Don't guess.
 - Fix the root cause. If a test is incorrectly asserting, fix the test with a clear rationale noted in the commit message; if the code is wrong, fix the code.
@@ -289,10 +291,16 @@ After the deploy completes, confirm:
 - The expected number of worker processes is running (if the project uses a worker model).
 - No stack traces in the most recent log entries.
 
-## 9. Verify production
+## 9. Verify — the deployed artifact AND the external contracts it depends on
+
+"Verify" means exercising the change against the **real systems it touches**. There are two independent surfaces, and a cycle must cover whichever ones apply:
+
+1. **The environment you deployed to** (§8). Skip this when the project has no deploy path — a local-only artifact correctly has nothing to verify here.
+2. **Any external service or API your code consumes.** This surface is independent of deployment: a project can have no deploy path of its own yet rest its entire correctness on an external API contract. **"No deployment" never implies "no live verification."** Whenever the change's correctness depends on an external contract, you MUST make at least one real call to that service and assert that the actual response shape matches what your code — and the test mocks — assume. Tests that pass only against mocks you authored prove the code is self-consistent, not that it matches reality: a mock encoding a wrong schema produces green tests over broken code. Do NOT collapse this into "deployment is N/A, so verification is N/A" — that conflation ships code that cannot work against the real service.
 
 Exercise the specific thing you changed against the live environment:
-- API change: real HTTP call with real credentials, assert the response shape.
+- API/external-service consumer: a real HTTP call (with real credentials if the endpoint needs them), assert the response shape — keys, nesting, required params. If the endpoint rejects the request your code builds, that is a defect found, not a reason to skip.
+- API change (a service you own): real HTTP call with real credentials, assert the response shape.
 - UI change: Playwright MCP against the production URL, navigate to the changed page, 0 console errors.
 - Background-job change: submit a real small job and confirm it completes.
 
@@ -301,14 +309,15 @@ Reuse the project's permanent test account or staging credentials — never crea
 If verification fails:
 - Minor issue (copy, layout nit): fix forward in a new cycle.
 - Regression that breaks existing users: revert the deploy (`git revert HEAD; git push`, then re-run the deploy command) and file the proper fix as the next cycle's work.
+- External-contract mismatch (the real API doesn't match what the code/tests assume): the code is non-functional against reality — fix the code and the mocks to match the real contract before closing the cycle. If the fix is out of scope for the picked batch, file it as the next cycle's top `## Next up` item rather than closing a cycle that shipped code that can't run against the live service.
 
 ## 10. Done
 
 The cycle is complete when:
 - All new and existing tests pass locally.
 - The commit is pushed.
-- The deploy completed and the service is healthy.
-- The changed behavior is verified live.
+- The deploy completed and the service is healthy (or the project has no deploy path).
+- The changed behavior is verified live — against the deployed environment and/or the external contracts the change depends on.
 - The spec reflects the new state.
 
 Report a terse summary to the user: commit SHA, one-line description, test-count delta, production verification result. No follow-up question.
