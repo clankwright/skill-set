@@ -24,6 +24,24 @@ The pairing is the unit of reuse. The transferable holds the *method* (TDD cycle
 - `templates/sanitization-guidance.md` — the rubric the `sst-sanitize-transferable` skill applies as a hard gate before any direct edit to a transferable skill.
 - `schema/` — JSON Schema specs the validator (and CI) lint against.
 
+## What's *not* shipped: the `ssp-*` proprietary skills
+
+The repo ships only the `sst-*` transferables. Each one's proprietary counterpart is named `ssp-*` and lives under `<project>/.claude/skills/`, which is **gitignored** — so these skills are **never committed to or pushed from this repo**. They are local, per-machine runtime state, and exist so each checkout can carry its own custom modifications (banned-terms list, project paths, config, private wording) without publishing them.
+
+In this repo (skill-set dogfooding itself) the proprietary set is:
+
+| Proprietary (`ssp-*`, local only) | Transferable parent (`sst-*`, shipped) |
+|---|---|
+| `ssp-dev`          | `sst-dev-cycle`    |
+| `ssp-dev-review`   | `sst-dev-review`   |
+| `ssp-supervisor`   | `sst-supervisor`   |
+| `ssp-manager`      | `sst-manager`      |
+| `ssp-chain-driver` | `sst-chain-driver` |
+
+Consuming projects name theirs `ssp-<project>-<role>` (e.g. `ssp-sdrai-supervisor`) so several projects' skills can coexist in one harness without colliding; skill-set's own use the bare `ssp-<role>` form since this repo is a single project.
+
+Each `ssp-*` skill is a thin overlay: it `transferable:`-declares its `sst-*` parent, inherits that parent's full process at runtime, and adds only the local facts the method can't know. **They are NOT in the repo** — a fresh clone or a second machine has none of them. Set them up locally (create `.claude/skills/ssp-<role>/SKILL.md` plus the proprietary chains under `.claude/chains/`, or copy them from a machine that already has them, then `bin/install-skills.sh -y` to deploy the `sst-*` parents they inherit). Keeping them gitignored is intentional: each environment customizes freely without leaking private config into the public repo. The dogfooding chains (`skill-set-cycle` / `skill-set-overnight`) invoke them by name (`ssp-dev` → `ssp-dev-review` → auto-appended `ssp-supervisor`), so running the loop needs them present; hand-editing the `sst-*` transferables needs only what's in the repo.
+
 ## Three loops
 
 | Loop       | Cadence              | Owner                     |
@@ -86,7 +104,7 @@ Pick the dev chain by intent:
 - **Knock out the next 1-3 items in one sitting** → `dev-cycle-with-review-looped` via `sst-chain-driver` so you get per-iter Telegram bodies.
 - **Drain the queue overnight** → `dev-cycle-overnight` via `sst-chain-driver` with `--max-budget-usd $X` as the budget gate.
 
-A proprietary `<persona>-chain-driver` skill (e.g. `skill-set-chain-driver`) carries the chain name + cap defaults so the user types `/<persona>-chain-driver` with no flags. Override `--loop`, `--max-budget-usd`, or `--max-cycles` on the CLI for a one-off shape change.
+A proprietary `ssp-<persona>-chain-driver` skill (e.g. `ssp-chain-driver` in this repo, `ssp-sdrai-chain-driver` in a consumer) carries the chain name + cap defaults so the user types `/<persona>-chain-driver` with no flags. Override `--loop`, `--max-budget-usd`, or `--max-cycles` on the CLI for a one-off shape change.
 
 ### Skill self-improvement (direct edit + commit)
 
