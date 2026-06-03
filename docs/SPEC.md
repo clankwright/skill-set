@@ -123,7 +123,7 @@ Moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-20-deferred-goose-cerebras-h
 
 ### Phase 37: handoff-doc prose alignment
 
-**Review follow-ups (open — schedule as the next `/skill-set-dev` cycle):**
+**Review follow-ups (open — schedule as the next `/ssp-dev` cycle):**
 - [x] 37.1 [easy] [should-fix] `docs/SPEC.md:81` — The "SPEC.md shape" description says "Closed phases get a 1-paragraph context + a tight bulleted change log (one line per item, not a paragraph each). Phases that drift toward novella-length should be compressed back" — but commit `77d17de` archived all closed phases to `docs/SPEC-archive.md`. A dev reading line 81 would expect compressed-inline closed phases in SPEC.md, not an archive file. Proposed fix: update the description to say completed phases are archived to `docs/SPEC-archive.md` once closed, with consuming projects keeping closed phases inline (compressed) until the file grows large enough to warrant an archive.
 
 ### Phase 38: bounded-item discipline + phase-completion handoff
