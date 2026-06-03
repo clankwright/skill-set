@@ -224,7 +224,7 @@ Inbound (you talk to the bot in Telegram):
 
 All commands except `/ping`, `/help`, and `/projects` REQUIRE a project token as the first argument (e.g. `/status cm`, `/feedback cm <text>`). Run `/projects` to see the live token-to-project registry; discovery is filesystem-driven from `~/.claude/skills/*-manager/SKILL.md`.
 
-The token-required commands (`/status`, `/objectives`, `/proposals`, `/promote`, `/pause`, `/resume`, `/feedback`) write a queue file to `~/.claude/state/manager-bot-queue/`; the next `<persona>-manager` invocation drains the queue.
+The token-required commands (`/status`, `/objectives`, `/pause`, `/resume`, `/feedback`) write a queue file to `~/.claude/state/manager-bot-queue/`; the next `<persona>-manager` invocation drains the queue. The three agnostic commands (`/ping`, `/help`, `/projects`) take no token and are answered by the bot directly, without a queue file.
 
 **Replies are live whenever the worker is running.** Since Phase 35 the bot is a pure dispatcher: every project-scoped command spawns a one-time manager process that re-reads project state, so there is no stale-reply risk from a persistent worker. Run the worker always-on (recommended) so commands work between chain runs.
 
