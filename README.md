@@ -177,7 +177,7 @@ The dev + review run on Sonnet+high (effort floor wins on the effort axis; model
 The framework ships a small Telegram bot (`bin/manager-bot.py` + `bin/notify-telegram.sh`) so two long-running loops can talk to you directly:
 
 - **`sst-chain-driver`** fires Telegram bodies at session start, every iteration boundary (commit + per-iter spend + cumulative), every rate-limit pause / resume, every halt request, and session end. Lets you walk away from a multi-hour `--loop N` run.
-- **`sst-manager`** drains inbound slash-commands (`/status <project>`, `/objectives <project>`, `/proposals <project>`, `/promote <project> <skill>`, `/pause <project>`, `/resume <project>`, `/feedback <project> <message>`) into a queue at `~/.claude/state/manager-bot-queue/`, which the next manager run picks up. A project token is required for all inbound commands except `/ping`, `/help`, and `/projects`.
+- **`sst-manager`** drains inbound slash-commands (`/status <project>`, `/objectives <project>`, `/pause <project>`, `/resume <project>`, `/feedback <project> <message>`) into a queue at `~/.claude/state/manager-bot-queue/`, which the next manager run picks up. A project token is required for all inbound commands except `/ping`, `/help`, and `/projects`.
 
 ### Setup
 
