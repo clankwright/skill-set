@@ -79,7 +79,7 @@ DIGESTS_DIR = STATE_DIR / "manager-digests"
 # spawns `/<persona>-manager --process-command <queue-file>` in the project's
 # cwd immediately, and the manager replies via Telegram. The value itself is
 # not the skill name; the skill name is derived from the project token
-# (e.g. token "skill-set" -> skill "skill-set-manager"). When unset, commands
+# (e.g. token "ssp-sdrai" -> skill "ssp-sdrai-manager"). When unset, commands
 # queue for the next periodic manager tick or chain-runner pre-iter drain.
 MANAGER_SKILL_NAME = os.environ.get("MANAGER_SKILL_NAME")
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "claude"

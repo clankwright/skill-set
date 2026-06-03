@@ -189,7 +189,7 @@ The user-invocable skill `sst-setup-telegram` provisions a bot end-to-end. Invok
 
 It walks you through the BotFather steps that must happen in your Telegram app (create the bot, send the first message), then automates everything else: `getMe` token verification, chat-id discovery via `getUpdates`, env-file write with mode 600, outbound + inbound round-trip tests, optional service-unit install, and `setMyCommands` registration.
 
-Env-file naming convention: `~/.config/<persona>-telegram.env`, where `<persona>` matches the proprietary chain-driver / manager skill name (e.g. `~/.config/skill-set-telegram.env` for `skill-set-chain-driver`, `~/.config/sdrai-telegram.env` for an `sdrai-manager`). Each file holds two lines:
+Env-file naming convention: `~/.config/<persona>-telegram.env`, where `<persona>` matches the proprietary chain-driver / manager skill name (e.g. `~/.config/skill-set-telegram.env` for `ssp-chain-driver`, `~/.config/sdrai-telegram.env` for an `ssp-sdrai-manager`). Each file holds two lines:
 
 ```
 TELEGRAM_BOT_TOKEN=<from-BotFather>
