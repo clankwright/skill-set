@@ -304,7 +304,21 @@ def send_reply(chat_id: int, text: str, parse_mode: str | None = "Markdown") -> 
         payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
         if parse_mode:
             payload["parse_mode"] = parse_mode
-        requests.post(f"{API}/sendMessage", json=payload, timeout=10)
+        resp = requests.post(f"{API}/sendMessage", json=payload, timeout=10)
+        body = resp.json()
+        if body.get("ok"):
+            return
+        # Telegram rejects bad Markdown (e.g. an unpaired underscore in a
+        # path) with a 400 can't-parse-entities; deliver plain rather than
+        # silently dropping the reply.
+        if parse_mode and resp.status_code == 400:
+            logger.warning(
+                "sendMessage rejected with parse_mode=%s (%s); retrying plain",
+                parse_mode, body.get("description", "no description"),
+            )
+            send_reply(chat_id, text, parse_mode=None)
+            return
+        logger.error("sendMessage failed: %s", body.get("description", body))
     except Exception as e:
         logger.error(f"Reply failed: {e}")
 
@@ -480,7 +494,7 @@ def handle_command(text: str, chat_id: int) -> str:
             projs = entry["projects"]
             if projs:
                 for p in projs:
-                    lines.append(f"`{persona}` -> {p['path']} (token: `{persona}`)")
+                    lines.append(f"`{persona}` -> `{p['path']}` (token: `{persona}`)")
             else:
                 lines.append(f"`{persona}` -> (no watched-projects configured)")
         return "Registered personas:\n" + "\n".join(lines)
