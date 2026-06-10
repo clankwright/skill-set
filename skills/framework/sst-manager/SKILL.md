@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Four modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, reads docs/HUMAN.md for active blockers (fires immediate Telegram alerts for new Blocking entries and auto-verifies Verify: lines on closed items), sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus docs/HUMAN.md plus the most recent run log, decides one of five outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, HUMAN.md blocker entry, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. On-demand command routing (--process-command <queue-file>) reads one project-scoped bot command from a queue file, dispatches to a per-verb handler (status, objectives, pause, resume, ping), executes in the context of the target project, and replies via the project's notify-telegram.sh; each handler appends a one-line outcome to manager-notes.md. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. MAY edit base-repo (~/Dev/skill-set/) skill source directly and commit+push when the user requests it OR it deems it necessary (sanitize-gated for transferables); never commits or deploys in the watched projects themselves. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 2.0.0
+version: 2.1.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -336,83 +336,77 @@ Anti-fork: auto-verify is the ONLY path that moves entries to `## Done`. The hum
 
 ### 4. Compose the digest
 
-State facts. The user is technical and wants commit subjects, spend figures, and concrete status — not narrative or mood. Every status digest MUST contain all five sections below; write "nothing" or "none" rather than omitting a section.
+State facts. The user is technical and wants concrete status — spend figures, what shipped, what's blocked — not narrative or mood. **The digest is a delta, not an inventory: lead with what the user must DO, then what changed, then a compact standing-state roll-up.** Optimize for a five-second phone read: short labelled sections, one scannable line per fact, hard-capped bullets, a blank line between sections. Every status digest MUST contain the three sections below; write "nothing — all clear" / "nothing since last check" rather than omitting one.
 
 **Language rules (apply to every digest):**
 - Translate tool names to role words: "the dev cycle" not `sst-dev-cycle`; "the reviewer" not `sst-dev-review`; "the supervisor" not `sst-supervisor`; "the manager" for this skill.
 - Replace internal numbering (e.g. "Phase 19 #7") with what the work actually is ("the per-skill cost-routing rollout").
 - Drop framework terms: "run dir", "MANIFEST", "exit_code", "sanitize gate", "anti-fork", "supervisor verdict". Use plain equivalents: "a recent run", "a check failed", "a proposed improvement".
-- Keep technical specifics: quote commit subjects verbatim (backticks); round spend to nearest cent; keep difficulty labels (`[easy]`/`[medium]`/`[hard]`) as-is.
+- Keep technical specifics: round spend to nearest cent; keep difficulty labels (`[easy]`/`[medium]`/`[hard]`) as-is. Summarize each commit in plain English as one clause of ≤12 words rather than pasting the verbatim subject and a trailing explanation; quote a short subject in backticks only when it is already clearer than any paraphrase. Never stack sub-clauses into a run-on bullet.
 - Timestamps become human-readable dates ("April 27, 2026"), not ISO strings.
 
-**Default (status digest) — six required sections (Human-action blockers first):**
+**Default (status digest) — three required sections, in this fixed order: NEEDS YOU, SHIPPED, STANDING.** Each section always appears. Put a blank line between sections. Use the section emoji exactly as shown (they are the scan anchors).
 
 ```
-Progress update — <Month D, YYYY>
+📋 <persona, or "Progress" when multi-project> — <Month D, YYYY>
 
-Human-action blockers:
-  [<persona>] H<phase>.<n> — <title> (blocks <SPEC-IDs>)
-  (or "none")
+⚡ NEEDS YOU
+• <imperative action> → <what it unblocks> (<H-ID>)
+• <manager-derived action, e.g. a queue item that already shipped — clear it>
+  (or "nothing — all clear")
 
-What shipped:
-  <project-name>: <N> commit(s), ≈$<X.XX> spend
-    • `<commit subject verbatim>` — <one sentence: what problem this closed, in plain English>
-    • `<commit subject verbatim>` — <one sentence>
-  <project-name>: nothing since last check
+✅ SHIPPED · <N> commits[, ≈$<X.XX>][ (interactive)]
+• <plain-English one-liner, one clause, ≤12 words>
+• <plain-English one-liner>
+  (or "nothing since last check")
 
-What stalled or failed:
-  <one specific line per issue, or "nothing">
-
-Goals:
-  ✓ <objective text> — <evidence, e.g. "all 12 spec items closed">
-  → <objective text> — <concrete status: "N of M items closed", "no movement", "blocked on <X>">
-
-Open queue: <N> item(s); top: [<difficulty>] <top Next-up item one-liner>
-Pending review: <N> proposal(s), or "none"
+📊 STANDING
+• <only goals that MOVED this tick: ✓ flipped / → status changed, one clause of evidence>
+• <N> of <M> goals open · biggest: <name> (<k> items)
+• Queue: <N> · top: [<difficulty>] <one-liner>   (omit when the top item is stale and you surfaced it under NEEDS YOU)
+• <operational caveat as its own bullet, e.g. "no dev-cycle run since <date>", "tests not re-run this tick">
 ```
 
-The "Human-action blockers" section lists every open `## Blocking` entry across all watched projects' `docs/HUMAN.md`. One line per entry; `<persona>` is the project's persona token; `<SPEC-IDs>` is the `Blocks:` value verbatim. Place this section **above** "What shipped" so it is visible regardless of digest length or truncation in Telegram. If `docs/HUMAN.md` is absent or has no open `## Blocking` entries, write "none".
+**Section rules.**
+- **NEEDS YOU is first and must survive truncation.** It lists every open `## Blocking` entry across all watched projects' `docs/HUMAN.md` — one line each: an imperative + what it unblocks + the `(H-ID)`, with the `Blocks:` value verbatim — PLUS any manager-derived action: a queue item that already shipped and should be cleared, a goal that got un-marked, a decision the manager can't make itself. If there is genuinely nothing for the user to do, write "nothing — all clear". Keep each line to one clause.
+- **SHIPPED is the delta — one block per watched project.** Prefix each line `[<persona>]` ONLY in multi-project digests; a single-project digest puts the persona in the header and drops the prefix. One bullet per commit, plain English, one clause, ≤12 words — no run-ons, no stacked sub-clauses. Append `≈$<X.XX>` to the header when a per-cycle spend figure exists; write "(interactive)" when commits landed outside the dev cycle; "nothing since last check" when none.
+- **STANDING is a roll-up, never a full inventory.** List ONLY the goals that moved this tick (a `✓` flip or a `→` whose status changed), each with one clause of evidence. Compress every unchanged goal into ONE line: `<N> of <M> goals open · biggest: <name> (<k> items)`. Never re-print the entire goal list every tick — that is the single biggest readability regression to avoid. Then the queue line (drop it when the top item is stale and already surfaced under NEEDS YOU), then any operational caveat as its own short bullet. Fold "Pending review" in here only when there is one (`• Pending review: <N>`); omit the line otherwise.
 
 Two representative examples:
 
-*Active run with one issue:*
+*Single project, active tick:*
 ```
-Progress update — April 28, 2026
+📋 project-a — June 3, 2026
 
-What shipped:
-  project-a: 2 commits, ≈$6.20 spend
-    • `fix: batch-sizing check now reads correct token field` — fixed a bug where the reviewer was always measuring batch sizes as zero, making the oversizing detection permanently blind
-    • `feat: add user feedback routing via Telegram bot` — new /feedback command lets you steer the auto-reviewer directly from your phone without editing files
-  project-b: nothing since last check
+⚡ NEEDS YOU
+• Merge the auth-refactor branch & cut the next phase → unblocks the billing work (H4.4)
+• Queue top (the access-control redo) already shipped — clear it
 
-What stalled or failed:
-  project-a: iter 3 hit a rate limit mid-run; auto-resumed after ~2h pause
+✅ SHIPPED · 2 commits (interactive)
+• Last unguarded write paths now sit behind the admin check
+• Write gates unified onto one check; their errors now surface
 
-Goals:
-  ✓ Reduce per-cycle cost by 25% — all 12 spec items closed; $4.50/iter vs $7.20 baseline
-  → Add user feedback channel — 3 of 3 spec items closed; acceptance test pending
-
-Open queue: 7 items; top: [medium] manager digest format rewrite
-Pending review: 1 proposal (dev-review patch)
+📊 STANDING
+• 6 of 8 goals open · biggest: bulk-upload backend (11 items)
+• No dev-cycle run since May 28
+• Tests not re-run this tick
 ```
 
-*Clean tick — nothing new:*
+*Multi-project, clean tick:*
 ```
-Progress update — April 27, 2026
+📋 Progress — April 27, 2026
 
-What shipped:
-  project-a: nothing since last check
-  project-b: nothing since last check
+⚡ NEEDS YOU
+• nothing — all clear
 
-What stalled or failed:
-  nothing
+✅ SHIPPED
+[project-a] nothing since last check
+[project-b] nothing since last check
 
-Goals:
-  → Reduce per-cycle cost by 25% — 9 of 12 items closed
-  → Add user feedback channel — 2 of 3 items closed
-
-Open queue: 5 items; top: [easy] acceptance check for empty-queue handling
-Pending review: none
+📊 STANDING
+• [project-a] 3 of 12 goals open · biggest: cost-routing (4 items)
+• [project-b] 1 of 3 goals open · biggest: feedback channel (1 item)
+• Queue: 5 · top: [easy] acceptance check for empty-queue handling
 ```
 
 Save to `~/.claude/state/manager-digests/<persona>_<utc>.txt` where `<persona>` is the proprietary manager's persona name (e.g. `my-project`, `other-project`). This prefix lets the bot's `/status <token>` filter to the correct persona's digest in multi-persona deployments. Send via `bin/notify-telegram.sh` (prepend a leading newline so Telegram renders cleanly).
