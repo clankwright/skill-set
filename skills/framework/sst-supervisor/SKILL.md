@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 2.0.1
+version: 2.0.2
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -74,8 +74,8 @@ Eligibility — all four conditions must hold:
    - `\bTraceback\b`, `\bException\b` — exact word matches; both appear standalone in Python error output.
    - `[blocker]`, `[escalate]` — explicit skill-emitted escalation tags; brackets are non-word chars so no anchoring is needed.
 
-   Plus one line-anchored sentinel that does NOT abort but flags the outcome label differently:
-   - `^\s*\[no-work\]` — empty-queue bail; the dev skill ran but shipped no commit, so there is nothing to review at all. Outcome label becomes `clean (no-work bail)` instead of `clean (fast-path)`.
+   Plus one line-leading sentinel that does NOT abort but flags the outcome label differently:
+   - `^\s*\W*\[no-work\]` — empty-queue bail; the dev skill ran but shipped no commit, so there is nothing to review at all. Outcome label becomes `clean (no-work bail)` instead of `clean (fast-path)`. The `\W*` after the leading-whitespace anchor tolerates wrapping markdown formatting the dev emits around the marker (a code-span backtick, `**bold**`, a blockquote `>`): the marker still leads its line's content, but a strict `^\s*\[no-work\]` misses a backtick-wrapped emission like `` `[no-work] queue empty ...` `` and silently mislabels a genuine no-work bail as `clean (fast-path)`. Do NOT re-tighten to `^\s*\[no-work\]`: dev skills routinely render the marker in a code span (their own prose shows it backticked), so the strict anchor reliably under-detects.
 
    Any non-`[no-work]` match aborts the fast-path. The keyword list is intentionally noisy: false positives just route to the deep walk, which is the safe direction.
 
