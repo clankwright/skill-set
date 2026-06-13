@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.6.2
+version: 1.7.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -244,7 +244,7 @@ If no transferable `SKILL.md` was touched, skip this section entirely.
 
 ## 6. Update the spec + TODO.md (all updates in a single pass, no SHA in Just-shipped)
 
-**`SPEC.md`**: flip `- [ ]` to `- [x]` for what you shipped. If this closes a sub-phase or milestone, add a section mirroring the format of the most recent completed one: 1-paragraph context, bulleted checklist of changes with file citations, test-count delta. Update any index / status summary file that the project keeps (e.g. a `CLAUDE.md` phase list).
+**`SPEC.md`**: flip `- [ ]` to `- [x]` for what you shipped. If this closes a sub-phase or milestone, add a section mirroring the format of the most recent completed one: 1-paragraph context, bulleted checklist of changes with file citations, test-count delta. Update any index / status summary file that the project keeps (e.g. a `CLAUDE.md` phase list). **This section asserts only what is verified by §6 time** — code and test facts known now. Do NOT state a deploy or runtime fact you only check later in §8/§9 (e.g. "deployed and healthy", "the external key is present", "the cron is live"): §6 runs before deploy and verify, so any such claim is unverified the moment you write it. Record deploy/verify outcomes after §9, and if §9 — or a `docs/HUMAN.md` blocker you file this cycle (a missing credential, an unreachable host) — contradicts a line you already wrote here, correct this section before §10. A result block that contradicts the same cycle's own verify outcome or a HUMAN.md entry you filed is a ship-blocking defect, not a cosmetic nit.
 
 **`TODO.md`** — four updates, all applied before committing:
 
