@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.6.1
+version: 1.6.2
 model-floor: sonnet
 effort-floor: high
 ---
@@ -73,7 +73,7 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, `docs/FUTURE-WORK.md`, and `doc
    ```bash
    git log -1 --format='%H %s'
    ```
-   If that commit is a skill edit, a docs-only commit, a merge, or otherwise **not** a real dev cycle, walk backward with `git log --format='%H %s' -20` until you find the last real `/sst-dev-cycle` commit. Common scope tags the cycle uses: `Auth:`, `UI:`, `Docs:`, `Tests:`, `Deploy:`, `Infra:`, or a feature-area tag. Review **that** commit — do not review skill/docs-only commits.
+   If that commit does **not** correspond to the `## Just shipped` self-report (a skill edit under `.claude/skills/`, a merge, or some other commit the cycle did not produce), walk backward with `git log --format='%H %s' -20` until you find the commit that self-report names. Common scope tags the cycle uses: `Auth:`, `UI:`, `Docs:`, `Tests:`, `Deploy:`, `Infra:`, or a feature-area tag — a `Docs:`-tagged commit is real dev work when it matches `## Just shipped` (the cycle ships docs-only items under `Docs:`), so review it. Review **that** commit — do not review skill-edit or merge commits.
 
 ## 1. Gather review surfaces
 
