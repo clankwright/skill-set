@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 2.0.0
+version: 2.0.1
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -68,7 +68,7 @@ Eligibility — all four conditions must hold:
 
 2. **All non-supervisor skill exit codes == 0.** Read `MANIFEST.skills[i].exit_code` for every record except the supervisor's own (the supervisor's own record is not yet present in the snapshot manifest per §Inputs step 1). Any non-zero exit code aborts the fast-path: a failure needs a finding.
 
-3. **Transcript keyword scan returns clean.** Search every `<i>_<skill>.txt` (case-insensitive) for any of the following — using word-boundary anchoring (`\b`) on the generic terms to prevent false positives on compound identifiers and prose substrings:
+3. **Transcript keyword scan returns clean.** Search every `<i>_<skill>.txt` **case-sensitively** for any of the following — using word-boundary anchoring (`\b`) on the generic terms to prevent false positives on compound identifiers and prose substrings. Case-sensitivity is load-bearing, not incidental: the generic terms below are matched as UPPERCASE tokens because real Python/pytest failure output emits `ERROR`, `FAILED`, `Traceback`, `Exception` in those exact casings, while benign lowercase prose ("error out", "tests fail as expected", "no regressions") is narration the dev/review skills routinely write on clean runs. A case-insensitive scan trips the gate on that narration and forces a deep-walk-on-clean every time — the documented ~30-50%-extra-turns waste this condition exists to avoid. Do NOT reintroduce a case-insensitive flag here. (The keyword scan runs only after condition #2 has confirmed all exit codes are 0, so a real unresolved test failure is already caught upstream; this scan is the secondary net for the narrow case of a skill that exited 0 yet left an uppercase failure token in its output.)
    - `\bERROR` (left boundary only) — catches `ERROR:`, `ERRORS`, standalone `ERROR`; excludes `tool_use_error` (where `error` follows `_`, a word character) and `RuntimeError`-style compound names.
    - `\bFAIL(ED)?\b` (both boundaries) — catches standalone `FAIL` and `FAILED`; excludes `failing`, `failure` as prose verbs/nouns.
    - `\bTraceback\b`, `\bException\b` — exact word matches; both appear standalone in Python error output.
