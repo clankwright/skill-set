@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
 user-invocable: false
-version: 2.0.2
+version: 2.0.3
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -71,7 +71,7 @@ Eligibility — all four conditions must hold:
 3. **Transcript keyword scan returns clean.** Search every `<i>_<skill>.txt` **case-sensitively** for any of the following — using word-boundary anchoring (`\b`) on the generic terms to prevent false positives on compound identifiers and prose substrings. Case-sensitivity is load-bearing, not incidental: the generic terms below are matched as UPPERCASE tokens because real Python/pytest failure output emits `ERROR`, `FAILED`, `Traceback`, `Exception` in those exact casings, while benign lowercase prose ("error out", "tests fail as expected", "no regressions") is narration the dev/review skills routinely write on clean runs. A case-insensitive scan trips the gate on that narration and forces a deep-walk-on-clean every time — the documented ~30-50%-extra-turns waste this condition exists to avoid. Do NOT reintroduce a case-insensitive flag here. (The keyword scan runs only after condition #2 has confirmed all exit codes are 0, so a real unresolved test failure is already caught upstream; this scan is the secondary net for the narrow case of a skill that exited 0 yet left an uppercase failure token in its output.)
    - `\bERROR` (left boundary only) — catches `ERROR:`, `ERRORS`, standalone `ERROR`; excludes `tool_use_error` (where `error` follows `_`, a word character) and `RuntimeError`-style compound names.
    - `\bFAIL(ED)?\b` (both boundaries) — catches standalone `FAIL` and `FAILED`; excludes `failing`, `failure` as prose verbs/nouns.
-   - `\bTraceback\b`, `\bException\b` — exact word matches; both appear standalone in Python error output.
+   - `\bTraceback\b`, `\bException\b` — exact word matches; both appear standalone in Python error output. Excludes `\bException\b` when immediately preceded by `except ` (the Python source idiom `except Exception` / `except Exception as …`): a dev narrating exception-handling code it wrote or fixed is not a failure signal, and a genuinely uncaught exception still trips `\bTraceback\b` or a colon-suffixed `Exception:` (no `except ` prefix) on the same output — so the exclusion costs no real-failure sensitivity, mirroring the `tool_use_error` / `failing` exclusions above.
    - `[blocker]`, `[escalate]` — explicit skill-emitted escalation tags; brackets are non-word chars so no anchoring is needed.
 
    Plus one line-leading sentinel that does NOT abort but flags the outcome label differently:
