@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.7.0
+version: 1.7.1
 model-floor: sonnet
 effort-floor: high
 ---
@@ -239,6 +239,8 @@ If the cycle touched any transferable `SKILL.md` — any path matching `skills/<
 Inline assessment of the change does not satisfy this requirement; the sub-skill must be invoked even if the change appears obviously safe.
 
 Read the resulting findings file. Any `must-fix` finding aborts the commit: rewrite the prose to remove the banned token, or confine the change to a proprietary skill only. Record the verdict in the commit message body as `Sanitize: must-fix=N` (e.g. `Sanitize: must-fix=0`).
+
+**The sanitize sub-skill returns control to THIS cycle — invoking it is not the end of your work.** It runs via the Skill tool mid-cycle, and its findings file is a checkpoint, not the cycle's deliverable. The instant you have read the findings (and confirmed `must-fix=0`), your very next actions are §6 (flip `SPEC.md`, finalize `TODO.md`) then §7 (single commit + push). Do NOT end your turn after the sanitize gate: a sanitized-but-uncommitted cycle is exactly the `incomplete-cycle` contract violation the chain runner flags, and it recurs specifically when a model treats the sub-skill's return as the end of the cycle. The cycle is not done until §7 has pushed.
 
 If no transferable `SKILL.md` was touched, skip this section entirely.
 
