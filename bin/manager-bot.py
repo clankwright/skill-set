@@ -82,6 +82,14 @@ DIGESTS_DIR = STATE_DIR / "manager-digests"
 # (e.g. token "ssp-sdrai" -> skill "ssp-sdrai-manager"). When unset, commands
 # queue for the next periodic manager tick or chain-runner pre-iter drain.
 MANAGER_SKILL_NAME = os.environ.get("MANAGER_SKILL_NAME")
+# The executor skill the bot spawns for /approve and /exec. Project-agnostic
+# (a single transferable serves every persona), so it carries no -<persona>
+# suffix; the project context travels in the queue file.
+EXECUTOR_SKILL_NAME = os.environ.get("MANAGER_EXECUTOR_SKILL") or "sst-executor"
+# Executor requests live in their OWN queue dir, separate from the manager's
+# bot queue, so the periodic manager + idle-check never see (and choke on)
+# the executor's verbs (approve / exec / supervisor-request).
+EXECUTOR_QUEUE_DIR = STATE_DIR / "executor-queue"
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "claude"
 ON_DEMAND_LOG_DIR = STATE_DIR / "manager-bot-spawn-log"
 
@@ -93,7 +101,8 @@ if not CHAT_ID_ALLOW:
 
 API = f"https://api.telegram.org/bot{TOKEN}"
 
-KNOWN_COMMANDS = {"status", "objectives", "pause", "resume", "ping", "help", "feedback", "projects"}
+KNOWN_COMMANDS = {"status", "objectives", "pause", "resume", "ping", "help", "feedback",
+                  "projects", "approve", "exec"}
 
 # Commands that operate at the bot level and never target a specific persona.
 # They are always processed inline regardless of project token.
@@ -430,6 +439,92 @@ def _route_via_dispatcher(cmd: str, token: str, queue_file: Path) -> str:
     return f"Queued `/{cmd}` (file: `{queue_file.name}`). Next manager run will process it."
 
 
+def queue_executor_task(
+    command: str, args: list[str], token: str, project_path: str | None, from_chat_id: int,
+) -> Path:
+    """Queue an /approve or /exec task for the executor.
+
+    Carries the resolved project context (token + project_path) the executor
+    needs, since it is project-agnostic and reads everything from the file.
+    """
+    EXECUTOR_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+    path = EXECUTOR_QUEUE_DIR / f"{_utc_filestamp()}_{command}.json"
+    payload = {
+        "command": command,
+        "args": args,
+        "token": token,
+        "project_path": project_path,
+        "received_at": _utc_iso(),
+        "from_chat_id": from_chat_id,
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def spawn_executor(project_cwd: str | None, queue_file: Path) -> bool:
+    """Spawn `/<executor> --process-command <queue-file>` in project_cwd.
+
+    Mirrors spawn_manager_for_command but targets the project-agnostic executor
+    skill. Gated by the same MANAGER_SKILL_NAME dispatcher switch.
+    """
+    if not MANAGER_SKILL_NAME:
+        return False
+    ON_DEMAND_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = ON_DEMAND_LOG_DIR / f"{queue_file.stem}.log"
+    cwd_str = str(Path(project_cwd).expanduser()) if project_cwd else None
+    cmd = [
+        CLAUDE_BIN,
+        "--print",
+        "--permission-mode",
+        "bypassPermissions",
+        f"/{EXECUTOR_SKILL_NAME} --process-command {queue_file}",
+    ]
+    try:
+        with open(log_path, "ab", buffering=0) as log_fd:
+            subprocess.Popen(
+                cmd,
+                stdout=log_fd,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+                cwd=cwd_str,
+            )
+    except Exception as exc:
+        logger.error("executor spawn failed: %s", exc)
+        return False
+    logger.info(
+        "spawned %s --process-command for %s (cwd=%s, log=%s)",
+        EXECUTOR_SKILL_NAME, queue_file.name, cwd_str, log_path,
+    )
+    return True
+
+
+def _route_executor(cmd: str, args: list[str], chat_id: int) -> str:
+    """Route /approve or /exec to the executor (project-agnostic, on-demand only).
+
+    Unlike the manager dispatcher there is no queue-only fallback: the executor
+    only runs on-demand, so when dispatching is disabled the command is refused
+    rather than left as an orphan queue file nothing will drain.
+    """
+    if not MANAGER_SKILL_NAME:
+        return ("On-demand execution is disabled (MANAGER_SKILL_NAME unset); "
+                f"/{cmd} needs the executor dispatcher running.")
+    token = args[0]
+    all_personas = _discover_manager_personas()
+    persona_entry = next((p for p in all_personas if p["persona"] == token), None)
+    if persona_entry is None:
+        known = sorted(p["persona"] for p in all_personas)
+        listing = ", ".join(known) if known else "(none discovered)"
+        return (f"Unknown project token: `{token}`. Known: {listing}. "
+                "Run /projects to see the live registry.")
+    cwd = persona_entry["projects"][0]["path"] if persona_entry["projects"] else None
+    path = queue_executor_task(cmd, args, token, cwd, chat_id)
+    if spawn_executor(cwd, path):
+        return f"Routing /{cmd} to the executor for {token} — audit incoming when it lands."
+    return f"Queued `/{cmd}` (file: `{path.name}`) but the executor spawn failed; check the bot log."
+
+
 def handle_command(text: str, chat_id: int) -> str:
     """Parse one command line and return the reply text. Side-effect: queues a task when appropriate."""
     # Feedback captures the full message body verbatim (preserving whitespace
@@ -469,6 +564,8 @@ def handle_command(text: str, chat_id: int) -> str:
             "/feedback <project> <message> — steer the supervisor; on-demand manager spawns if configured, otherwise queues for next periodic run\n"
             "/pause <project> — pause this persona's scheduled runs\n"
             "/resume <project> — resume this persona's scheduled runs\n"
+            "/approve <project> <id> — authorize a pending executor action (the executor asked)\n"
+            "/exec <project> <action> — ask the executor to run a framework-maintenance action\n"
             "/projects — list known personas, project roots, and their tokens\n"
             "/ping — bot liveness check\n"
             "/help — this message\n\n"
@@ -499,6 +596,13 @@ def handle_command(text: str, chat_id: int) -> str:
                 lines.append(f"`{persona}` -> (no watched-projects configured)")
         return "Registered personas:\n" + "\n".join(lines)
 
+    # Execution commands route to the executor (sst-executor), not the manager.
+    if cmd in ("approve", "exec"):
+        if not args:
+            usage = "/approve <project> <id>" if cmd == "approve" else "/exec <project> <action...>"
+            return f"Usage: {usage}\n(project token required — run /projects to see known tokens)"
+        return _route_executor(cmd, args, chat_id)
+
     # All project-scoped commands (including /ping <persona>) go through the dispatcher.
     if not args:
         return f"Usage: /{cmd} <project>\n(project token required — run /projects to see known tokens)"
@@ -514,9 +618,9 @@ def main() -> int:
     logger.info("allowlisted chat: %s", CHAT_ID_ALLOW or "<any (insecure)>")
     if MANAGER_SKILL_NAME:
         logger.info(
-            "on-demand command routing enabled (verbs: status, objectives, "
-            "pause, resume, feedback, ping): claude=%s",
-            CLAUDE_BIN,
+            "on-demand command routing enabled (manager verbs: status, objectives, "
+            "pause, resume, feedback, ping; executor verbs: approve, exec -> %s): claude=%s",
+            EXECUTOR_SKILL_NAME, CLAUDE_BIN,
         )
     else:
         logger.info(
