@@ -45,4 +45,8 @@
 -->
 
 - [medium] 39.1 `sst-supervisor` §0.5.3 fast-path: abort on any `sst-dev-review`-reported finding (the §6 `Found <N> items: <B> blocker, <S> should-fix` template with N>0, and/or an appended `Review follow-ups` block), not just `ERROR`/`FAIL`/`Traceback`/`Exception` keyword hits — so a prose-only finding can no longer pass as `clean (fast-path)`. — spec Phase 39.1; lngraph supervisor verdict 2026-06-02T05-11-26Z iter_02 (recurring standing note since 2026-04-30)
+- [hard] 41.1+41.2 author the `sst-tester` transferable (`skills/framework/sst-tester/SKILL.md`) + the tester→reviewer findings contract (run-log `tester-findings.{md,json}` schema + a `tests/fixtures` sample) — new `dev → tester → review` chain stage that drives the running app in a browser between implement and review; user request 2026-06-15 (spec Phase 41, root dependency)
+- [medium] 41.3+41.4+41.9+41.10 reviewer consumes run-log tester findings + insert `sst-tester` into the framework dev chains + dev writes `tester-guidance.md` (else `[skip-tester]` pre-empt) + `bin/skill-chain.py` honors the pre-empt (skip tester → straight to review) — spec Phase 41; depends on 41.1/41.2
+- [hard] 41.5+41.6 author the `ssp-cm-tester` wrapper (CM ports 5003/3000, `web/e2e` specs, `web/e2e/.auth/state.json` reuse) + insert into `claim_management/.claude/chains/cm-cycle.yaml` + mirror the findings-read in `ssp-cm-dev-review` — spec Phase 41; CM rollout, depends on 41.1-41.4
+- [medium] 41.7+41.8 clean-exit + artifact-hygiene enforcement (zero in-tree artifacts, guaranteed teardown, no orphan procs/ports) + tooling/install/docs wiring (`bin/install-skills.sh`, `bin/check-ssp-sync.py`, `README.md`, `CLAUDE.md`) — spec Phase 41; closes the phase
 
