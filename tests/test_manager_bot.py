@@ -1100,3 +1100,80 @@ def test_service_file_rwpaths_comment_mentions_explicit_listing():
         "that each project path not under an already-listed ReadWritePaths ancestor must be "
         "added to ReadWritePaths (e.g. include 'must be listed explicitly')."
     )
+
+
+# ── executor routing: /approve + /exec (sst-executor split) ──────────────────
+
+def test_approve_exec_in_known_commands():
+    assert "approve" in mb.KNOWN_COMMANDS
+    assert "exec" in mb.KNOWN_COMMANDS
+
+
+def test_help_mentions_approve_and_exec():
+    reply = mb.handle_command("/help", chat_id=1)
+    assert "/approve" in reply
+    assert "/exec" in reply
+
+
+def test_approve_requires_token():
+    reply = mb.handle_command("/approve", chat_id=1)
+    assert "Usage" in reply and "/approve" in reply
+
+
+def test_exec_requires_token():
+    reply = mb.handle_command("/exec", chat_id=1)
+    assert "Usage" in reply and "/exec" in reply
+
+
+def test_approve_disabled_without_dispatcher(monkeypatch):
+    monkeypatch.setattr(mb, "MANAGER_SKILL_NAME", None)
+    reply = mb.handle_command("/approve alpha sync-20260615", chat_id=1)
+    assert "disabled" in reply.lower()
+
+
+def test_approve_unknown_token(monkeypatch):
+    monkeypatch.setattr(mb, "MANAGER_SKILL_NAME", "1")
+    monkeypatch.setattr(mb, "_discover_manager_personas", lambda *a, **kw: [])
+    reply = mb.handle_command("/approve ghost id1", chat_id=1)
+    assert "Unknown project token" in reply
+
+
+def test_approve_routes_to_executor(monkeypatch):
+    monkeypatch.setattr(mb, "MANAGER_SKILL_NAME", "1")
+    monkeypatch.setattr(
+        mb, "_discover_manager_personas",
+        lambda *a, **kw: [{"persona": "alpha", "projects": [{"path": "/home/u/alpha", "name": "alpha"}]}],
+    )
+    captured = {}
+    monkeypatch.setattr(mb, "queue_executor_task",
+                        lambda c, a, t, p, ci: Path("/tmp/fake_exec.json"))
+    monkeypatch.setattr(mb, "spawn_executor",
+                        lambda cwd, qf: captured.update(cwd=cwd, qf=qf) or True)
+    reply = mb.handle_command("/approve alpha sync-20260615", chat_id=1)
+    assert captured["cwd"] == "/home/u/alpha"
+    assert "executor" in reply.lower()
+
+
+def test_exec_routes_to_executor(monkeypatch):
+    monkeypatch.setattr(mb, "MANAGER_SKILL_NAME", "1")
+    monkeypatch.setattr(
+        mb, "_discover_manager_personas",
+        lambda *a, **kw: [{"persona": "alpha", "projects": [{"path": "/home/u/alpha", "name": "alpha"}]}],
+    )
+    monkeypatch.setattr(mb, "queue_executor_task",
+                        lambda c, a, t, p, ci: Path("/tmp/fake_exec.json"))
+    monkeypatch.setattr(mb, "spawn_executor", lambda cwd, qf: True)
+    reply = mb.handle_command("/exec alpha sync the runtime skills", chat_id=1)
+    assert "executor" in reply.lower()
+
+
+def test_queue_executor_task_payload(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(mb, "EXECUTOR_QUEUE_DIR", tmp_path)
+    path = mb.queue_executor_task("approve", ["alpha", "sync-1"], "alpha", "/home/u/alpha", 42)
+    payload = json.loads(path.read_text())
+    assert payload["command"] == "approve"
+    assert payload["args"] == ["alpha", "sync-1"]
+    assert payload["token"] == "alpha"
+    assert payload["project_path"] == "/home/u/alpha"
+    assert payload["from_chat_id"] == 42

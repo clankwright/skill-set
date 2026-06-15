@@ -1,8 +1,8 @@
 ---
 name: sst-supervisor
-description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis.
+description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.0.3
+version: 2.1.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -163,6 +163,18 @@ git -C ~/Dev/skill-set push
 ```
 
 This is the supervisor's ONLY git write surface, and it is scoped to the base repo's `skills/` tree — never the consuming project's repo (the dev cycle owns that), never a proprietary `.claude/skills/` path (gitignored), never a deploy. If the push fails (e.g. no network, non-fast-forward), record the local commit SHA in the verdict and note the push failure in `## Notes for the manager`; do NOT force-push and do NOT leave the edit uncommitted. Proprietary edits involve no git step at all.
+
+### 3b. Reconcile proprietary wrappers after a base bump (sst → ssp sync)
+
+A base transferable `sst-X` is wrapped by proprietary `ssp-*` skills that declare `transferable: sst-X` and pin the base version they were last reconciled against in a `base-version:` frontmatter key. When you bump `sst-X` (here in §3, or in §3.5.3's refinement loop), those wrappers may now reference superseded base behavior. Close that gap as part of the same edit so the upgrade is not left half-applied:
+
+1. **The wrapper you already edit.** Whenever you edit a proprietary mirror for the skill you bumped (§3 / §3.5.3 always pair a transferable edit with its proprietary mirror), set that mirror's `base-version:` to the NEW base version in the same edit — it is being reconciled right now. If the mirror has no `base-version:` key yet, add one.
+2. **Other wrappers of the same base.** Run `bin/check-ssp-sync.py` (it lists every installed wrapper whose `base-version:` trails the current base `sst-X`, is unpinned, or points at an unknown base). For each stale wrapper:
+   - **Reachable in this run's project** (`<cwd>/.claude/skills/<wrapper>/`): reconcile it in place — review its "inherits + adds + on conflict project wins" prose against the new base contract, adjust only what the bump actually changed (cite the base change, per §3's change-intent discipline), and bump its `base-version:`. Record it in the verdict's "Edits written" block as a proprietary edit.
+   - **In another project you cannot reach from this run:** do not guess. Hand it to §5c — as an autonomous executor dispatch when the reconcile is mechanical (a pure `base-version:` bump because the base change does not touch any surface the wrapper overrides), or as a HUMAN.md decision-request when the reconcile needs project judgment.
+3. **Record the sync outcome** in the verdict: which wrappers were reconciled, which were dispatched to the executor, which were filed for the human.
+
+`check-ssp-sync.py` is read-only and cheap; run it after any base-skill bump even on an otherwise-clean §3.5 refinement, so a wrapper never silently rots behind its base.
 
 ### 3.5. Batch-window refinement loop (self-tune)
 
@@ -334,6 +346,40 @@ bash bin/notify-human-md.sh <cwd> docs/HUMAN.md
 
 The helper diffs the file against the last-notified snapshot, composes a brief delta message (`[<project>] HUMAN.md: <delta summary>`), and forwards it to `bin/notify-telegram.sh`. Missing or unconfigured Telegram env → graceful skip (exit 0); a notification failure must never abort the supervisor. The anti-fork carve-out in §Output rules permits this outbound call.
 
+### 5c. Autonomous follow-up dispatch + human decision-requests
+
+§5/§5b park follow-up *work* for later (TODO, FUTURE-WORK, HUMAN.md). This step is for follow-ups the supervisor wants *acted on now* — chiefly the operational upkeep that falls out of a base-skill bump (sync the runtime copies, reconcile a drifted wrapper) or a discovered maintenance need. The framework's goal is to minimize human involvement: route as much of this as is safe to the executor, and only ask the human when a real decision is needed.
+
+**Classify each actionable follow-up into exactly one route. Default to the human route when uncertain.**
+
+**Route 1 — autonomous (dispatch to `sst-executor`).** Use when the follow-up is reversible/local framework maintenance with an unambiguous done-state: refresh the runtime skill copies (`bin/install-skills.sh`), a mechanical `base-version:` bump on a wrapper whose base change touches nothing it overrides, run a diagnostic. Collect ALL such follow-ups from this session into ONE request file and spawn the executor ONCE:
+
+```bash
+# Write the batch (one file per supervisor session) to the executor queue dir
+# (NOT the manager's bot queue — the periodic manager must never see it):
+#   ~/.claude/state/executor-queue/<utc>_supervisor-request.json
+# Shape: { command:"supervisor-request", token, project, project_path, from:"sst-supervisor",
+#          run_dir, received_at, requests:[ {id, action, rationale, tier_hint, detail}, ... ] }
+claude --print --permission-mode bypassPermissions \
+  "/sst-executor --process-supervisor-request <queue-file>"
+```
+
+The executor classifies each request into its own authority tiers, runs tier-1 work, asks the human about any tier-2 (outward/irreversible) step it discovers, refuses tier-3, and audits every action over Telegram (`sst-executor` §Authority envelope + §Mandatory audit). **At most ONE executor spawn per supervisor session** — batch, never loop. The supervisor does not wait on or parse the executor's result; the executor owns its own audit and exit. Record "dispatched N requests to the executor (<queue-file>)" in the verdict.
+
+If the `claude` binary is unavailable or the spawn fails, do NOT drop the work: fall back to Route 2 (file each intended request as a HUMAN.md decision-request) so nothing is lost. The dispatch is an optimization over the human route, not a replacement for its durability.
+
+**Route 2 — human decision-request (file to `docs/HUMAN.md` + notify).** Use when the follow-up needs a human judgment, an authorization, or an out-of-band credential — i.e. anything not clearly Route 1. File it per §5b's schema, and make it *answerable* by adding an `Asks:` line naming the exact Telegram reply that resolves it:
+
+```
+  Asks: <the decision/authorization needed, in one line>.
+  Reply: /approve <token> <id>        (to authorize a prepared action)
+     or  /feedback <token> <answer>   (to answer an open question)
+```
+
+The `Reply:` line tells the human exactly how to close the loop from their phone. `/approve <token> <id>` and `/exec <token> <action>` are routed by the bot to `sst-executor`; `/feedback` is routed to the manager as today. After the append, the existing §5b write-then-notify fires the Telegram alert. (A plain blocker the human resolves out-of-band — provisioning a secret, a cloud-IAM grant — needs no `Asks:`/`Reply:`; those lines are only for follow-ups the human closes via a bot reply.)
+
+**Anti-fork.** Route 1 may only dispatch actions inside the executor's tier-1/tier-2 envelope; never instruct the executor to deploy, to touch a watched project's git, to push `main`, or to bypass sanitize — those are tier-3 and the executor refuses them anyway, but the supervisor must not author them into a request. The executor's hard perimeters are the same ones that bind the supervisor.
+
 ### 6. Write the verdict file
 
 `<run-dir>/supervisor_verdict.md`:
@@ -420,9 +466,9 @@ Manual supervisor runs outside the chain runner inherit the user's interactive p
 
 ## Output rules
 
-- **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` for proprietary edits (in place); (c) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for transferable edits (base-repo source, committed + pushed per §3a); (d) `docs/TODO.md` under `## Next up` (rare); (e) `docs/HUMAN.md` — APPEND only, under `## Blocking` or `## High`, for human-only blocker findings (see §5b); (f) `~/.claude/state/manager-notes.md` — PREPEND only, a `## <utc-iso> supervisor observation (stuck-item)` block, exclusively for §3.6.2's stuck-item digest hint. Never elsewhere.
+- **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` for proprietary edits (in place, including a wrapper's `base-version:` reconcile per §3b); (c) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for transferable edits (base-repo source, committed + pushed per §3a); (d) `docs/TODO.md` under `## Next up` (rare); (e) `docs/HUMAN.md` — APPEND only, under `## Blocking` or `## High`, for human-only blocker findings and decision-requests (see §5b, §5c); (f) `~/.claude/state/manager-notes.md` — PREPEND only, a `## <utc-iso> supervisor observation (stuck-item)` block, exclusively for §3.6.2's stuck-item digest hint; (g) `~/.claude/state/executor-queue/<utc>_supervisor-request.json` — the single executor-request batch file for §5c Route 1 (its own queue dir, never the manager's bot queue). Never elsewhere.
 - **Git is scoped to base-repo transferable edits only.** The supervisor commits + pushes a transferable `SKILL.md` edit from `~/Dev/skill-set/` (§3a) and does nothing else with git: never commits the consuming project's repo (the dev cycle owns that), never touches a proprietary `.claude/skills/` path with git (gitignored), never force-pushes, never creates branches.
-- **Never deploy.** No SSH, no service restarts, no curl against a live site. **Exception:** invoking `bin/notify-human-md.sh` (which curls the Telegram API) immediately after a `docs/HUMAN.md` write in §5b is permitted — it is a notification call, not a deploy or production mutation. Scope is tightly limited to that one helper and that one trigger.
+- **Never deploy.** No SSH, no service restarts, no curl against a live site. **Two narrow exceptions, neither a deploy:** (1) invoking `bin/notify-human-md.sh` (which curls the Telegram API) immediately after a `docs/HUMAN.md` write in §5b/§5c; (2) spawning `sst-executor` exactly once per session for a §5c Route-1 batch (`claude --print --permission-mode bypassPermissions "/sst-executor --process-supervisor-request <queue-file>"`). The executor delegation is bounded to one spawn, carries only tier-1/tier-2 framework-maintenance requests, and the executor enforces its own perimeters + audit; it is a hand-off, not a production mutation. Both exceptions run through the `Bash` tool; everything else with SSH/curl/restart remains forbidden.
 
 ## When invoked with no run-log dir argument
 
