@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.6.2
+version: 1.7.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -221,6 +221,8 @@ Also emit a **machine-parseable summary line** to stdout immediately after decid
 ```
 
 This line is the supervisor's §3.5.1 extraction target and must appear as a standalone line in the transcript. If no batch-sizing finding fires this iter, do not emit the line.
+
+**The machine-parseable line is the SOLE handoff of a batch-sizing finding; do NOT also route it through §4.** A batch-sizing finding's resolution is the supervisor's window-target refinement (`sst-supervisor` §3.5), which aggregates these machine lines across many iters and is threshold-gated; it is not autonomous dev-cycle work. So a `[batch-sizing]` finding does NOT get filed to the spec, `## Next up`, `FUTURE-WORK.md`, or `HUMAN.md`, and does NOT count toward the §3 routed-finding total that decides whether to commit; emit the machine line and stop there. Filing it as a per-iter spec/TODO item injects skill-prose-editing work into the dev cycle's own pick queue (work the dev neither owns nor should pick, since the window-target prose lives in the dev SKILL.md the supervisor governs), displaces genuine feature items at the top of the queue, and can provoke a premature single-iter window change that §3.5's cross-iter thresholds exist to prevent.
 
 ## 3. Decide on output
 
