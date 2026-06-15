@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.1.0
+version: 2.2.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -73,6 +73,8 @@ Eligibility — all four conditions must hold:
    - `\bFAIL(ED)?\b` (both boundaries) — catches standalone `FAIL` and `FAILED`; excludes `failing`, `failure` as prose verbs/nouns.
    - `\bTraceback\b`, `\bException\b` — exact word matches; both appear standalone in Python error output. Excludes `\bException\b` when immediately preceded by `except ` (the Python source idiom `except Exception` / `except Exception as …`): a dev narrating exception-handling code it wrote or fixed is not a failure signal, and a genuinely uncaught exception still trips `\bTraceback\b` or a colon-suffixed `Exception:` (no `except ` prefix) on the same output — so the exclusion costs no real-failure sensitivity, mirroring the `tool_use_error` / `failing` exclusions above.
    - `[blocker]`, `[escalate]` — explicit skill-emitted escalation tags; brackets are non-word chars so no anchoring is needed.
+   - `Found \d+ items:` — matches `sst-dev-review`'s §6 "With findings" report line (`Found <N> items: <B> blocker, <S> should-fix`); the review emits this format only when N>0, so any match means findings were filed and a `clean (fast-path)` verdict would be false. Case-sensitive; no word-boundary anchoring needed — the sequence is specific enough to the review §6 report template that it will not appear in non-review output on a clean run.
+   - `Review follow-ups` — matches the same review §6 "With findings" report body (`Appended a "Review follow-ups" block under ...`), which appears only when the review committed findings to the spec. Case-sensitive; no anchoring needed.
 
    Plus one line-leading sentinel that does NOT abort but flags the outcome label differently:
    - `^\s*\W*\[no-work\]` — empty-queue bail; the dev skill ran but shipped no commit, so there is nothing to review at all. Outcome label becomes `clean (no-work bail)` instead of `clean (fast-path)`. The `\W*` after the leading-whitespace anchor tolerates wrapping markdown formatting the dev emits around the marker (a code-span backtick, `**bold**`, a blockquote `>`): the marker still leads its line's content, but a strict `^\s*\[no-work\]` misses a backtick-wrapped emission like `` `[no-work] queue empty ...` `` and silently mislabels a genuine no-work bail as `clean (fast-path)`. Do NOT re-tighten to `^\s*\[no-work\]`: dev skills routinely render the marker in a code span (their own prose shows it backticked), so the strict anchor reliably under-detects.
@@ -106,7 +108,7 @@ The §8 exit gate is satisfied because the verdict file exists.
 
 When any condition fails, fall through to §1 with no annotation in the eventual verdict. The fast-path is an optimization, not a user-facing contract surface.
 
-**Anti-fork constraint.** Do not extend the keyword list with soft matches like `warning`, `caveat`, or `should`: those appear routinely in clean prose. Do not add a fifth eligibility condition without spec'ing it first. The bar is intentionally tuned to favor running the deep walk when uncertain: a missed-finding from an over-eager fast-path is a real defect, while a deep-walk-on-clean is just spent compute.
+**Anti-fork constraint.** Do not extend the keyword list with soft matches like `warning`, `caveat`, or `should`: those appear routinely in clean prose. Do not add a fifth eligibility condition without spec'ing it first. The two review-findings entries above (`Found \d+ items:` and `Review follow-ups`) are the spec-authorized exception: they anchor strictly to the review skill's fixed §6 report template, not free prose — that is why they satisfy the anti-fork discipline even though they are new keyword additions (Phase 39.1). The bar is intentionally tuned to favor running the deep walk when uncertain: a missed-finding from an over-eager fast-path is a real defect, while a deep-walk-on-clean is just spent compute.
 
 ### 1. Walk every skill in MANIFEST.skills
 
