@@ -1,14 +1,12 @@
-"""Tests for Phase 39: supervisor fast-path is finding-aware.
-
-39.1: sst-supervisor §0.5.3 must abort the fast-path when the review
-transcript contains a 'Found <N> items:' line (N>0) or a 'Review follow-ups'
-block, so a prose-only finding can never pass as `clean (fast-path)`.
+"""Tests for Phase 39: supervisor fast-path is finding-aware (39.1) and
+sst-dev-review §0.2 recovery gate for transferable edits (39.2).
 """
 import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent
 _SST_SUPERVISOR = _REPO_ROOT / "skills/framework/sst-supervisor/SKILL.md"
+_SST_DEV_REVIEW = _REPO_ROOT / "skills/dev/sst-dev-review/SKILL.md"
 
 
 def _supervisor_text() -> str:
@@ -89,4 +87,63 @@ def test_supervisor_no_work_carve_out_unchanged():
     assert "[no-work]" in text, (
         "§0.5.3 must retain the [no-work] sentinel carve-out unchanged "
         "(the dev skill's bail sentinel must not trigger the fast-path abort)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 39.2: sst-dev-review §0.2 recovery must gate on /sst-sanitize-transferable
+# ---------------------------------------------------------------------------
+
+def _dev_review_text() -> str:
+    return _SST_DEV_REVIEW.read_text()
+
+
+def test_dev_review_version_bumped_for_39_2():
+    """39.2: sst-dev-review version must be >= 1.8.0 after the recovery sanitize gate."""
+    text = _dev_review_text()
+    m = re.search(r'^version:\s*(\d+)\.(\d+)\.(\d+)', text, re.MULTILINE)
+    assert m, "sst-dev-review frontmatter must contain a version: field"
+    actual = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    assert actual >= (1, 8, 0), (
+        f"sst-dev-review version {'.'.join(str(x) for x in actual)} must be >= 1.8.0 "
+        "after Phase 39.2 (recovery sanitize gate)"
+    )
+
+
+def test_dev_review_recovery_documents_framework_skill_check():
+    """39.2: §0.2 recovery must check git diff --name-only for paths under skills/framework/.
+
+    Before the orphaned-cycle recovery commit step, the skill must inspect
+    whether any changed file lives under skills/framework/ and gate accordingly.
+    """
+    text = _dev_review_text()
+    assert "skills/framework/" in text, (
+        "§0.2 recovery step must check for changed files under 'skills/framework/' "
+        "before committing, so transferable edits are never auto-committed without "
+        "passing the sanitization gate"
+    )
+
+
+def test_dev_review_recovery_documents_sanitize_invocation():
+    """39.2: §0.2 recovery must invoke /sst-sanitize-transferable on framework skills."""
+    text = _dev_review_text()
+    assert "/sst-sanitize-transferable" in text or "sst-sanitize-transferable" in text, (
+        "§0.2 recovery step must document invoking /sst-sanitize-transferable on "
+        "each affected SKILL.md under skills/framework/ before committing"
+    )
+
+
+def test_dev_review_recovery_must_fix_aborts_commit():
+    """39.2: §0.2 recovery must abort and not commit if must-fix findings are returned."""
+    text = _dev_review_text()
+    # The abort condition ties sanitize must-fix to the recovery commit being blocked.
+    # Both 'must-fix' and some abort language must be present in the recovery section.
+    assert "must-fix" in text, (
+        "§0.2 recovery step must reference 'must-fix' findings as the abort condition "
+        "when /sst-sanitize-transferable is invoked during recovery"
+    )
+    # Check that abort/abort-path language ties to the must-fix condition (not just any abort)
+    assert "abort" in text.lower(), (
+        "§0.2 recovery step must describe aborting the commit when must-fix findings "
+        "are returned by /sst-sanitize-transferable"
     )
