@@ -14,6 +14,7 @@ Covers:
 - 42.5 drive-chain.py shim: existing callers still work; wrapper logic lives
   only in skill-chain.py; shim prints a one-line deprecation notice.
 - 42.7 unified flag matrix: batch mode + shim forwarding covered by tests.
+- 42.10 --dry-run must not create output directory trees as a side effect.
 """
 import importlib.util
 import subprocess
@@ -571,3 +572,41 @@ def test_overnight_profile_sourced_budget_satisfies_cap_requirement():
     assert args.max_budget_usd == 25.0  # profile fills it in
     sc._apply_preset(args, explicit_loop=False)  # must not raise
     assert args.loop == 0
+
+
+# ---- 42.10: --dry-run must not create output directories --------------------
+
+def test_batch_dry_run_does_not_create_output_dirs(tmp_path):
+    """--dry-run must not create output directory trees as a side effect.
+
+    Regression for 42.10: mkdir ran before the dry-run early-continue,
+    creating empty nested subdirs even when no skill was actually invoked.
+    """
+    in_dir = tmp_path / "inputs"
+    in_dir.mkdir()
+    out_dir = tmp_path / "outputs"  # must NOT be created during dry-run
+    (in_dir / "alpha.txt").write_text("a")
+    (in_dir / "beta.txt").write_text("b")
+
+    args = sc.parse_args([
+        "my-skill",
+        "--batch", "*.txt",
+        "--output-template", "nested/subdir/{stem}.out",
+        "--inputs-cwd", str(in_dir),
+        "--output-cwd", str(out_dir),
+        "--dry-run",
+        "--no-log",
+    ])
+
+    class _MockHarness(sc.Harness):
+        name = "mock"
+
+        def build_command(self, skill_name, *, model=None, effort=None,
+                          extra_prompt="", resume_session_id=None):
+            return ["echo", skill_name]
+
+    sc.run_batch_mode(args, _MockHarness(), str(tmp_path))
+
+    assert not out_dir.exists(), (
+        f"--dry-run must not create output dirs; found: {list(out_dir.rglob('*'))}"
+    )
