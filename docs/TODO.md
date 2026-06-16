@@ -22,6 +22,7 @@
   phase blocks and `git log`.
 -->
 
+- reconcile ssp-cm-supervisor base-version pin (2.1.0→2.2.0): reviewed wrapper against 39.1 finding-aware-abort change (§0.5.3 not overridden, reconcile is mechanical); check-ssp-sync clean for all 6 CM wrappers; 311→311 green — by sst-dev-cycle at 2026-06-16T14:10:00Z
 - 41.5+41.6 CM tester rollout: author `ssp-cm-tester` wrapper (CM ports 5003/3000, `web/e2e` spec map, `.auth/state.json` 36h reuse, full teardown, never push/main/test/dev1), insert it into `cm-cycle.yaml` (dev → tester → review, v1.2.0), mirror the tester-findings read into `ssp-cm-dev-review` + the guidance/`[skip-tester]` branch into `ssp-cm-dev`, reconcile both wrappers' base-version pins (dev→1.9.0, review→1.11.0); CM `.claude/` is gitignored runtime state so deliverables persist on disk (no CM commit); validate-frontmatter + schema + check-ssp-sync (3 wrappers in-sync) all clean; skill-set suite 311→311 green; FUTURE-WORK acceptance filed — by sst-dev-cycle at 2026-06-16T13:30:00Z
 - 41.11 fix incomplete-cycle recovery message: use first non-tester non-supervisor follower; 1 new test, 310→311 green — by sst-dev-cycle at 2026-06-16T12:00:00Z
 - 41.3+41.4+41.9+41.10 reviewer consumes tester findings, insert sst-tester into framework chains, dev writes tester-guidance.md / [skip-tester], runner honors skip; 24 new tests, 286→310 green; sanitize must-fix=0 on both transferables — by sst-dev-cycle at 2026-06-16T11:00:00Z
@@ -31,7 +32,6 @@
 - Phase 43 [hard batch, 43.1-43.5] close the sanitize→commit seam: relocate `sst-dev-cycle` sanitize gate into §3 step 5 (before §4 verify), rewrite §5 as "runs in §3" pointer + §7 "final action" framing (1.7.1→1.8.0); reorder `sst-dev-review §0.2` recovery so sanitize runs before staging + document the 5-signal recovery-first health predicate + recover-then-review order (1.9.0→1.10.0); relax `bin/skill-chain.py` `contract_violation` kill via `_contract_violation_aborts()` (follower-recovered HEAD-advance continues the loop); `tests/test_phase43.py` grep-guard + recovery-predicate + relaxed-kill (13 new, 252→265 green); sanitize must-fix=0 on both transferables; validator clean; Phase 43 migrated to SPEC-DONE.md — by sst-dev-cycle at 2026-06-16T01:15:00Z
 - 39.3 sst-dev-review §0.2: widen recovery sanitize gate to sst-*/SKILL.md; version 1.8.0→1.9.0; 2 new tests, 250→252 green — by sst-dev-cycle at 2026-06-16T00:00:00Z
 - 39.2 sst-dev-review §0.2 recovery: add sanitize gate — check staged `skills/framework/` paths, invoke `/sst-sanitize-transferable`, abort on must-fix; version 1.7.0→1.8.0; 4 new tests, 246→250 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-15T00:35:00Z
-- 39.1 sst-supervisor §0.5.3 fast-path: abort on review-reported findings; added `Found \d+ items:` and `Review follow-ups` abort conditions to §0.5.3 keyword list; Anti-fork constraint updated; version 2.1.0→2.2.0; 5 new tests, 241→246 green — by sst-dev-cycle at 2026-06-15T00:00:00Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -41,7 +41,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] reconcile `ssp-cm-supervisor` base-version pin (stale: pinned 2.1.0, base `sst-supervisor` 2.2.0 since the 39.1 fast-path change) — discovered by `check-ssp-sync` during the 41.5+41.6 cycle; review the wrapper against the 39.1 finding-aware-abort base change, then bump `base-version: 2.2.0`. Not phase-41 work; a standing CM-wrapper reconcile.
 - [medium] 41.7+41.8 clean-exit + artifact-hygiene enforcement (zero in-tree artifacts, guaranteed teardown, no orphan procs/ports) + tooling/install/docs wiring (`bin/install-skills.sh`, `bin/check-ssp-sync.py`, `README.md`, `CLAUDE.md`) — spec Phase 41; closes the phase
 - [hard] 42.1+42.2 spec the unified chain-run CLI + merge `drive-chain.py`'s wrapper (budget/`--max-cycles`/telegram/profile/label) natively into `bin/skill-chain.py` so all flags live in one parser (no more `-- ` forwarding) — collapse skill-chain/drive-chain/overnight/skill-batch into one entrypoint; user request 2026-06-15 (spec Phase 42)
 - [medium] 42.3+42.4+42.5+42.6+42.7 `--overnight` preset + fold `skill-batch.py` into a `--batch` mode + `drive-chain.py`/`skill-batch.py` deprecation shims + migrate `*-chain-driver` skills/cron/docs to the single runner + unified-flag-matrix tests — spec Phase 42; depends on 42.1/42.2
