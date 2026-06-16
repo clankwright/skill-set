@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.9.0
+version: 1.10.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -39,22 +39,31 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, `docs/FUTURE-WORK.md`, and `doc
 ## 0. Pre-flight
 
 1. Working directory is the project root (same repo as the commit you're reviewing). Activate any language environment the project uses.
-2. **Orphaned-dev-cycle recovery.** Before the note-and-proceed pass, detect and recover any dev cycle that exited without committing. This fires when the chain runner's Phase 36 guard detected an incomplete dev cycle and routed this skill to attempt recovery instead of aborting:
-   a. Run `git status --porcelain`. If empty, skip to step 3 (clean tree, nothing to recover).
-   b. Read `docs/TODO.md`'s `## In flight` section (strip HTML comments). If it contains no `- [` bullet, skip to step 3 (dirty tree is unrelated noise — see step 3).
-   c. **Both signals present (dirty tree + live In-flight line).** Recovery path:
-      1. Run the project's full test suite (`pytest tests/ -q` or equivalent). If **any** test fails: print `[incomplete-cycle] tests failing in dirty tree; cannot auto-commit`, surface the failure detail to the user, and **exit**. Do NOT commit or push.
+2. **Recovery-first: orphaned-dev-cycle recovery (recover, THEN review).** As the FIRST action of this skill's turn — **before the review pass** (§1 onward) — detect and recover any dev cycle that exited without committing. A missed commit is healed at the top of this stage rather than left to abort the loop. This fires when the chain runner's Phase 36 guard detected an incomplete dev cycle and routed this skill to attempt recovery instead of aborting.
+
+   **Recovery-first health predicate (Phase 43/43.3).** Recover the orphaned cycle ONLY when all five signals hold — an incomplete-but-*healthy* cycle, i.e. the dev "just missed" its own commit:
+   - **dirty tree** — `git status --porcelain` is non-empty; AND
+   - **In-flight line** — `docs/TODO.md`'s `## In flight` section carries a live `- [` bullet; AND
+   - **HEAD unchanged** — HEAD did not advance during the dev skill's run (the runner routed here precisely because `sha_before == sha_after`); AND
+   - **tests green** — the project's full test suite passes in the dirty tree; AND
+   - **sanitize clean** — any staged transferable `SKILL.md` returns zero `must-fix` findings.
+
+   When all five hold, commit the dev's work now (the recovery commit), then continue to the review pass. If any signal fails, do not recover — fall through to the §0.3 note-and-proceed pass. Steps:
+   a. Run `git status --porcelain`. If empty (clean tree → no **dirty tree**), skip to step 3 (nothing to recover).
+   b. Read `docs/TODO.md`'s `## In flight` section (strip HTML comments). If it contains no `- [` bullet (no **In-flight line**), skip to step 3 (dirty tree is unrelated noise — see step 3).
+   c. **Both signals present (dirty tree + live In-flight line); HEAD unchanged is established by the runner's routing.** Recovery path — note the **sanitize clean** gate (sub-step 4) runs BEFORE staging + commit so it is never the step immediately before the commit (Phase 43/D2 seam fix):
+      1. Run the project's full test suite (`pytest tests/ -q` or equivalent). If **any** test fails (**tests green** signal absent): print `[incomplete-cycle] tests failing in dirty tree; cannot auto-commit`, surface the failure detail to the user, and **exit**. Do NOT commit or push.
       2. Tests pass. Extract the scope + description from the In-flight line (format: `- [<skill> @ <utc>] <description>`).
-      3. Inspect dirty files: `git diff --name-only` and `git ls-files --others --exclude-standard`.
-      4. If `docs/SPEC.md` has any `- [ ]` items covered by the In-flight scope that appear modified in the diff, flip them to `- [x]` now.
-      5. Finalize `docs/TODO.md`: delete the In-flight bullet from step (b); prepend to `## Just shipped`: `- <description from In-flight line> — by sst-dev-cycle at <utc from In-flight timestamp>`.
-      6. Stage all changed files by name: `git add <code-files> <test-files> docs/SPEC.md docs/TODO.md`. Never `git add -A`.
-      7. **Sanitize gate for transferable edits.** Check the staged diff for any transferable skill path: run `git diff --name-only --cached` (or inspect the files staged in step 6). If any staged path matches `skills/**/sst-*/SKILL.md`, invoke `/sst-sanitize-transferable` on each affected `SKILL.md` before committing:
+      3. Inspect changed files: `git diff --name-only` and `git ls-files --others --exclude-standard`.
+      4. **Sanitize gate for transferable edits (runs BEFORE staging — the seam fix).** From the changed-file list in step 3, check for any transferable skill path matching `skills/**/sst-*/SKILL.md`. If any match, invoke `/sst-sanitize-transferable` on each affected `SKILL.md` now — before the spec-flip, the TODO finalize, the staging, and the commit:
          ```
          /sst-sanitize-transferable <path-to-affected-SKILL.md>
          ```
-         Read the resulting findings. If any `must-fix` finding is returned: print `[incomplete-cycle] must-fix sanitize finding in recovery commit; cannot auto-commit — rewrite the banned token or confine the change to a proprietary skill`, surface the finding detail, and **abort** (do NOT commit or push). A must-fix finding means auto-committing would ship proprietary-leakage into a transferable skill — the same gate `sst-dev-cycle §5` enforces and that `sst-supervisor` and the project `CLAUDE.md` require. If no `skills/**/sst-*/SKILL.md` paths are staged, or if the sanitize check returns zero must-fix findings, proceed to step 8.
-      8. Commit:
+         Read the resulting findings. If any `must-fix` finding is returned (**sanitize clean** signal absent): print `[incomplete-cycle] must-fix sanitize finding in recovery commit; cannot auto-commit — rewrite the banned token or confine the change to a proprietary skill`, surface the finding detail, and **abort** (do NOT commit or push). A must-fix finding means auto-committing would ship proprietary-leakage into a transferable skill — the same gate `sst-dev-cycle` §3/§5 enforces and that `sst-supervisor` and the project `CLAUDE.md` require. If no `skills/**/sst-*/SKILL.md` paths changed, or if the sanitize check returns zero must-fix findings, proceed to step 5. Running this gate here, not as the step immediately before the commit, mirrors `sst-dev-cycle` §3: the spec-flip + TODO finalize + staging + commit all still follow it, so its clean return is never mistaken for the end of recovery.
+      5. If `docs/SPEC.md` has any `- [ ]` items covered by the In-flight scope that appear modified in the diff, flip them to `- [x]` now.
+      6. Finalize `docs/TODO.md`: delete the In-flight bullet from step (b); prepend to `## Just shipped`: `- <description from In-flight line> — by sst-dev-cycle at <utc from In-flight timestamp>`.
+      7. Stage all changed files by name: `git add <code-files> <test-files> docs/SPEC.md docs/TODO.md`. Never `git add -A`.
+      8. Commit (this is the recovery's final action — no `/skill` sub-invocation sits between the sanitize gate in step 4 and this commit):
          ```bash
          git commit -m "$(cat <<'EOF'
          <Scope>: <description from the In-flight line>
@@ -67,7 +76,7 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, `docs/FUTURE-WORK.md`, and `doc
          )"
          ```
       9. `git push origin <branch>`.
-   d. After a successful recovery commit, continue to step 3. The working tree may still carry supervisor-side `.claude/skills/*/` dirt — that is normal and handled by step 3.
+   d. After a successful recovery commit, continue to step 3 (the review pass follows: recover, THEN review). The working tree may still carry supervisor-side `.claude/skills/*/` dirt — that is normal and handled by step 3.
 3. Git state check: **note and proceed**. Run `git status --porcelain` and capture the output verbatim. The review runs against the just-shipped cycle commit (HEAD by default, or the cumulative surface when the cycle shipped >1 commit) regardless of working-tree dirt; the dirt is captured as a "Working-tree state at review start" note in the §6 report and (when §4 fires) in the §5 commit body, then ignored. Rationale: the project's supervisor (when the project runs `sst-supervisor` or a `<project>-supervisor` proprietary counterpart) routinely leaves direct-overwritten edits to peer SKILL.md files uncommitted in `<cwd>/.claude/skills/*/` as its contract; parallel agent sessions and the user's own concurrent edits can also legitimately touch project source while a review runs. Halting on either case wastes the cycle's commit and forces the user to babysit the working tree. Concrete rules:
    - Capture the porcelain output. If non-empty, surface it as the "Working-tree state at review start" note in the §6 report and (when §4 fires) include it in the §5 commit body. Surfacing what wasn't part of the just-shipped commit is the value-add; reviewer-side rather than dev-side because the dev cycle has already committed (and pushed) by the time the review starts.
    - Do NOT stash, checkout, or modify any of the dirty files. They are out-of-scope for the review.
