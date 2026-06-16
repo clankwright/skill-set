@@ -179,6 +179,7 @@ Moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-20-deferred-goose-cerebras-h
 
 **Review follow-ups (open — schedule as the next `/sst-dev-cycle` cycle):**
 - [x] 42.8 [medium] [should-fix] `bin/skill-chain.py` — extracted profile default-application block into `_apply_profile_defaults(args, profile, explicit_loop)` with 5 tests covering: all-fields-filled-when-unset, explicit-CLI-wins-per-field, explicit-loop-suppresses-max-cycles, no-explicit-loop-fills-max-cycles, empty-profile-is-noop. `main()` now delegates to the pure helper; profile loading path unchanged; 350→363 green.
+- [ ] 42.9 [easy] [should-fix] `tests/test_phase42.py` — no test covers the documented guarantee that a profile-sourced cap satisfies `--overnight`'s cap requirement; 42.3's commit message states "Applied after profile defaults so a profile-sourced cap satisfies the cap requirement" but every existing test provides the cap via CLI. A future reorder of the `_apply_profile_defaults` / `_apply_preset` calls in `main()` would silently break this guarantee and give users a false "requires cap" error on profile-configured overnight runs. Proposed fix: add one integration test that calls `_apply_profile_defaults(args, {"default-max-budget-usd": "25.0"}, explicit_loop=False)` then `_apply_preset(args, explicit_loop=False)` on `parse_args(["--chain", "x", "--overnight"])` (no CLI cap), asserting no SystemExit and `args.loop == 0`.
 
 ### Phase 43: review follow-ups (sanitize-seam fix + recovery-first reviewer)
 
