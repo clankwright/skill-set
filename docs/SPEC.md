@@ -120,3 +120,10 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 ### Phase 20 (deferred): `goose-cerebras` harness + portability proof
 
 Moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-20-deferred-goose-cerebras-harness--portability-proof). Re-pick conditions are documented there.
+
+### Phase 46: remove the Phase 42 deprecation shims
+
+**Context.** Phase 42.4/42.5 reduced `bin/drive-chain.py` and `bin/skill-batch.py` to thin deprecation shims that forward to the unified `bin/skill-chain.py`. Per user request, remove them entirely — the unified runner is the only entrypoint. Phase 42.6 already migrated every in-repo caller to `skill-chain.py`, so this is a clean deletion plus a scrub of the remaining shim-specific tests and references. Historical mentions in `docs/SPEC-DONE.md` (the Phase 42 record) are a changelog and stay.
+
+- [ ] 46.1 [medium] **Delete the shim scripts + their tests.** Remove `bin/drive-chain.py` and `bin/skill-batch.py`; remove or repoint their tests — `tests/test_drive_chain_telegram.py` (repoint to `skill-chain.py`'s native telegram path if it still covers live behavior, else delete) and the shim-forwarding cases in `tests/test_phase42.py`. Acceptance: both `bin/` files are gone; no test imports or invokes the deleted shims; full `tests/` suite green.
+- [ ] 46.2 [medium] **Scrub remaining shim references.** Ensure `skills/framework/sst-chain-driver/SKILL.md` (transferable — run `/sst-sanitize-transferable` before committing), `bin/notify-telegram.sh`, and `bin/skill-chain.py` reference only `skill-chain.py` (no functional `drive-chain.py`/`skill-batch.py` mention); leave the historical Phase 42 text in `docs/SPEC-DONE.md` intact. Acceptance: a `grep -rn "drive-chain.py\|skill-batch.py"` across `bin/`, `skills/`, `tests/` returns nothing (only `docs/SPEC-DONE.md` historical text remains); `/sst-sanitize-transferable` must-fix 0 on `sst-chain-driver`; `bin/validate-frontmatter.py` clean.
