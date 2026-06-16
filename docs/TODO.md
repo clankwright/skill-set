@@ -18,6 +18,7 @@
   phase blocks and `git log`.
 -->
 
+- 42.9 add integration test: profile-sourced budget satisfies --overnight cap requirement (no CLI cap + profile fills → no SystemExit, loop=0); 363→364 green — by sst-dev-cycle at 2026-06-16T19:05:00Z
 - 42.8+42.3 extract `_apply_profile_defaults` pure helper (5 tests: all-fields/explicit-wins/explicit-loop-suppresses-max-cycles) + add `--overnight`/`--preset overnight` preset (`_apply_preset`, `PRESETS` dict, cap check, `--loop` mutual exclusion, 8 tests); 350→363 green — by sst-dev-cycle at 2026-06-16T18:00:00Z
 - 42.1+42.2 unify the chain-run CLI: merge drive-chain.py's wrapper layer natively into bin/skill-chain.py — six inert-when-unset flags (--profile/--max-budget-usd/--max-cycles/--telegram-env/--no-telegram/--label), profile defaults below CLI args, opt-in Telegram (4 event classes incl. real-time pause/resume via a notify callback), pure `_wrapper_halt_reason` budget/cycle/escalation halt, `UNIFIED_CLI_EPILOG` flag-mapping in --help; 23 new tests (tests/test_phase42.py), 327→350 green — by sst-dev-cycle at 2026-06-16T16:45:00Z
 - 41.7+41.8 Phase 41 close: 16 hygiene/tooling tests (git-status-porcelain, finally/trap teardown, port-free, out-of-tree artifacts, install-skills lists sst-tester, check-ssp-sync clean); README chain descriptions + floor table + worked example updated for dev→tester→review; CLAUDE.md updated; 311→327 green — by sst-dev-cycle at 2026-06-16T15:30:00Z
@@ -38,8 +39,6 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
-
-- [easy] [should-fix] 42.9 `tests/test_phase42.py` add integration test for profile-sourced cap satisfying `--overnight` requirement (no CLI cap + profile fills budget → preset expands without error) — review of 791a9e5
 
 - [medium] 42.4+42.5+42.6+42.7 fold `skill-batch.py` into a `--batch` mode + `drive-chain.py`/`skill-batch.py` deprecation shims + migrate `*-chain-driver` skills/cron/docs to the single runner + unified-flag-matrix tests — spec Phase 42; 42.1/42.2/42.3/42.8 now landed
 
