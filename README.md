@@ -90,9 +90,9 @@ Loop mode pairs naturally with skills that pick the next item from `TODO.md > Ne
 
 | Chain                            | Loop      | Auto-promote   | Use case                                                                                  |
 | :---                             | :---      | :---           | :---                                                                                      |
-| `dev-cycle-with-review`          | 1         | `proprietary`  | Single-item dev work. Conservative supervisor routing (proprietary edits land; transferable improvements wait for human promotion). |
-| `dev-cycle-with-review-looped`   | 3         | `all`          | Three-item dev batch. Aggressive routing so the supervisor's transferable improvements land within the run and later iterations consume them. |
-| `dev-cycle-overnight`            | 0         | `all`          | Unattended overnight drain of `TODO.md > Next up`. Auto-stops when the queue is exhausted (dev skill emits `[no-work]`, runner aborts the loop); `sst-chain-driver --max-budget-usd $X` is the secondary safety net. Randomized [5min, 2h] inter-iter delay keeps commit cadence human-shaped. |
+| `dev-cycle-with-review`          | 1         | `proprietary`  | Single-item dev work; stage order: `dev → tester → review`. Conservative supervisor routing (proprietary edits land; transferable improvements wait for human promotion). |
+| `dev-cycle-with-review-looped`   | 3         | `all`          | Three-item dev batch; stage order: `dev → tester → review`. Aggressive routing so the supervisor's transferable improvements land within the run and later iterations consume them. |
+| `dev-cycle-overnight`            | 0         | `all`          | Unattended overnight drain of `TODO.md > Next up`; stage order: `dev → tester → review`. Auto-stops when the queue is exhausted (dev skill emits `[no-work]`, runner aborts the loop); `sst-chain-driver --max-budget-usd $X` is the secondary safety net. Randomized [5min, 2h] inter-iter delay keeps commit cadence human-shaped. |
 | `editorial-with-fact-check`      | 1         | `off`          | Run a draft through an editorial pass with citation verification. No supervisor self-modification. |
 | `multi-output-evaluation`        | 1         | `off`          | Compare N candidate outputs on a rubric and pick the best. |
 | `research-and-write`             | 1         | `off`          | Research a topic and produce a synthesized written deliverable. |
@@ -137,7 +137,7 @@ The framework's canonical floor table:
 | Skill class                                                                 | `model-floor` | `effort-floor` |
 | :---                                                                        | :---          | :---           |
 | `sst-supervisor`, `sst-sanitize-transferable`                               | `opus`        | `xhigh`        |
-| `sst-dev-cycle`, `sst-dev-review`, `sst-skill-router`, `sst-editorial-pass`, `sst-iterative-writer`, `sst-literary-critic` | `sonnet` | `high` |
+| `sst-dev-cycle`, `sst-tester`, `sst-dev-review`, `sst-skill-router`, `sst-editorial-pass`, `sst-iterative-writer`, `sst-literary-critic` | `sonnet` | `high` |
 | `sst-manager`                                                               | `sonnet`      | `high`         |
 | `sst-translator`, `sst-fact-checker`, `sst-output-selector`, `sst-llm-judge-ranker`, `sst-email-control-loop`, `sst-setup-telegram` | `haiku` | `medium` |
 
@@ -158,17 +158,18 @@ effective_effort = max(item.effort_tier, skill.effort_floor)  over {low < medium
 
 Routing flow: the runner pre-parses the next item's difficulty BEFORE invoking the iter's first skill (the dev). The dev skill emits `[picked-difficulty: <tier>]` on stdout before its first tool call as the source of truth; if the actual pick differs from the pre-parse, the runner overrides the iter's difficulty for downstream skills (review, supervisor) only. Each skill's resolved route logs as `[route] /<skill>: difficulty=<d> floors=(<m>,<e>) -> model=<M> effort=<E>` and lands on the iter manifest's `route` sub-record for post-hoc analysis.
 
-**Worked example** — a `[medium]` item picked by `sst-dev-cycle`, reviewed by `sst-dev-review`, then supervised by `sst-supervisor`:
+**Worked example** — a `[medium]` item picked by `sst-dev-cycle`, tested by `sst-tester`, reviewed by `sst-dev-review`, then supervised by `sst-supervisor`:
 
 | Skill                    | item tier         | skill floor       | resolved          |
 | :---                     | :---              | :---              | :---              |
 | `sst-dev-cycle`          | sonnet, medium    | sonnet, high      | **sonnet, high**  |
+| `sst-tester`             | sonnet, medium    | sonnet, high      | **sonnet, high**  |
 | `sst-dev-review`         | sonnet, medium    | sonnet, high      | **sonnet, high**  |
 | `sst-supervisor`         | sonnet, medium    | opus, xhigh       | **opus, xhigh**   |
 
-The dev + review run on Sonnet+high (effort floor wins on the effort axis; model floor matches the item tier on the model axis); the supervisor still runs on Opus+xhigh because its floors win on both axes regardless of item difficulty. A `[hard]` item by the same chain would lift dev + review to Opus+high (item tier wins on both axes); an `[easy]` item by `sst-translator` would run on Haiku+low (floors match the item tier).
+The dev, tester, and review run on Sonnet+high (effort floor wins on the effort axis; model floor matches the item tier on the model axis); the supervisor still runs on Opus+xhigh because its floors win on both axes regardless of item difficulty. A `[hard]` item by the same chain would lift dev, tester, and review to Opus+high (item tier wins on both axes); an `[easy]` item by `sst-translator` would run on Haiku+low (floors match the item tier).
 
-**Throughput impact.** Combined with the dev/review tier dropping from Opus+xhigh to Sonnet+high on most items, routing review-class work to Sonnet+medium and mechanical work to Haiku+low cuts quota burn per iter to ~25-35% of an all-Opus+xhigh baseline (~3-4× more iters per Max window). Supervisor + sanitize stay on Opus+xhigh on every cycle since their floors are absolute; transferable skill edits committed by the supervisor are still authored at the supervisor's Opus+xhigh route.
+**Throughput impact.** Combined with the dev/tester/review tier dropping from Opus+xhigh to Sonnet+high on most items, routing review-class work to Sonnet+medium and mechanical work to Haiku+low cuts quota burn per iter to ~25-35% of an all-Opus+xhigh baseline (~3-4× more iters per Max window). Supervisor + sanitize stay on Opus+xhigh on every cycle since their floors are absolute; transferable skill edits committed by the supervisor are still authored at the supervisor's Opus+xhigh route.
 
 **Anti-fork rule.** Floors are declared in SKILL.md frontmatter; the runner reads them, never invents them. The `max()` resolution rule binds at both axes — there is no path that lets an item difficulty drop a skill below its floor, and no fifth resolution input that bypasses both axes. If a new skill class needs a different floor pair, add the frontmatter values; don't branch the resolver.
 
