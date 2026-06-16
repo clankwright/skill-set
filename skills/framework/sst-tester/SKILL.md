@@ -59,7 +59,7 @@ This skill detects its mode from its args and environment; there is no separate 
 - **Standalone mode (`--phase <id>` and/or `--todos <ref...>`).** Invoked directly by the user from the terminal to deliberately exercise EVERY UI/UX surface a whole phase, or a named set of completed todos, introduced (not just the latest diff). Resolves a surface set from the scope args (D2), iterates over all of them accumulating findings (D3), and writes the findings out-of-tree (D4). See **Standalone mode** below.
 - **Looped-standalone mode (no scope args; `## Tester sweep targets` queue present).** Invoked via `bin/skill-chain.py <tester-skill> --loop N` with no `--phase`/`--todos`. Selects the next unexercised target from the `## Tester sweep targets` section of `docs/TODO.md`, exercises it, and exits. Each iteration drains one target; the out-of-tree exercised-state file at `~/.claude/state/sst-tester/<project-slug>/queue-<run-utc>.json` accumulates across iterations so each pass picks a fresh target. When the queue is exhausted (or absent), emits `[no-test-work]` and exits 0 WITHOUT starting the browser or local stack; the chain runner aborts the loop on this sentinel. See **Looped standalone drain** below.
 
-The presence of `--phase` or `--todos` selects standalone mode; their absence with a `## Tester sweep targets` queue present selects looped-standalone mode; their absence with no queue (or when invoked in-chain by the dev chain) runs in-chain. All three modes share the same authority envelope, the same headed/headless policy, the same guaranteed teardown, the same out-of-tree artifact rule, and the same findings contract. Mode changes only *what* is in scope and *where* the findings land, never the read-only / no-commit / no-deploy guarantees.
+The presence of `--phase` or `--todos` selects standalone mode; their absence with a `## Tester sweep targets` queue present AND no `tester-guidance.md` from the preceding dev skill (i.e. not invoked in-chain) selects looped-standalone mode; their absence with no queue, or when `tester-guidance.md` is present (in-chain invocation), runs in-chain. All three modes share the same authority envelope, the same headed/headless policy, the same guaranteed teardown, the same out-of-tree artifact rule, and the same findings contract. Mode changes only *what* is in scope and *where* the findings land, never the read-only / no-commit / no-deploy guarantees.
 
 ## Authority envelope (D5)
 
@@ -129,7 +129,7 @@ Invoked from the terminal to sweep all UI/UX a phase or a set of completed todos
 
 - `--phase <id>`: resolve every closed UI surface under `### Phase <id>` of `docs/SPEC.md`.
 - `--todos <ref...>`: resolve the UI surfaces of one or more named `## Just shipped` entries in `docs/TODO.md`.
-- Either flag (or both together) selects standalone mode; the two are additive (pass both to union their resolved surface sets). With neither flag the skill runs in-chain (default) exactly as before.
+- Either flag (or both together) selects standalone mode; the two are additive (pass both to union their resolved surface sets). With neither flag: if `tester-guidance.md` is absent AND a `## Tester sweep targets` queue exists in `docs/TODO.md`, the skill runs in looped-standalone drain mode; otherwise it runs in-chain (default).
 
 ### Scope resolution (D2)
 

@@ -339,3 +339,50 @@ def test_tester_version_bumped_for_looped_standalone():
         and parts[0] == "1"
         and int(parts[1]) >= 2
     ), f"sst-tester version must be at least 1.2.0 after Phase 48 (got {version})"
+
+
+# ---------------------------------------------------------------------------
+# 48.4: D1 dispatch discriminator (in-chain guard) + stale line 132 fix
+# ---------------------------------------------------------------------------
+
+def test_d1_dispatch_includes_in_chain_discriminator():
+    """D1 mode-select paragraph must include the tester-guidance.md in-chain guard.
+
+    A project that has a `## Tester sweep targets` queue AND runs the tester
+    in-chain (with tester-guidance.md present from the dev skill) must NOT enter
+    looped-standalone mode.  The fix adds the discriminator to line 62's rule:
+    'queue present AND no tester-guidance.md from the preceding dev skill'.
+    """
+    text = _tester_text()
+    # The D1 mode-selection paragraph is the one that starts with
+    # "The presence of `--phase` or `--todos`".
+    assert "tester-guidance.md" in text, (
+        "D1 dispatch paragraph must reference tester-guidance.md as the in-chain discriminator"
+    )
+    # The looped-standalone trigger condition must mention the in-chain guard,
+    # not just "queue present".
+    d1_para_match = re.search(
+        r"The presence of `--phase`.*?(?=\n\n|\Z)", text, re.DOTALL
+    )
+    assert d1_para_match is not None, "D1 dispatch paragraph not found"
+    d1_para = d1_para_match.group(0)
+    assert "tester-guidance.md" in d1_para, (
+        "D1 dispatch paragraph must reference tester-guidance.md to discriminate "
+        "in-chain from looped-standalone when a queue is present"
+    )
+
+
+def test_standalone_arg_surface_d1_updated_for_third_mode():
+    """Standalone-mode D1 paragraph must not claim 'in-chain (default) exactly as before'.
+
+    Phase 48 added looped-standalone as a third mode, so 'with neither flag the
+    skill runs in-chain (default) exactly as before' is now stale and must be
+    replaced with text that acknowledges the third mode.
+    """
+    text = _tester_text()
+    # The stale phrase must no longer appear verbatim.
+    stale_phrase = "runs in-chain (default) exactly as before"
+    assert stale_phrase not in text, (
+        f"Stale phrase '{stale_phrase}' must be removed from standalone D1 paragraph; "
+        "replace it with text acknowledging looped-standalone as the third mode"
+    )
