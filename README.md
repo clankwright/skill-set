@@ -83,6 +83,14 @@ bin/skill-chain.py sst-dev-review --batch 'skills/**/*.md' --output-template 're
 /sst-tester --todos "47.1+47.2 README"
 ```
 
+**Looped tester drain (drain a `## Tester sweep targets` queue, one target per iteration, stopping when exhausted):**
+
+```bash
+bin/skill-chain.py sst-tester --loop 5
+# with a proprietary wrapper:
+bin/skill-chain.py ssp-cm-tester --loop 5
+```
+
 ## What's a skill-set?
 
 A skill-set is a `(transferable, proprietary)` pair of `SKILL.md` files:

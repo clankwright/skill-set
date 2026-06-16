@@ -17,6 +17,7 @@
   phase blocks and `git log`.
 -->
 
+- 48.1+48.2+48.3 Phase 48 close: tester-target queue (templates/TODO.md), looped-standalone drain + [no-test-work] bail (sst-tester v1.1.0→v1.2.0), NO_TEST_WORK_SENTINEL_RE + loop-abort in skill-chain.py, README looped tester example, CM tester mirror (base-version→1.2.0); 23 new tests; 414→437 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-17T00:50:00Z
 - 47.3: fix batch mode usage example (add --output-template 'reviewed/{stem}.md') + strengthen test_usage_batch_example assertion; 414→414 green — by sst-dev-cycle at 2026-06-16T23:55:00Z
 - 47.1+47.2 Phase 47 close: add ## Features (sst-/ssp- model, skill catalog table, chains table, CLI flags table) + ## Usage (4 copy-pasteable examples) to README.md; test_phase47.py 23 tests; 391→414 green — by sst-dev-cycle at 2026-06-16T23:15:00Z
 - 46.1+46.2 Phase 46 close: delete bin/drive-chain.py + bin/skill-batch.py, remove test_drive_chain_telegram.py, strip 5 shim tests from test_phase42.py + add test_epilog_documents_wrapper_flags, add test_phase46.py (4 tests), scrub all shim .py references from skill-chain.py (epilog + 6 comments), notify-telegram.sh, sst-chain-driver SKILL.md (v1.3.0); sanitize must-fix=0; validate-frontmatter clean; 394→391 green — by sst-dev-cycle at 2026-06-16T22:40:00Z
@@ -38,7 +39,5 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
-
-- [medium] 48.1+48.2+48.3 looped standalone tester drain -- loop just the tester from the terminal (`bin/skill-chain.py <tester> --loop N`) over the `## Tester sweep targets` queue in `docs/TODO.md`, one target per iteration, self-terminating on a `[no-test-work]` bail that `bin/skill-chain.py`'s loop-abort recognizes (the tester analog of the dev cycle's `## Next up` + `[no-work]`); out-of-tree exercised-state keeps the tester read-only on the tree -- user request 2026-06-16 (spec Phase 48)
 
 

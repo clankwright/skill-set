@@ -210,6 +210,19 @@ SKIP_TESTER_SENTINEL_RE = re.compile(
     r"^\s*\[skip-tester\](?:\s+(.*\S))?\s*$", re.MULTILINE
 )
 
+# ---- No-test-work sentinel (Phase 48.2) ------------------------------------
+# When a tester skill (typically sst-tester or a proprietary *-tester wrapper)
+# runs in looped-standalone mode and finds no unrecorded target remaining in
+# `## Tester sweep targets` (queue drained, or the section is absent / has no
+# front-end items), it prints `[no-test-work] <reason>` and exits 0 WITHOUT
+# starting the browser or the local stack. The chain runner aborts the loop on
+# this sentinel exactly as it does for `[no-work]`, so a looped
+# `bin/skill-chain.py <tester> --loop N` run self-terminates when the queue is
+# exhausted rather than spinning N empty iterations.
+NO_TEST_WORK_SENTINEL_RE = re.compile(
+    r"^\s*\[no-test-work\](?:\s+(.*\S))?\s*$", re.MULTILINE
+)
+
 # ---- Per-skill model + effort routing (Phase 19) ---------------------------
 # Each iter pre-parses the picked item's difficulty bracket from
 # docs/TODO.md > Next up (or docs/SPEC.md first open `[ ]` if Next up is empty),
@@ -860,6 +873,15 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
                     if stm:
                         reason = (stm.group(1) or "").strip() or "no reason given"
                         skill_record["skip_tester"] = reason
+                # Phase 48.2: [no-test-work] sentinel — tester found no
+                # unrecorded target in the ## Tester sweep targets queue.
+                # Abort the iteration (skip remaining skills) and the loop.
+                # First match wins; no commit expected (tester never commits).
+                if "no_test_work_bail" not in skill_record:
+                    ntw = NO_TEST_WORK_SENTINEL_RE.search(text)
+                    if ntw:
+                        reason = (ntw.group(1) or "").strip() or "no reason given"
+                        skill_record["no_test_work_bail"] = reason
                 # Phase 19 (5): capture the dev skill's `[picked-difficulty:
                 # <tier>]` sentinel so run_iteration can override the iter's
                 # pre-parsed difficulty for any skill that runs after the dev.
@@ -2106,6 +2128,18 @@ def run_iteration(
             print(c(f"\n[blocked-on-human] /{skill}: {record['blocked_on_human']}: "
                     f"skipping remaining skills + aborting loop", BLUE), flush=True)
             break
+        # Phase 48.2: [no-test-work] sentinel — tester found no unrecorded
+        # target in the ## Tester sweep targets queue. Bail immediately (no
+        # false-positive suppression: the tester never commits, so a sha change
+        # during this skill is unexpected and we treat the sentinel as-is).
+        if record.get("no_test_work_bail"):
+            iter_manifest["no_test_work_bail"] = {
+                "skill": skill,
+                "reason": record["no_test_work_bail"],
+            }
+            print(c(f"\n[no-test-work] /{skill}: {record['no_test_work_bail']}: "
+                    f"skipping remaining skills + aborting loop", BLUE), flush=True)
+            break
         # Phase 41.10: [skip-tester] sentinel — the preceding skill signalled
         # no front-end/UI surface. Check whether the immediately-following
         # skill is a *-tester; if so, remove it from skills_to_run so the
@@ -2730,6 +2764,13 @@ def main() -> int:
             if iter_manifest.get("blocked_on_human"):
                 if "loop" in manifest:
                     manifest["loop"]["terminated_by"] = "blocked_on_human"
+                break
+            # Phase 48.2: no-test-work bail — tester queue is exhausted;
+            # terminate the loop so `bin/skill-chain.py <tester> --loop N`
+            # self-terminates when all ## Tester sweep targets are exercised.
+            if iter_manifest.get("no_test_work_bail"):
+                if "loop" in manifest:
+                    manifest["loop"]["terminated_by"] = "no_test_work_bail"
                 break
             # Phase 36: incomplete-cycle contract violation — abort the loop
             # so a stuck "sub-skill returns, parent doesn't close" cycle
