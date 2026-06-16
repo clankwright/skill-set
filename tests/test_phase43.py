@@ -10,9 +10,13 @@ Covers:
   reviewer/recovery follower advanced HEAD).
 - 43.5 regression grep-guard that fails if either skill re-introduces a sanitize
   `/skill` invocation as the step immediately before commit.
+- 43.6 fix `_contract_violation_aborts` to use `_incomplete_cycle_detected(cwd)`
+  instead of the post-supervisor `git_sha_after` SHA proxy; add masking regression
+  test (supervisor commit alone must not mask a failed review recovery).
 """
 import importlib.util
 import re
+import unittest.mock as mock
 from pathlib import Path
 
 _REPO = Path(__file__).parent.parent
@@ -138,8 +142,8 @@ def test_dev_review_documents_recover_then_review_order():
 # 43.4: relax the runner's contract_violation kill
 # ---------------------------------------------------------------------------
 
-def test_contract_violation_aborts_when_head_unchanged():
-    """43.4: a recorded violation aborts when HEAD did not advance (no recovery)."""
+def test_contract_violation_aborts_when_cycle_still_incomplete():
+    """43.4 + 43.6: a recorded violation aborts when _incomplete_cycle_detected is True."""
     im = {
         "contract_violation": {
             "kind": "incomplete-cycle",
@@ -148,11 +152,12 @@ def test_contract_violation_aborts_when_head_unchanged():
         },
         "git_sha_after": "abc1234",
     }
-    assert sc._contract_violation_aborts(im) is True
+    with mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        assert sc._contract_violation_aborts(im, "/tmp") is True
 
 
-def test_contract_violation_no_abort_when_follower_advanced_head():
-    """43.4: a recovered cycle (follower committed → HEAD advanced) does NOT abort."""
+def test_contract_violation_no_abort_when_recovery_cleared_inflight():
+    """43.4 + 43.6: no abort when _incomplete_cycle_detected is False (In-flight cleared)."""
     im = {
         "contract_violation": {
             "kind": "incomplete-cycle",
@@ -161,24 +166,28 @@ def test_contract_violation_no_abort_when_follower_advanced_head():
         },
         "git_sha_after": "def5678",
     }
-    assert sc._contract_violation_aborts(im) is False
+    with mock.patch.object(sc, "_incomplete_cycle_detected", return_value=False):
+        assert sc._contract_violation_aborts(im, "/tmp") is False
 
 
 def test_contract_violation_no_abort_when_no_violation_recorded():
     """43.4: no contract_violation recorded → never aborts on this path."""
-    assert sc._contract_violation_aborts({}) is False
-    assert sc._contract_violation_aborts({"git_sha_after": "abc1234"}) is False
+    assert sc._contract_violation_aborts({}, "/tmp") is False
+    assert sc._contract_violation_aborts({"git_sha_after": "abc1234"}, "/tmp") is False
 
 
-def test_contract_violation_aborts_when_violation_sha_missing():
-    """43.4: when the violation SHA is unavailable we cannot prove recovery, so
-    abort conservatively (preserves the no-git-harness / unknown-state behavior).
+def test_contract_violation_aborts_when_inflight_set_regardless_of_sha():
+    """43.6: abort is driven by In-flight state, not SHA availability.
+
+    Even when head_at_violation is missing or git_sha_after differs, the
+    _incomplete_cycle_detected check is the sole arbiter.
     """
     im = {
         "contract_violation": {"kind": "incomplete-cycle", "skill": "sst-dev-cycle"},
         "git_sha_after": "def5678",
     }
-    assert sc._contract_violation_aborts(im) is True
+    with mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        assert sc._contract_violation_aborts(im, "/tmp") is True
 
 
 def test_run_iteration_records_head_at_violation():
@@ -223,3 +232,46 @@ def test_run_iteration_records_head_at_violation():
         "run_iteration must record the dev skill's HEAD SHA on the violation so the "
         "loop can detect a later follower-recovery commit"
     )
+
+
+# ---------------------------------------------------------------------------
+# 43.6: fix _contract_violation_aborts to use _incomplete_cycle_detected
+# ---------------------------------------------------------------------------
+
+def test_contract_violation_aborts_when_supervisor_masks_failed_recovery():
+    """43.6: a supervisor-only HEAD advance must NOT mask a failed review recovery.
+
+    Scenario: dev exits dirty (head_at_violation=abc1234), review fails to recover
+    (In-flight line still set, no commit), supervisor then commits its normal edits
+    (advancing HEAD to def5678). The old SHA proxy saw git_sha_after (def5678) !=
+    head_at_violation (abc1234) and returned False (no abort) -- BUG. The fix
+    re-checks _incomplete_cycle_detected(cwd): In-flight still set -> abort.
+    """
+    im = {
+        "contract_violation": {
+            "kind": "incomplete-cycle",
+            "skill": "sst-dev-cycle",
+            "head_at_violation": "abc1234",
+        },
+        "git_sha_after": "def5678",  # supervisor advanced HEAD; old proxy said "recovered"
+    }
+    with mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        assert sc._contract_violation_aborts(im, "/tmp") is True, (
+            "supervisor HEAD-advance must not prevent abort when In-flight is still set"
+        )
+
+
+def test_contract_violation_no_abort_when_review_genuinely_recovered():
+    """43.6: when review truly recovered (cleared In-flight, committed), do not abort."""
+    im = {
+        "contract_violation": {
+            "kind": "incomplete-cycle",
+            "skill": "sst-dev-cycle",
+            "head_at_violation": "abc1234",
+        },
+        "git_sha_after": "def5678",
+    }
+    with mock.patch.object(sc, "_incomplete_cycle_detected", return_value=False):
+        assert sc._contract_violation_aborts(im, "/tmp") is False, (
+            "should not abort when review cleared the In-flight line (genuine recovery)"
+        )
