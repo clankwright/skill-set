@@ -111,14 +111,16 @@ def test_dev_review_version_bumped_for_39_2():
 
 
 def test_dev_review_recovery_documents_framework_skill_check():
-    """39.2: §0.2 recovery must check git diff --name-only for paths under skills/framework/.
+    """39.2/39.3: §0.2 recovery must check staged paths for transferable sst-* skills.
 
     Before the orphaned-cycle recovery commit step, the skill must inspect
-    whether any changed file lives under skills/framework/ and gate accordingly.
+    whether any changed file matches the transferable sst-*/SKILL.md pattern
+    and gate accordingly (39.3 widened from skills/framework/ to the full pattern).
     """
     text = _dev_review_text()
-    assert "skills/framework/" in text, (
-        "§0.2 recovery step must check for changed files under 'skills/framework/' "
+    assert "sst-*/SKILL.md" in text, (
+        "§0.2 recovery step must match 'sst-*/SKILL.md' paths (the full transferable "
+        "skill pattern covering all categories, not just skills/framework/) "
         "before committing, so transferable edits are never auto-committed without "
         "passing the sanitization gate"
     )
@@ -146,4 +148,36 @@ def test_dev_review_recovery_must_fix_aborts_commit():
     assert "abort" in text.lower(), (
         "§0.2 recovery step must describe aborting the commit when must-fix findings "
         "are returned by /sst-sanitize-transferable"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 39.3: §0.2 recovery sanitize gate must cover all transferable sst-* skills
+# ---------------------------------------------------------------------------
+
+def test_dev_review_version_bumped_for_39_3():
+    """39.3: sst-dev-review version must be >= 1.9.0 after widening the recovery gate."""
+    text = _dev_review_text()
+    m = re.search(r'^version:\s*(\d+)\.(\d+)\.(\d+)', text, re.MULTILINE)
+    assert m, "sst-dev-review frontmatter must contain a version: field"
+    actual = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    assert actual >= (1, 9, 0), (
+        f"sst-dev-review version {'.'.join(str(x) for x in actual)} must be >= 1.9.0 "
+        "after Phase 39.3 (wider recovery sanitize gate)"
+    )
+
+
+def test_dev_review_recovery_gate_covers_all_sst_transferable_skills():
+    """39.3: §0.2 recovery sanitize gate must match skills/**/sst-*/SKILL.md, not just skills/framework/.
+
+    The sst-dev-cycle §5 gate covers all transferable skills via the pattern
+    'skills/<category>/<sst-*>/SKILL.md'.  The recovery gate must match the same
+    surface so dev skills under skills/dev/ (e.g. sst-dev-cycle, sst-dev-review)
+    are sanitized when an orphaned recovery commits them.
+    """
+    text = _dev_review_text()
+    assert "sst-*/SKILL.md" in text, (
+        "§0.2 recovery step 7 must match 'sst-*/SKILL.md' (the broader glob pattern "
+        "that covers all transferable skills, not just skills/framework/) "
+        "so dev-skill transferables are gated on /sst-sanitize-transferable during recovery"
     )

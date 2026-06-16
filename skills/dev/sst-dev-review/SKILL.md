@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.8.0
+version: 1.9.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -49,11 +49,11 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, `docs/FUTURE-WORK.md`, and `doc
       4. If `docs/SPEC.md` has any `- [ ]` items covered by the In-flight scope that appear modified in the diff, flip them to `- [x]` now.
       5. Finalize `docs/TODO.md`: delete the In-flight bullet from step (b); prepend to `## Just shipped`: `- <description from In-flight line> — by sst-dev-cycle at <utc from In-flight timestamp>`.
       6. Stage all changed files by name: `git add <code-files> <test-files> docs/SPEC.md docs/TODO.md`. Never `git add -A`.
-      7. **Sanitize gate for transferable edits.** Check the staged diff for paths under `skills/framework/`: run `git diff --name-only --cached` (or inspect the files staged in step 6). If any staged path matches `skills/framework/**`, invoke `/sst-sanitize-transferable` on each affected `SKILL.md` before committing:
+      7. **Sanitize gate for transferable edits.** Check the staged diff for any transferable skill path: run `git diff --name-only --cached` (or inspect the files staged in step 6). If any staged path matches `skills/**/sst-*/SKILL.md`, invoke `/sst-sanitize-transferable` on each affected `SKILL.md` before committing:
          ```
          /sst-sanitize-transferable <path-to-affected-SKILL.md>
          ```
-         Read the resulting findings. If any `must-fix` finding is returned: print `[incomplete-cycle] must-fix sanitize finding in recovery commit; cannot auto-commit — rewrite the banned token or confine the change to a proprietary skill`, surface the finding detail, and **abort** (do NOT commit or push). A must-fix finding means auto-committing would ship proprietary-leakage into a transferable skill — the same gate `sst-dev-cycle §5` enforces and that `sst-supervisor` and the project `CLAUDE.md` require. If no `skills/framework/` paths are staged, or if the sanitize check returns zero must-fix findings, proceed to step 8.
+         Read the resulting findings. If any `must-fix` finding is returned: print `[incomplete-cycle] must-fix sanitize finding in recovery commit; cannot auto-commit — rewrite the banned token or confine the change to a proprietary skill`, surface the finding detail, and **abort** (do NOT commit or push). A must-fix finding means auto-committing would ship proprietary-leakage into a transferable skill — the same gate `sst-dev-cycle §5` enforces and that `sst-supervisor` and the project `CLAUDE.md` require. If no `skills/**/sst-*/SKILL.md` paths are staged, or if the sanitize check returns zero must-fix findings, proceed to step 8.
       8. Commit:
          ```bash
          git commit -m "$(cat <<'EOF'
