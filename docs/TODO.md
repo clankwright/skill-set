@@ -41,6 +41,7 @@
   Order: blockers/highest-impact first.
 -->
 
+- [medium] [should-fix] 41.11 bin/skill-chain.py:1626 Phase 36 incomplete-cycle print names tester as recovery follower when dev exits without [skip-tester] + tester is in chain — review of 7ba3fd3
 - [hard] 41.5+41.6 author the `ssp-cm-tester` wrapper (CM ports 5003/3000, `web/e2e` specs, `web/e2e/.auth/state.json` reuse) + insert into `claim_management/.claude/chains/cm-cycle.yaml` + mirror the findings-read in `ssp-cm-dev-review` — spec Phase 41; CM rollout, depends on 41.1-41.4
 - [medium] 41.7+41.8 clean-exit + artifact-hygiene enforcement (zero in-tree artifacts, guaranteed teardown, no orphan procs/ports) + tooling/install/docs wiring (`bin/install-skills.sh`, `bin/check-ssp-sync.py`, `README.md`, `CLAUDE.md`) — spec Phase 41; closes the phase
 - [hard] 42.1+42.2 spec the unified chain-run CLI + merge `drive-chain.py`'s wrapper (budget/`--max-cycles`/telegram/profile/label) natively into `bin/skill-chain.py` so all flags live in one parser (no more `-- ` forwarding) — collapse skill-chain/drive-chain/overnight/skill-batch into one entrypoint; user request 2026-06-15 (spec Phase 42)
