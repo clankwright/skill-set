@@ -2,22 +2,19 @@
 
 Covers:
 - 42.1 spec the unified CLI surface — the runner's argparse epilog documents
-  the full flag set, maps each legacy drive-chain.py / skill-batch.py flag to
-  its unified form, and notes which scripts become shims; no flag needs `-- `.
-- 42.2 merge the drive-chain.py wrapper layer into bin/skill-chain.py natively:
+  the full flag set and unified invocation; no flag needs `-- `.
+- 42.2 merge the wrapper layer into bin/skill-chain.py natively:
   --max-budget-usd, --max-cycles, --telegram-env/--no-telegram, --profile,
   --label become native optional flags that are inert when unset; the Telegram
   env-resolution / verdict-outcome / iteration-cost / profile-loading helpers
   live in skill-chain.py; the budget/cycle halt decision is a pure helper.
-- 42.4 fold skill-batch.py into --batch mode: one-skill-over-a-glob available
-  natively on the unified runner; skill-batch.py reduced to a deprecation shim.
-- 42.5 drive-chain.py shim: existing callers still work; wrapper logic lives
-  only in skill-chain.py; shim prints a one-line deprecation notice.
-- 42.7 unified flag matrix: batch mode + shim forwarding covered by tests.
+- 42.4 fold batch mode into the unified runner: one-skill-over-a-glob available
+  natively via --batch; the deprecated shim scripts are removed in Phase 46.
+- 42.8 _apply_profile_defaults pure helper.
+- 42.9 profile-sourced budget satisfies --overnight cap requirement.
 - 42.10 --dry-run must not create output directory trees as a side effect.
 """
 import importlib.util
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -233,27 +230,14 @@ def test_no_halt_under_caps():
     ) is None
 
 
-# ---- 42.1: epilog documents the unified surface + shim mapping --------------
+# ---- 42.1: epilog documents the unified surface -----------------------------
 
-def test_epilog_maps_legacy_flags_and_names_shims():
+def test_epilog_documents_wrapper_flags():
+    """Epilog documents the wrapper flags merged natively in Phase 42."""
     epi = sc.UNIFIED_CLI_EPILOG
-    # Names the two scripts that become shims.
-    assert "drive-chain.py" in epi
-    assert "skill-batch.py" in epi
-    # Maps each merged wrapper flag into the unified runner.
     for flag in ("--max-budget-usd", "--max-cycles", "--telegram-env",
                  "--profile", "--label"):
         assert flag in epi, f"epilog must document {flag}"
-    # States the `-- `-forwarding split is gone.
-    assert "--" in epi
-    assert "shim" in epi.lower()
-
-
-def test_parser_uses_the_epilog():
-    """parse_args's parser carries the documented epilog (so --help shows it)."""
-    # Build the parser the same way parse_args does and confirm the epilog flows
-    # through. We assert via the module-level constant being embedded.
-    assert "drive-chain.py" in sc.UNIFIED_CLI_EPILOG
 
 
 # ---- 42.8: _apply_profile_defaults pure helper + precedence -----------------
@@ -409,9 +393,6 @@ def test_preset_overnight_equivalent_to_overnight_flag():
 
 # ---- 42.9: profile-sourced cap satisfies --overnight cap requirement ----------
 
-_REPO_ROOT = Path(__file__).parent.parent
-
-
 # ---- 42.4: --batch mode in skill-chain.py -----------------------------------
 
 def test_batch_flag_accepted_by_parse_args():
@@ -492,48 +473,7 @@ def test_batch_epilog_documents_batch():
     assert "--batch" in sc.UNIFIED_CLI_EPILOG
 
 
-# ---- 42.5: drive-chain.py shim ----------------------------------------------
-
-def test_drive_chain_shim_prints_deprecation(tmp_path):
-    """drive-chain.py shim prints a deprecation notice on stderr and still exits."""
-    result = subprocess.run(
-        ["python3", str(_REPO_ROOT / "bin" / "drive-chain.py"), "--help"],
-        capture_output=True, text=True, timeout=10,
-    )
-    # May exit 0 (--help) or non-zero (no args / shim validation) — either is ok.
-    # The important part: stderr carries a deprecation warning.
-    combined = result.stdout + result.stderr
-    assert "deprecated" in combined.lower() or "shim" in combined.lower() or \
-           "skill-chain" in combined.lower(), (
-        f"shim should mention deprecation or skill-chain.py; got: {combined[:500]}"
-    )
-
-
-def test_drive_chain_shim_forwards_help(tmp_path):
-    """drive-chain.py --help either shows deprecation text or skill-chain help."""
-    result = subprocess.run(
-        ["python3", str(_REPO_ROOT / "bin" / "drive-chain.py"), "--help"],
-        capture_output=True, text=True, timeout=10,
-    )
-    combined = result.stdout + result.stderr
-    # Should mention skill-chain.py or deprecation somewhere.
-    assert "skill-chain" in combined or "deprecated" in combined.lower()
-
-
-# ---- 42.7: skill-batch.py shim + unified flag matrix -----------------------
-
-def test_skill_batch_shim_prints_deprecation():
-    """skill-batch.py shim prints a deprecation notice and still exits gracefully."""
-    result = subprocess.run(
-        ["python3", str(_REPO_ROOT / "bin" / "skill-batch.py"), "--help"],
-        capture_output=True, text=True, timeout=10,
-    )
-    combined = result.stdout + result.stderr
-    assert "deprecated" in combined.lower() or "shim" in combined.lower() or \
-           "skill-chain" in combined.lower(), (
-        f"shim should mention deprecation or skill-chain.py; got: {combined[:500]}"
-    )
-
+# ---- 42.7: unified flag matrix + batch mode ---------------------------------
 
 def test_unified_flag_matrix_batch_mode_present():
     """The unified runner accepts all batch-mode flags without error."""
