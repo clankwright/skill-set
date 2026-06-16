@@ -39,3 +39,4 @@
 
 
 - [medium] 46.1+46.2 remove the Phase 42 deprecation shims — delete `bin/drive-chain.py` + `bin/skill-batch.py`, remove/repoint their tests (`test_drive_chain_telegram.py`, shim cases in `test_phase42.py`), scrub remaining refs from `sst-chain-driver` (sanitize-gated) + `notify-telegram.sh` + `skill-chain.py` (leave SPEC-DONE historical text); unified `skill-chain.py` is the only entrypoint — user request 2026-06-16 (spec Phase 46)
+- [medium] 47.1+47.2 README overview + usage examples — outline the framework (`sst-`/`ssp-` model), skill catalog, chains, and the unified `bin/skill-chain.py` CLI (`--chain`/`--loop`/`--overnight`/`--batch`/`--max-budget-usd`/`--profile`) + copy-pasteable usage examples (run a chain, overnight drain, batch, standalone tester `--phase`); use only the post-Phase-46 unified entrypoint — user request 2026-06-16 (spec Phase 47; do after Phase 46)
