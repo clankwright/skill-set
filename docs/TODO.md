@@ -42,6 +42,7 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 43.7 `bin/skill-chain.py:1874` stale `main()` comment still describes the Phase 43.4 SHA-proxy mechanism ("abort only when HEAD did not advance / HEAD advanced = recovered"); actual recovery signal since 43.6 is "In-flight cleared by recovery follower" — rewrite lines 1874-1876 to reference `_incomplete_cycle_detected` — review of e9977e4
 - [hard] 41.1+41.2 author the `sst-tester` transferable (`skills/framework/sst-tester/SKILL.md`) + the tester→reviewer findings contract (run-log `tester-findings.{md,json}` schema + a `tests/fixtures` sample) — new `dev → tester → review` chain stage that drives the running app in a browser between implement and review; user request 2026-06-15 (spec Phase 41, root dependency)
 - [medium] 41.3+41.4+41.9+41.10 reviewer consumes run-log tester findings + insert `sst-tester` into the framework dev chains + dev writes `tester-guidance.md` (else `[skip-tester]` pre-empt) + `bin/skill-chain.py` honors the pre-empt (skip tester → straight to review) — spec Phase 41; depends on 41.1/41.2
 - [hard] 41.5+41.6 author the `ssp-cm-tester` wrapper (CM ports 5003/3000, `web/e2e` specs, `web/e2e/.auth/state.json` reuse) + insert into `claim_management/.claude/chains/cm-cycle.yaml` + mirror the findings-read in `ssp-cm-dev-review` — spec Phase 41; CM rollout, depends on 41.1-41.4
