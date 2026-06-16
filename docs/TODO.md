@@ -38,5 +38,6 @@
 -->
 
 
+- [easy] [should-fix] 42.10 `bin/skill-chain.py:2301` — mkdir before dry-run check in run_batch_mode() creates output dirs as side effect; move mkdir below dry-run continue, add test — review of 22a19c5
 - [hard] 44.1+44.2 add a standalone terminal-invocable `sst-tester` mode (`--phase <id>` / `--todos <ref...>`) that resolves + iteratively exercises ALL UI/UX a phase or set of completed todos introduced (iterate-all/collect-all, out-of-tree findings) — distinct from the in-chain last-diff mode; user request 2026-06-16 (spec Phase 44)
 - [medium] 44.3+44.4 mirror the standalone mode into `ssp-cm-tester` (CM phase->`web/e2e` spec map) + document the terminal invocation in `README.md`/`CLAUDE.md` — spec Phase 44; depends on 44.1/44.2
