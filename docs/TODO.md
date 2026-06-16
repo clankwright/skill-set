@@ -47,6 +47,8 @@
   Order: blockers/highest-impact first.
 -->
 
+- [hard] 43.1+43.2+43.3 close the sanitize→commit seam in `sst-dev-cycle` §5 + `sst-dev-review §0.2` (sanitize no longer the last `/skill` before commit; `git commit` is the final action) + recovery-first reviewer (commit a healthy-but-uncommitted cycle at the START of its turn) — fixes the recurring `contract_violation` halt that blocks reliable looping; user request + 2026-06-15 run-log diagnosis (spec Phase 43, highest priority)
+- [medium] 43.4+43.5 relax `bin/skill-chain.py` `contract_violation` kill (don't abort when the reviewer recovers the cycle) + regression guard/tests (no sanitize `/skill` immediately before commit; recovery-first + relaxed-kill) — spec Phase 43; depends on 43.1-43.3
 - [hard] 41.1+41.2 author the `sst-tester` transferable (`skills/framework/sst-tester/SKILL.md`) + the tester→reviewer findings contract (run-log `tester-findings.{md,json}` schema + a `tests/fixtures` sample) — new `dev → tester → review` chain stage that drives the running app in a browser between implement and review; user request 2026-06-15 (spec Phase 41, root dependency)
 - [medium] 41.3+41.4+41.9+41.10 reviewer consumes run-log tester findings + insert `sst-tester` into the framework dev chains + dev writes `tester-guidance.md` (else `[skip-tester]` pre-empt) + `bin/skill-chain.py` honors the pre-empt (skip tester → straight to review) — spec Phase 41; depends on 41.1/41.2
 - [hard] 41.5+41.6 author the `ssp-alpha-tester` wrapper (Alpha ports 5003/3000, `web/e2e` specs, `web/e2e/.auth/state.json` reuse) + insert into `alpha_app/.claude/chains/alpha-cycle.yaml` + mirror the findings-read in `ssp-alpha-dev-review` — spec Phase 41; Alpha rollout, depends on 41.1-41.4
