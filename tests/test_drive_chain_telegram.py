@@ -1,14 +1,18 @@
-"""Tests for bin/drive-chain.py Telegram env resolution chain (SPEC 34.6)."""
+"""Tests for Telegram env resolution chain (SPEC 34.6).
+
+Originally tested bin/drive-chain.py; repointed to bin/skill-chain.py in Phase
+42.5 (drive-chain.py reduced to a shim; _resolve_tg_env lives in skill-chain.py).
+"""
 import importlib.util
 import tempfile
 from pathlib import Path
 
-_DRIVE_PATH = Path(__file__).parent.parent / "bin" / "drive-chain.py"
-_spec = importlib.util.spec_from_file_location("drive_chain", _DRIVE_PATH)
-dc = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(dc)
+_CHAIN_PATH = Path(__file__).parent.parent / "bin" / "skill-chain.py"
+_spec = importlib.util.spec_from_file_location("skill_chain", _CHAIN_PATH)
+sc = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(sc)
 
-_resolve_tg_env = dc._resolve_tg_env
+_resolve_tg_env = sc._resolve_tg_env
 
 
 def _write_env(path: Path, token: str, chat_id: str) -> None:

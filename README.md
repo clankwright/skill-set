@@ -199,7 +199,7 @@ TELEGRAM_CHAT_ID=<numeric-chat-id>
 
 Mode 600, never committed. Token revocation: BotFather → `/revoke` → pick the bot → paste the new token into the env file.
 
-**Base-dir fallback (simplest single-bot setup).** If you run multiple projects from one skill-set installation and want all of them to share one Telegram channel without per-project env files, create `~/Dev/skill-set/telegram.env` with the same two lines (mode 600, already gitignored). `bin/notify-telegram.sh`, `bin/drive-chain.py`, and `sst-manager §0.4` all check this file last in their resolution chain — it fires only when no more-specific per-persona env is configured. Per-persona env files always win when present.
+**Base-dir fallback (simplest single-bot setup).** If you run multiple projects from one skill-set installation and want all of them to share one Telegram channel without per-project env files, create `~/Dev/skill-set/telegram.env` with the same two lines (mode 600, already gitignored). `bin/notify-telegram.sh`, `bin/skill-chain.py`, and `sst-manager §0.4` all check this file last in their resolution chain — it fires only when no more-specific per-persona env is configured. Per-persona env files always win when present.
 
 ### Daily use
 
@@ -212,7 +212,7 @@ Outbound (any script can fire a Telegram body):
 
 `notify-telegram.sh` reads stdin, truncates to 4000 chars, POSTs to `sendMessage`, and exits non-zero if Telegram does not ack. `TELEGRAM_PARSE_MODE=Markdown` (default) lets you bold / link / code-format the body.
 
-**Multi-project labeling:** when multiple personas share the same bot, set `TELEGRAM_LABEL=<persona>` before calling `notify-telegram.sh` and every outbound body will be prefixed with `[<persona>]` on its own line. `bin/drive-chain.py` sets this automatically from `--label` (or the chain name as fallback), so chain-driver bodies are already labeled when you run a named chain. Consuming projects whose proprietary `*-notify-telegram.sh` wrapper currently hard-codes a label prefix can collapse to a one-line passthrough that exports `TELEGRAM_LABEL=<persona>` and execs `bin/notify-telegram.sh`.
+**Multi-project labeling:** when multiple personas share the same bot, set `TELEGRAM_LABEL=<persona>` before calling `notify-telegram.sh` and every outbound body will be prefixed with `[<persona>]` on its own line. `bin/skill-chain.py` sets this automatically from `--label` (or the chain name as fallback), so chain-driver bodies are already labeled when you run a named chain. Consuming projects whose proprietary `*-notify-telegram.sh` wrapper currently hard-codes a label prefix can collapse to a one-line passthrough that exports `TELEGRAM_LABEL=<persona>` and execs `bin/notify-telegram.sh`.
 
 Inbound (you talk to the bot in Telegram):
 
