@@ -2298,7 +2298,6 @@ def run_batch_mode(args: "argparse.Namespace", harness: Harness, cwd: str) -> in
             })
             continue
 
-        out_path.parent.mkdir(parents=True, exist_ok=True)
         extra_prompt = (
             f"Apply the skill to this single input/output pair, then exit:\n"
             f"  input:  {inp}\n"
@@ -2317,6 +2316,7 @@ def run_batch_mode(args: "argparse.Namespace", harness: Harness, cwd: str) -> in
             })
             continue
 
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         rc, record = run_skill_with_retry(
             harness, skill, i, log_dir,
             on_rate_limit=on_rate_limit,
