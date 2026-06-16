@@ -4,6 +4,85 @@ Field-agnostic, harness-agnostic **skill-sets** for autonomous LLM agents.
 
 Currently only the [Claude Code](https://docs.anthropic.com/claude/docs/claude-code) harness is implemented; the chain runner, supervisor, and manager are written so a second harness (Codex CLI, Gemini CLI, Cursor headless, etc.) drops in via a single `Harness` subclass.
 
+## Features
+
+**Framework model.** Every capability ships as a `(transferable, proprietary)` pair. Transferable skills use the `sst-*` prefix (generalized method, lives in this repo, shareable). Proprietary counterparts use `ssp-*` (project facts, live in `<project>/.claude/skills/`, never published). The runner invokes them by name; a consuming project adds only the thin `ssp-*` overlay for its environment.
+
+**Skill catalog** (transferable `sst-*` skills, grouped by category):
+
+| Skill | Category | Purpose |
+|---|---|---|
+| `sst-dev-cycle` | framework | TDD dev cycle: pick next spec item, write failing tests, implement, commit |
+| `sst-dev-review` | framework | Post-cycle review: flag bugs, missing tests, spec drift |
+| `sst-tester` | framework | UI/integration tester: Playwright sweep of changed surfaces |
+| `sst-supervisor` | framework | Meta-reviewer: edits skill prose directly when a finding requires it |
+| `sst-manager` | framework | Telegram-bot dispatcher: `/status`, `/pause`, `/feedback` |
+| `sst-chain-driver` | framework | Chain orchestrator: budget cap, per-iter Telegram, rate-limit pause |
+| `sst-executor` | framework | One-shot task executor for supervisor-delegated follow-ups |
+| `sst-sanitize-transferable` | framework | Hard gate before any transferable SKILL.md edit |
+| `sst-web-research` | research | Multi-source web research with citation |
+| `sst-editorial-pass` | content | Draft to edited copy using a configurable rubric |
+| `sst-social-promoter` | outreach | Research output to social post |
+
+See `skills/` for the full catalog (research, content, evaluation, outreach, orchestration categories).
+
+**Chains** (transferable chain definitions in `chains/`):
+
+| Chain | Loop | Use case |
+|---|---|---|
+| `dev-cycle-with-review` | 1 | Single item: dev-cycle + tester + review |
+| `dev-cycle-with-review-looped` | 3 | 3-item batch with aggressive supervisor routing |
+| `dev-cycle-overnight` | 0 | Unattended queue drain; stops when queue is empty |
+| `research-and-write` | 1 | Research a topic and produce a written deliverable |
+| `editorial-with-fact-check` | 1 | Draft through editorial pass with citation check |
+| `research-write-promote` | 1 | Research to write to social-promote pipeline |
+
+**Unified runner CLI** (`bin/skill-chain.py` -- flags for chain scheduling and budget control):
+
+| Flag | Purpose |
+|---|---|
+| `--chain <name>` | Load a named chain YAML instead of an inline skill list |
+| `--loop N` | Repeat the full skill sequence N times (0 = until failure/Ctrl-C) |
+| `--overnight` | Preset: loop=0, randomized delay; requires `--max-budget-usd` |
+| `--batch '<glob>'` | Run a skill over every file matching the glob |
+| `--max-budget-usd X` | Halt the loop when cumulative spend reaches $X |
+| `--profile <path>` | Load chain defaults (loop, budget, label) from a YAML profile |
+| `--telegram-env <path>` | Override the Telegram env-file for this run |
+
+## Usage
+
+**Run a chain once:**
+
+```bash
+bin/skill-chain.py --chain dev-cycle-with-review
+```
+
+**Run a looped batch (N iterations, stops on empty queue or Ctrl-C):**
+
+```bash
+bin/skill-chain.py --chain dev-cycle-with-review-looped --loop 3
+```
+
+**Drain the queue overnight (stops when queue is empty or budget is exhausted):**
+
+```bash
+bin/skill-chain.py --chain dev-cycle-overnight --overnight --max-budget-usd 30
+```
+
+**Batch mode (run a skill over every matching file):**
+
+```bash
+bin/skill-chain.py sst-dev-review --batch 'skills/**/*.md'
+```
+
+**Standalone tester sweep (exercise every UI surface a phase or set of shipped items introduced):**
+
+```bash
+/sst-tester --phase 47
+# or target specific just-shipped items by name:
+/sst-tester --todos "47.1+47.2 README"
+```
+
 ## What's a skill-set?
 
 A skill-set is a `(transferable, proprietary)` pair of `SKILL.md` files:
@@ -287,7 +366,7 @@ To add another harness, subclass `Harness` in `bin/skill-chain.py`, register it 
 
 ## Status
 
-Phase 1 in progress. See `docs/SPEC.md` for the full plan and current phase.
+Phase 47 complete. See `docs/SPEC.md` for the full plan and phase history.
 
 ## License
 
