@@ -115,11 +115,7 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 
 ## Phases
 
-> Completed phases live in [docs/SPEC-DONE.md](SPEC-DONE.md). Active and deferred phases live below.
-
-### Phase 20 (deferred): `goose-cerebras` harness + portability proof
-
-Moved to [docs/FUTURE-WORK.md](FUTURE-WORK.md#phase-20-deferred-goose-cerebras-harness--portability-proof). Re-pick conditions are documented there.
+> Completed phases live in [docs/SPEC-DONE.md](SPEC-DONE.md); deferred phases live in [docs/FUTURE-WORK.md](FUTURE-WORK.md). Active phases live below.
 
 ### Phase 46: remove the Phase 42 deprecation shims
 
