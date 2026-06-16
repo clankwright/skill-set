@@ -1,0 +1,27 @@
+{
+  "verdict": "red",
+  "summary": "checkout route works; lead-form submit is broken at runtime; settings page lacks a committed spec",
+  "checks": [
+    {
+      "area": "/checkout",
+      "change_ref": "web/src/routes/checkout.jsx (SPEC 12.3)",
+      "status": "pass",
+      "evidence": "~/.claude/state/sst-tester/2026-06-16T08-12-00Z/checkout.png",
+      "recommendation": ""
+    },
+    {
+      "area": "/leads/new",
+      "change_ref": "web/src/components/LeadForm.jsx (SPEC 12.4)",
+      "status": "fail",
+      "evidence": "~/.claude/state/sst-tester/2026-06-16T08-12-00Z/leadform-submit-console-error.png",
+      "recommendation": "Submit handler throws TypeError on empty optional field; the form never POSTs. Fix the guard and re-run."
+    },
+    {
+      "area": "/settings",
+      "change_ref": "web/src/routes/settings.jsx (SPEC 12.5)",
+      "status": "needs-change",
+      "evidence": "~/.claude/state/sst-tester/2026-06-16T08-12-00Z/settings.png",
+      "recommendation": "Changed surface has no committed e2e spec; exploratory check passed but coverage gap remains. File a spec in the next cycle."
+    }
+  ]
+}
