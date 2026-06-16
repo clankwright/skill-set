@@ -398,3 +398,20 @@ def test_preset_overnight_equivalent_to_overnight_flag():
     sc._apply_preset(args, explicit_loop=False)
     assert args.loop == 0
     assert args.loop_delay_random == "300,1800"
+
+
+# ---- 42.9: profile-sourced cap satisfies --overnight cap requirement ----------
+
+def test_overnight_profile_sourced_budget_satisfies_cap_requirement():
+    """A profile-provided default-max-budget-usd satisfies --overnight's cap requirement.
+
+    Verifies the ordering guarantee documented in main(): _apply_profile_defaults
+    runs BEFORE _apply_preset, so a profile-sourced cap prevents the "requires a
+    budget or cycle cap" SystemExit even when no --max-budget-usd is on the CLI.
+    """
+    args = sc.parse_args(["--chain", "x", "--overnight"])
+    assert args.max_budget_usd is None  # no CLI cap
+    sc._apply_profile_defaults(args, {"default-max-budget-usd": "25.0"}, explicit_loop=False)
+    assert args.max_budget_usd == 25.0  # profile fills it in
+    sc._apply_preset(args, explicit_loop=False)  # must not raise
+    assert args.loop == 0
