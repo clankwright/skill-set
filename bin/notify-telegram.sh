@@ -26,7 +26,7 @@
 #   TELEGRAM_LABEL       — when set non-empty, prepends "[<label>]\n\n" to the body so the
 #                          recipient can distinguish messages from different personas sharing
 #                          the same chat. Empty / unset = legacy behavior unchanged.
-#                          bin/drive-chain.py sets this to --label / chain name automatically.
+#                          bin/skill-chain.py sets this via the --label flag automatically.
 #
 # Behavior:
 #   - Reads stdin, splits into ≤4000-char chunks at newline boundaries. Code fences (```)

@@ -81,8 +81,7 @@ TRANSFERABLE_CHAINS_DIR = REPO_ROOT / "chains"
 # "Configured defaults" yaml block. Each maps to the corresponding native CLI
 # arg as a layer BELOW it (explicit CLI flag wins). --profile gives the
 # unified runner the same defaults resolution the slash-command chain-driver
-# agent applies on its own. (Merged natively from the former drive-chain.py
-# wrapper in Phase 42.)
+# agent applies on its own. (Phase 42, native on this runner.)
 PROFILE_KEYS = (
     "watched-chain",
     "default-loop",
@@ -1172,8 +1171,7 @@ def run_skill_with_retry(
         }
         pause_records.append(pause_record)
 
-        # Phase 42: real-time rate-limit pause notification (native; was a
-        # stdout-banner watch in the former drive-chain.py wrapper). Inert when
+        # Phase 42: real-time rate-limit pause notification (native). Inert when
         # no notify callback is wired (bare runs / Telegram opt-out).
         if notify is not None:
             notify("rate-limit-pause", pause_record)
@@ -1312,29 +1310,15 @@ def find_local_supervisor(cwd: str) -> str | None:
 
 
 # ---- Unified chain-run CLI (Phase 42) --------------------------------------
-# bin/skill-chain.py is the single canonical chain-run entrypoint. The former
-# bin/drive-chain.py wrapper layer (budget gates, Telegram event posts, persona
-# profile resolution, run label) is now native here as inert-when-unset flags,
-# so nothing requires the old `-- <forwarded-args>` two-script split. The epilog
-# below is the spec'd flag-mapping surface (42.1): it lists the merged wrapper
-# flags and records which scripts reduce to deprecation shims.
+# bin/skill-chain.py is the single canonical chain-run entrypoint. The wrapper
+# layer (budget gates, Telegram event posts, persona profile resolution, run
+# label) is native here as inert-when-unset flags. No `-- <forwarded-args>`
+# split is needed.
 UNIFIED_CLI_EPILOG = """\
-Unified chain-run CLI (Phase 42)
---------------------------------
+Unified chain-run CLI
+---------------------
 This is the single canonical entrypoint for running a chain OR for running a
-single skill once per glob-matched input (--batch mode). The wrapper layer that
-used to live in bin/drive-chain.py is now native here; you no longer pass
-skill-chain flags after a `-- ` separator.
-
-Legacy flag -> unified form (all native on this runner now):
-  drive-chain.py --max-budget-usd X      -> skill-chain.py --max-budget-usd X
-  drive-chain.py --max-cycles N          -> skill-chain.py --max-cycles N
-  drive-chain.py --telegram-env FILE     -> skill-chain.py --telegram-env FILE
-  drive-chain.py --no-telegram           -> skill-chain.py --no-telegram
-  drive-chain.py --profile PERSONA       -> skill-chain.py --profile PERSONA
-  drive-chain.py --label LABEL           -> skill-chain.py --label LABEL
-  drive-chain.py --chain C -- --loop N   -> skill-chain.py --chain C --loop N
-  skill-batch.py SKILL --inputs GLOB ... -> skill-chain.py SKILL --batch GLOB ...
+single skill once per glob-matched input (--batch mode).
 
 Batch mode (one skill over many inputs):
   skill-chain.py SKILL --batch "*.csv" --output-template "reviewed/{stem}.txt"
@@ -1344,9 +1328,6 @@ Telegram event posts are inert unless you opt in with --telegram-env, --profile,
 or --label (and not --no-telegram); a bare `skill-chain.py --chain X` never
 touches Telegram. Budget/cycle caps (--max-budget-usd / --max-cycles) work with
 or without Telegram.
-
-Shims: bin/drive-chain.py and bin/skill-batch.py reduce to thin deprecation
-shims that forward onto this runner (drive-chain shim: 42.5; batch mode: 42.4).
 """
 
 
@@ -1671,9 +1652,8 @@ def _wrapper_halt_reason(
     verdict: "str | None" = None,
 ) -> "str | None":
     """Decide whether a between-iteration halt should fire, returning a one-line
-    reason or None. Pure (no I/O) so it is unit-testable. Mirrors the former
-    drive-chain.py halt thresholds: budget first, then cycle cap, then a
-    supervisor escalation verdict."""
+    reason or None. Pure (no I/O) so it is unit-testable. Halt order: budget
+    first, then cycle cap, then a supervisor escalation verdict."""
     if max_budget_usd is not None and cumulative_cost_usd > max_budget_usd:
         return (f"max-budget-usd exceeded "
                 f"(${cumulative_cost_usd:.4f} > ${max_budget_usd:.2f})")
@@ -1860,14 +1840,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              "current presets: " + ", ".join(sorted(PRESETS)) + ". "
              "--overnight is a convenient alias for --preset overnight.",
     )
-    # ---- Batch mode (Phase 42.4; replaces bin/skill-batch.py) -----------------
+    # ---- Batch mode (Phase 42.4) -----------------------------------------------
     p.add_argument(
         "--batch",
         metavar="GLOB",
         default=None,
         help="Run a single skill once per file matching GLOB (relative to "
              "--inputs-cwd, default cwd). Triggers batch mode; the skill name "
-             "must be the first positional argument. Replaces skill-batch.py.",
+             "must be the first positional argument.",
     )
     p.add_argument(
         "--output-template",
@@ -2237,8 +2217,7 @@ def _drain_feedback_queue() -> None:
 def run_batch_mode(args: "argparse.Namespace", harness: Harness, cwd: str) -> int:
     """Phase 42.4: run one skill once per glob-matched input (--batch mode).
 
-    Mirrors the behavior of the old bin/skill-batch.py, now folded into the
-    canonical runner. Accepts the batch-specific namespace fields that parse_args
+    Accepts the batch-specific namespace fields that parse_args
     adds when --batch is set (batch, output_template, inputs_cwd, output_cwd,
     skip_if_exists, include, exclude, limit, start_at, dry_run, on_failure) and
     the shared flags (log_dir, no_log, on_rate_limit, max_rate_limit_pause_seconds,
@@ -2685,10 +2664,9 @@ def main() -> int:
                     json.dumps(iter_manifest, indent=2) + "\n", encoding="utf-8"
                 )
 
-            # Phase 42: iteration-close Telegram + budget/cycle halt (native;
-            # was a subprocess-stdout watch in the former drive-chain.py). Cost
-            # accumulates whether or not Telegram is enabled so the cap fires
-            # in headless runs too.
+            # Phase 42: iteration-close Telegram + budget/cycle halt (native).
+            # Cost accumulates whether or not Telegram is enabled so the cap
+            # fires in headless runs too.
             iter_cost = _iteration_cost(iter_manifest)
             cumulative_cost_usd += iter_cost
             iter_verdict = "unknown"
@@ -2824,7 +2802,7 @@ def main() -> int:
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )
 
-    # Phase 42: session-end Telegram (native; was drive-chain.py's final post).
+    # Phase 42: session-end Telegram (native).
     if telegram_enabled:
         completed = manifest.get("loop", {}).get("completed", iteration) \
             if "loop" in manifest else iteration

@@ -4,7 +4,6 @@
 
 ## In flight
 
-
 ## Just shipped (last cycle)
 
 <!--
@@ -18,6 +17,7 @@
   phase blocks and `git log`.
 -->
 
+- 46.1+46.2 Phase 46 close: delete bin/drive-chain.py + bin/skill-batch.py, remove test_drive_chain_telegram.py, strip 5 shim tests from test_phase42.py + add test_epilog_documents_wrapper_flags, add test_phase46.py (4 tests), scrub all shim .py references from skill-chain.py (epilog + 6 comments), notify-telegram.sh, sst-chain-driver SKILL.md (v1.3.0); sanitize must-fix=0; validate-frontmatter clean; 394→391 green — by sst-dev-cycle at 2026-06-16T22:40:00Z
 - 44.1+44.2+44.3+44.4 Phase 44 close: standalone `--phase`/`--todos` mode in sst-tester (SKILL.md v1.0.0→1.1.0; two-modes dispatch D1, scope resolution D2, iterate-all D3, out-of-tree findings D4); test_phase44.py 15 tests + 2 fixtures pin D2 resolution; mirror into ssp-cm-tester (base-version→1.1.0, CM phase->spec map; check-ssp-sync clean); README+CLAUDE invocation docs; relax test_phase41 version pin to major-1 semver; 379→394 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-16T21:55:00Z
 - 42.10: move mkdir below dry-run continue in run_batch_mode(), add no-dir-creation test; 378→379 green — by sst-dev-cycle at 2026-06-16T21:10:00Z
 - 42.4+42.5+42.6+42.7: --batch mode in skill-chain.py, drive-chain.py shim, caller migration + tests; 364→378 green — by sst-dev-cycle at 2026-06-16T20:30:00Z
@@ -38,5 +38,4 @@
 -->
 
 
-- [medium] 46.1+46.2 remove the Phase 42 deprecation shims — delete `bin/drive-chain.py` + `bin/skill-batch.py`, remove/repoint their tests (`test_drive_chain_telegram.py`, shim cases in `test_phase42.py`), scrub remaining refs from `sst-chain-driver` (sanitize-gated) + `notify-telegram.sh` + `skill-chain.py` (leave SPEC-DONE historical text); unified `skill-chain.py` is the only entrypoint — user request 2026-06-16 (spec Phase 46)
 - [medium] 47.1+47.2 README overview + usage examples — outline the framework (`sst-`/`ssp-` model), skill catalog, chains, and the unified `bin/skill-chain.py` CLI (`--chain`/`--loop`/`--overnight`/`--batch`/`--max-budget-usd`/`--profile`) + copy-pasteable usage examples (run a chain, overnight drain, batch, standalone tester `--phase`); use only the post-Phase-46 unified entrypoint — user request 2026-06-16 (spec Phase 47; do after Phase 46)

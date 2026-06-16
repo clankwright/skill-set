@@ -149,8 +149,6 @@ bin/skill-chain.py
 
 `--label` is the human-readable tag the runner prefixes every Telegram body with. Default is the chain name. The proprietary counterpart usually overrides it to the persona name (`<persona>` rather than `dev-cycle-with-review-looped`).
 
-Note: `bin/drive-chain.py` still exists as a deprecated shim that forwards to `bin/skill-chain.py`; existing callers continue to work through the shim but should be updated to use `skill-chain.py` directly.
-
 ## Worker lifecycle
 
 Per framework policy, the `bin/manager-bot.py` long-poll Telegram worker only runs while a chain session is active. The chain driver:
