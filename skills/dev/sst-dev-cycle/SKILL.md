@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.8.0
+version: 1.9.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -280,6 +280,30 @@ git push origin <branch>
 Scope tags match the project's convention (examples: `Auth:`, `UI:`, `Docs:`, `Tests:`, `Deploy:`, `Infra:`, or a feature area like `Leads:`). **Never use `Review:` as the scope tag for a dev-cycle commit** — that prefix is reserved for the `sst-dev-review` skill's own follow-up commits, which the review skill emits to add SPEC/TODO entries (`Review: follow-ups from <scope>: ...`) on top of a finished dev cycle. When the dev-cycle picks a review-follow-up item out of `## Next up` (the item itself originated from a `Review:` commit), the dev's own commit still uses a scope tag reflecting **what the dev-cycle changed**, not the source of the work — e.g. `Tests:` for a test-strengthening cycle, `<phase>.<n>:` for a cycle continuing a SPEC phase, the original feature-area tag for an implementation change. The `sst-dev-review` walk-back rule (§0.4 there) treats `Review:`-prefixed commits as non-dev-cycle commits and walks past them to find the next reviewable commit; a misnamed prefix causes the cycle's actual dev work to be silently skipped by the next review.
 
 Never commit `.env` files, credentials, or local scratch files. If the project gitignores config dirs (e.g. `deploy/`, `docs/` in some layouts), those changes won't reach the remote — you'll need the project's separate sync mechanism (scp, rsync, a sync script) for those.
+
+## 7a. Tester handoff (immediately after §7 push)
+
+After `git push origin <branch>` completes, write the tester guidance or pre-empt the tester. This step is the dev skill's contribution to the `dev → tester → review` chain: the tester reads the guidance to prioritize the highest-value checks rather than re-deriving everything from the diff; a pre-empt saves the tester from being spawned at all for non-UI cycles.
+
+**If the cycle touched a front-end/UI surface** (any changed file under a front-end directory, a changed route, a changed component, a changed e2e spec, or new UI-visible behavior from the SPEC item): write a brief `tester-guidance.md` to the chain run-log dir. Find the run-log dir by scanning `.skill-runs/` for the most recently-created directory, or by reading the `[log-dir] <path>` line printed by the chain runner before any skill started. Template:
+
+```
+# Tester guidance for <scope-tag>: <description>
+
+Surfaces to exercise (in priority order):
+- <route/component/view>: <what to check, tied to <changed-file or SPEC-id>>
+- ...
+```
+
+Keep the list short (3-5 items max), ordered by user-facing impact. Each entry ties a changed file or SPEC item to the specific browser interaction worth exercising. Do NOT write committed spec files — that is the dev cycle's TDD job, not the tester's.
+
+**If the cycle touched NO front-end/UI surface** (a pure backend, CLI, schema, prose, or framework-internal change with no visible browser surface): emit exactly one line as the final line of this skill's output:
+
+```
+[skip-tester] <reason>
+```
+
+Where `<reason>` briefly names why the tester stage should be skipped (e.g. `no front-end surface in this cycle`, `backend-only change: bin/skill-chain.py`, `prose-only: docs/SPEC.md`). Write no `tester-guidance.md`. The chain runner recognizes `[skip-tester]` from the preceding skill and skips the tester stage when the immediately-following skill's name ends in `-tester`, proceeding straight to review.
 
 ## 8. Deploy
 
