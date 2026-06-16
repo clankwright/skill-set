@@ -38,4 +38,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 47.3 `README.md:75` — batch mode usage example missing required `--output-template`; fails as written; fix the command and strengthen test in `tests/test_phase47.py` — review of 87ede55
+
 
