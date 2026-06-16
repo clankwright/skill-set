@@ -46,3 +46,5 @@
 
 - [hard] 44.1+44.2 add a standalone terminal-invocable `sst-tester` mode (`--phase <id>` / `--todos <ref...>`) that resolves + iteratively exercises ALL UI/UX a phase or set of completed todos introduced (iterate-all/collect-all, out-of-tree findings) — distinct from the in-chain last-diff mode; user request 2026-06-16 (spec Phase 44)
 - [medium] 44.3+44.4 mirror the standalone mode into `ssp-cm-tester` (CM phase->`web/e2e` spec map) + document the terminal invocation in `README.md`/`CLAUDE.md` — spec Phase 44; depends on 44.1/44.2
+- [hard] 45.1+45.2 grant `sst-tester` bounded authority to queue a concrete `[fix]` TODO item when it can pinpoint the exact fix (file:line + specific change); vague findings still flow to the reviewer + reviewer dedupes tester-authored fixes — tester never commits/edits source; user request 2026-06-16 (spec Phase 45)
+- [medium] 45.3+45.4 mirror the fix-authoring authority into `ssp-cm-tester` (CM `docs/TODO.md`) + tests (concrete->`[fix]` item passes validate_spec_item_quality, vague->findings-only, reviewer dedupe) — spec Phase 45; depends on 45.1/45.2
