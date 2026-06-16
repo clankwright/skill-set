@@ -150,3 +150,6 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 - `README.md`: added looped tester drain example to `## Usage`.
 - `tests/test_phase48.py`: 23 tests (4 selector unit, 3 template/SKILL prose, 7 sentinel RE + integration, 2 SKILL prose, 7 SKILL/README prose + version).
 - Test count: 414 → 437. Sanitize: must-fix=0.
+
+**Review follow-ups (open — schedule as the next `/sst-dev-cycle` cycle):**
+- [ ] 48.4 [easy] [should-fix] `skills/framework/sst-tester/SKILL.md:62` — D1 dispatch summary rule says "their absence with a `## Tester sweep targets` queue present selects looped-standalone mode" with no in-chain discriminator; a project that populates the queue AND runs the tester in-chain (dev+tester+review chain) would incorrectly enter looped-standalone mode instead of testing the dev cycle's changes. `SKILL.md:132` in the Standalone-mode D1 paragraph also says "With neither flag the skill runs in-chain (default) exactly as before" — stale now that looped-standalone is a third mode. Proposed fix: update line 62 to add the in-chain discriminator ("... AND no `tester-guidance.md` from the preceding dev skill, i.e. not invoked in-chain"); update line 132 to acknowledge looped-standalone as the other non-standalone path when a queue is present.

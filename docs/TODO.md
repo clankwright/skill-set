@@ -40,4 +40,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 48.4 `sst-tester/SKILL.md:62` D1 dispatch summary lacks in-chain discriminator: "queue present" alone triggers looped-standalone even in-chain; `SKILL.md:132` standalone D1 also stale with third mode — add `tester-guidance.md` check + update line 132 — review of a43a7fa
+
 
