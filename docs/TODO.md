@@ -22,6 +22,7 @@
   phase blocks and `git log`.
 -->
 
+- 41.11 fix incomplete-cycle recovery message: use first non-tester non-supervisor follower; 1 new test, 310→311 green — by sst-dev-cycle at 2026-06-16T12:00:00Z
 - 41.3+41.4+41.9+41.10 reviewer consumes tester findings, insert sst-tester into framework chains, dev writes tester-guidance.md / [skip-tester], runner honors skip; 24 new tests, 286→310 green; sanitize must-fix=0 on both transferables — by sst-dev-cycle at 2026-06-16T11:00:00Z
 - 41.1+41.2 author the `sst-tester` transferable (`skills/framework/sst-tester/SKILL.md`, v1.0.0, model-floor sonnet / effort-floor high) — chain position (dev → tester → review), authority envelope (D5: never commit/deploy/edit-tree), run lifecycle (read `tester-guidance.md` + derive what-changed from `git show HEAD` / `## Just shipped` / flipped SPEC `[x]` → self-skip → start stack → poll readiness w/ timeout → drive surfaces → collect → teardown → write findings), degrade-don't-hang (D2) + self-skip (D4/D7 `verdict: skipped`), headed/headless (D2), out-of-tree artifacts (D3, `~/.claude/state/sst-tester/<utc>/`); + the tester→reviewer findings contract (`tester-findings.{md,json}` schema: per-check `{area, change_ref, status: pass|fail|needs-change, evidence, recommendation}` + overall `verdict: green|red|degraded|skipped` + one-line summary), sample fixture `tests/fixtures/tester-findings.json`, 19 new tests (`tests/test_phase41.py`); 267→286 green; sanitize must-fix=0; validator clean — by sst-dev-cycle at 2026-06-16T08:20:00Z
 - 43.7 rewrite stale `main()` contract-violation comment to reference `_incomplete_cycle_detected` (not HEAD-advance proxy); 267→267 green — by sst-dev-cycle at 2026-06-16T07:15:00Z
@@ -41,7 +42,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] [should-fix] 41.11 bin/skill-chain.py:1626 Phase 36 incomplete-cycle print names tester as recovery follower when dev exits without [skip-tester] + tester is in chain — review of 7ba3fd3
 - [hard] 41.5+41.6 author the `ssp-cm-tester` wrapper (CM ports 5003/3000, `web/e2e` specs, `web/e2e/.auth/state.json` reuse) + insert into `claim_management/.claude/chains/cm-cycle.yaml` + mirror the findings-read in `ssp-cm-dev-review` — spec Phase 41; CM rollout, depends on 41.1-41.4
 - [medium] 41.7+41.8 clean-exit + artifact-hygiene enforcement (zero in-tree artifacts, guaranteed teardown, no orphan procs/ports) + tooling/install/docs wiring (`bin/install-skills.sh`, `bin/check-ssp-sync.py`, `README.md`, `CLAUDE.md`) — spec Phase 41; closes the phase
 - [hard] 42.1+42.2 spec the unified chain-run CLI + merge `drive-chain.py`'s wrapper (budget/`--max-cycles`/telegram/profile/label) natively into `bin/skill-chain.py` so all flags live in one parser (no more `-- ` forwarding) — collapse skill-chain/drive-chain/overnight/skill-batch into one entrypoint; user request 2026-06-15 (spec Phase 42)

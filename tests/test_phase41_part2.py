@@ -396,3 +396,58 @@ def test_run_iteration_skip_tester_does_not_skip_non_tester_follower():
     assert "tester_skipped" not in iter_manifest, (
         "tester_skipped must NOT be set when the follower is not a *-tester skill"
     )
+
+
+# ---------------------------------------------------------------------------
+# 41.11: incomplete-cycle message names reviewer, not tester
+# ---------------------------------------------------------------------------
+
+def test_run_iteration_incomplete_cycle_with_tester_names_reviewer_in_message(capsys):
+    """41.11: when dev exits incomplete (no commit, in-flight TODO) and the chain
+    is dev→tester→review (no [skip-tester] emitted), the recovery message must
+    name sst-dev-review — not sst-tester — as the recovery-capable follower.
+    All three skills still run: the tester runs normally, then the reviewer
+    performs §0.2 recovery. Only the message is wrong in the unfixed code."""
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        # Dev emits no [skip-tester]; SHA unchanged → no commit.
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD_41)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-tester", "sst-dev-review"],
+            None,
+            None,
+            1,
+            1,
+            "/tmp",
+        )
+
+    assert rc == 0
+    assert "contract_violation" in iter_manifest, (
+        "iter_manifest must record contract_violation"
+    )
+    assert iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
+    # Tester is NOT skipped (dev never emitted [skip-tester]); reviewer runs for recovery.
+    assert calls == ["sst-dev-cycle", "sst-tester", "sst-dev-review"], (
+        f"all three skills must run when dev exits incomplete without [skip-tester]; "
+        f"got {calls}"
+    )
+    # The recovery message must name sst-dev-review, not sst-tester.
+    captured = capsys.readouterr()
+    assert "passing to /sst-dev-review for orphaned-cycle recovery" in captured.out, (
+        "contract-violation message must name sst-dev-review as recovery follower"
+    )
+    assert "passing to /sst-tester for orphaned-cycle recovery" not in captured.out, (
+        "contract-violation message must NOT name sst-tester as recovery follower"
+    )
