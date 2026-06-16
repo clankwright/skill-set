@@ -43,6 +43,8 @@
   Order: blockers/highest-impact first.
 -->
 
+- [medium] [should-fix] 42.8 `bin/skill-chain.py:2026-2063` profile default-application block in `main()` (CLI-wins-per-field + explicit-`--loop` suppression of profile `default-max-cycles`) is untested — extract to a pure `_apply_profile_defaults(args, profile, explicit_loop)` helper + add precedence tests; protects the economic-cap guardrail on profile-driven overnight runs — review of 634b8ae
+
 - [medium] 42.3+42.4+42.5+42.6+42.7 `--overnight` preset + fold `skill-batch.py` into a `--batch` mode + `drive-chain.py`/`skill-batch.py` deprecation shims + migrate `*-chain-driver` skills/cron/docs to the single runner + unified-flag-matrix tests — spec Phase 42; 42.1/42.2 now landed (native flags live in `bin/skill-chain.py`)
 
 - [hard] 44.1+44.2 add a standalone terminal-invocable `sst-tester` mode (`--phase <id>` / `--todos <ref...>`) that resolves + iteratively exercises ALL UI/UX a phase or set of completed todos introduced (iterate-all/collect-all, out-of-tree findings) — distinct from the in-chain last-diff mode; user request 2026-06-16 (spec Phase 44)
