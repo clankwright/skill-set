@@ -39,6 +39,8 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 42.9 `tests/test_phase42.py` add integration test for profile-sourced cap satisfying `--overnight` requirement (no CLI cap + profile fills budget → preset expands without error) — review of 791a9e5
+
 - [medium] 42.4+42.5+42.6+42.7 fold `skill-batch.py` into a `--batch` mode + `drive-chain.py`/`skill-batch.py` deprecation shims + migrate `*-chain-driver` skills/cron/docs to the single runner + unified-flag-matrix tests — spec Phase 42; 42.1/42.2/42.3/42.8 now landed
 
 - [hard] 44.1+44.2 add a standalone terminal-invocable `sst-tester` mode (`--phase <id>` / `--todos <ref...>`) that resolves + iteratively exercises ALL UI/UX a phase or set of completed todos introduced (iterate-all/collect-all, out-of-tree findings) — distinct from the in-chain last-diff mode; user request 2026-06-16 (spec Phase 44)
