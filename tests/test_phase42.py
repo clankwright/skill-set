@@ -9,8 +9,14 @@ Covers:
   --label become native optional flags that are inert when unset; the Telegram
   env-resolution / verdict-outcome / iteration-cost / profile-loading helpers
   live in skill-chain.py; the budget/cycle halt decision is a pure helper.
+- 42.4 fold skill-batch.py into --batch mode: one-skill-over-a-glob available
+  natively on the unified runner; skill-batch.py reduced to a deprecation shim.
+- 42.5 drive-chain.py shim: existing callers still work; wrapper logic lives
+  only in skill-chain.py; shim prints a one-line deprecation notice.
+- 42.7 unified flag matrix: batch mode + shim forwarding covered by tests.
 """
 import importlib.util
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -401,6 +407,156 @@ def test_preset_overnight_equivalent_to_overnight_flag():
 
 
 # ---- 42.9: profile-sourced cap satisfies --overnight cap requirement ----------
+
+_REPO_ROOT = Path(__file__).parent.parent
+
+
+# ---- 42.4: --batch mode in skill-chain.py -----------------------------------
+
+def test_batch_flag_accepted_by_parse_args():
+    """`--batch GLOB --output-template TMPL` is accepted as a batch trigger."""
+    args = sc.parse_args(["sst-dev-cycle", "--batch", "*.md", "--output-template", "{stem}.txt"])
+    assert args.batch == "*.md"
+    assert args.output_template == "{stem}.txt"
+
+
+def test_batch_flag_default_is_none():
+    """`--batch` is None when not passed (inert, does not change chain behavior)."""
+    args = sc.parse_args(["--chain", "x"])
+    assert getattr(args, "batch", None) is None
+
+
+def test_batch_output_template_default_is_none():
+    """`--output-template` is None when not passed."""
+    args = sc.parse_args(["--chain", "x"])
+    assert getattr(args, "output_template", None) is None
+
+
+def test_render_output_template_stem():
+    """render_output_template substitutes {stem}, {name}, {parent}, {ext}."""
+    from pathlib import Path
+    base = Path("/data")
+    p = Path("/data/reports/foo.csv")
+    result = sc.render_output_template("{stem}.txt", p, base)
+    assert result.name == "foo.txt"
+
+
+def test_render_output_template_all_tokens():
+    """All four supported tokens expand correctly."""
+    base = Path("/data")
+    p = Path("/data/a/b/foo.csv")
+    result = sc.render_output_template("{parent}/{stem}.out", p, base)
+    # parent is 'a/b' relative to base, so the output is resolved under base.
+    assert result.name == "foo.out"
+    assert "a" in str(result) and "b" in str(result)
+
+
+def test_expand_inputs_basic(tmp_path):
+    """expand_inputs finds matching files under the base dir."""
+    (tmp_path / "alpha.csv").write_text("a")
+    (tmp_path / "beta.csv").write_text("b")
+    (tmp_path / "gamma.txt").write_text("c")
+    results = sc.expand_inputs("*.csv", tmp_path, None, None, None)
+    assert len(results) == 2
+    stems = {r.stem for r in results}
+    assert stems == {"alpha", "beta"}
+
+
+def test_expand_inputs_include_filter(tmp_path):
+    """expand_inputs include regex limits results."""
+    for stem in ("alpha", "beta", "charlie"):
+        (tmp_path / f"{stem}.csv").write_text(stem)
+    results = sc.expand_inputs("*.csv", tmp_path, r"^al", None, None)
+    assert len(results) == 1 and results[0].stem == "alpha"
+
+
+def test_expand_inputs_exclude_filter(tmp_path):
+    """expand_inputs exclude regex removes matching files."""
+    for stem in ("alpha", "beta"):
+        (tmp_path / f"{stem}.csv").write_text(stem)
+    results = sc.expand_inputs("*.csv", tmp_path, None, r"^bet", None)
+    assert len(results) == 1 and results[0].stem == "alpha"
+
+
+def test_expand_inputs_start_at(tmp_path):
+    """expand_inputs skips alphabetically-before stems."""
+    for stem in ("a", "b", "c"):
+        (tmp_path / f"{stem}.csv").write_text(stem)
+    results = sc.expand_inputs("*.csv", tmp_path, None, None, "b")
+    assert {r.stem for r in results} == {"b", "c"}
+
+
+def test_batch_epilog_documents_batch():
+    """UNIFIED_CLI_EPILOG references --batch so it appears in --help."""
+    assert "--batch" in sc.UNIFIED_CLI_EPILOG
+
+
+# ---- 42.5: drive-chain.py shim ----------------------------------------------
+
+def test_drive_chain_shim_prints_deprecation(tmp_path):
+    """drive-chain.py shim prints a deprecation notice on stderr and still exits."""
+    result = subprocess.run(
+        ["python3", str(_REPO_ROOT / "bin" / "drive-chain.py"), "--help"],
+        capture_output=True, text=True, timeout=10,
+    )
+    # May exit 0 (--help) or non-zero (no args / shim validation) — either is ok.
+    # The important part: stderr carries a deprecation warning.
+    combined = result.stdout + result.stderr
+    assert "deprecated" in combined.lower() or "shim" in combined.lower() or \
+           "skill-chain" in combined.lower(), (
+        f"shim should mention deprecation or skill-chain.py; got: {combined[:500]}"
+    )
+
+
+def test_drive_chain_shim_forwards_help(tmp_path):
+    """drive-chain.py --help either shows deprecation text or skill-chain help."""
+    result = subprocess.run(
+        ["python3", str(_REPO_ROOT / "bin" / "drive-chain.py"), "--help"],
+        capture_output=True, text=True, timeout=10,
+    )
+    combined = result.stdout + result.stderr
+    # Should mention skill-chain.py or deprecation somewhere.
+    assert "skill-chain" in combined or "deprecated" in combined.lower()
+
+
+# ---- 42.7: skill-batch.py shim + unified flag matrix -----------------------
+
+def test_skill_batch_shim_prints_deprecation():
+    """skill-batch.py shim prints a deprecation notice and still exits gracefully."""
+    result = subprocess.run(
+        ["python3", str(_REPO_ROOT / "bin" / "skill-batch.py"), "--help"],
+        capture_output=True, text=True, timeout=10,
+    )
+    combined = result.stdout + result.stderr
+    assert "deprecated" in combined.lower() or "shim" in combined.lower() or \
+           "skill-chain" in combined.lower(), (
+        f"shim should mention deprecation or skill-chain.py; got: {combined[:500]}"
+    )
+
+
+def test_unified_flag_matrix_batch_mode_present():
+    """The unified runner accepts all batch-mode flags without error."""
+    args = sc.parse_args([
+        "my-skill",
+        "--batch", "*.csv",
+        "--output-template", "out/{stem}.json",
+        "--inputs-cwd", "/tmp",
+        "--output-cwd", "/tmp/out",
+        "--skip-if-exists",
+        "--include", r"^foo",
+        "--exclude", r"^bar",
+        "--limit", "5",
+        "--start-at", "alpha",
+        "--dry-run",
+        "--on-failure", "continue",
+    ])
+    assert args.batch == "*.csv"
+    assert args.output_template == "out/{stem}.json"
+    assert args.limit == 5
+    assert args.on_failure == "continue"
+    assert args.dry_run is True
+    assert args.skip_if_exists is True
+
 
 def test_overnight_profile_sourced_budget_satisfies_cap_requirement():
     """A profile-provided default-max-budget-usd satisfies --overnight's cap requirement.

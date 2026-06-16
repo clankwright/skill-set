@@ -1321,19 +1321,24 @@ def find_local_supervisor(cwd: str) -> str | None:
 UNIFIED_CLI_EPILOG = """\
 Unified chain-run CLI (Phase 42)
 --------------------------------
-This is the single canonical entrypoint for running a chain. The wrapper layer
-that used to live in bin/drive-chain.py is now native here; you no longer pass
+This is the single canonical entrypoint for running a chain OR for running a
+single skill once per glob-matched input (--batch mode). The wrapper layer that
+used to live in bin/drive-chain.py is now native here; you no longer pass
 skill-chain flags after a `-- ` separator.
 
 Legacy flag -> unified form (all native on this runner now):
-  drive-chain.py --max-budget-usd X   -> skill-chain.py --max-budget-usd X
-  drive-chain.py --max-cycles N       -> skill-chain.py --max-cycles N
-  drive-chain.py --telegram-env FILE  -> skill-chain.py --telegram-env FILE
-  drive-chain.py --no-telegram        -> skill-chain.py --no-telegram
-  drive-chain.py --profile PERSONA    -> skill-chain.py --profile PERSONA
-  drive-chain.py --label LABEL        -> skill-chain.py --label LABEL
-  drive-chain.py --chain C -- --loop N -> skill-chain.py --chain C --loop N
-  skill-batch.py SKILL --inputs GLOB  -> (folded into a --batch mode; 42.4)
+  drive-chain.py --max-budget-usd X      -> skill-chain.py --max-budget-usd X
+  drive-chain.py --max-cycles N          -> skill-chain.py --max-cycles N
+  drive-chain.py --telegram-env FILE     -> skill-chain.py --telegram-env FILE
+  drive-chain.py --no-telegram           -> skill-chain.py --no-telegram
+  drive-chain.py --profile PERSONA       -> skill-chain.py --profile PERSONA
+  drive-chain.py --label LABEL           -> skill-chain.py --label LABEL
+  drive-chain.py --chain C -- --loop N   -> skill-chain.py --chain C --loop N
+  skill-batch.py SKILL --inputs GLOB ... -> skill-chain.py SKILL --batch GLOB ...
+
+Batch mode (one skill over many inputs):
+  skill-chain.py SKILL --batch "*.csv" --output-template "reviewed/{stem}.txt"
+  (add --dry-run to preview; --skip-if-exists to resume; --on-failure continue)
 
 Telegram event posts are inert unless you opt in with --telegram-env, --profile,
 or --label (and not --no-telegram); a bare `skill-chain.py --chain X` never
@@ -1343,6 +1348,52 @@ or without Telegram.
 Shims: bin/drive-chain.py and bin/skill-batch.py reduce to thin deprecation
 shims that forward onto this runner (drive-chain shim: 42.5; batch mode: 42.4).
 """
+
+
+# ---- Batch-mode helpers (Phase 42.4) ---------------------------------------
+
+def render_output_template(template: str, input_path: Path, base: Path) -> Path:
+    """Render a per-input output path from a template.
+
+    Tokens: {stem} (filename without ext), {name} (full filename), {parent}
+    (parent dir, relative to base when possible), {ext} (extension without dot).
+    Absolute results are used as-is; relative results are joined to base.
+    """
+    rel = input_path
+    if input_path.is_absolute():
+        try:
+            rel = input_path.relative_to(base)
+        except ValueError:
+            rel = input_path
+    out = template.format(
+        stem=input_path.stem,
+        name=input_path.name,
+        parent=str(rel.parent),
+        ext=input_path.suffix.lstrip("."),
+    )
+    p = Path(out)
+    return p if p.is_absolute() else (base / p)
+
+
+def expand_inputs(glob: str, base: Path,
+                  include: "str | None", exclude: "str | None",
+                  start_at: "str | None") -> "list[Path]":
+    """Return sorted list of files matching `glob` under `base`, after filters."""
+    matches = sorted(base.glob(glob))
+    inc = re.compile(include) if include else None
+    exc = re.compile(exclude) if exclude else None
+    out: list[Path] = []
+    for p in matches:
+        if not p.is_file():
+            continue
+        if start_at and p.stem < start_at:
+            continue
+        if inc and not inc.search(p.stem):
+            continue
+        if exc and exc.search(p.stem):
+            continue
+        out.append(p)
+    return out
 
 
 def _git_subject(cwd: str, sha: str) -> str:
@@ -1809,10 +1860,80 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              "current presets: " + ", ".join(sorted(PRESETS)) + ". "
              "--overnight is a convenient alias for --preset overnight.",
     )
+    # ---- Batch mode (Phase 42.4; replaces bin/skill-batch.py) -----------------
+    p.add_argument(
+        "--batch",
+        metavar="GLOB",
+        default=None,
+        help="Run a single skill once per file matching GLOB (relative to "
+             "--inputs-cwd, default cwd). Triggers batch mode; the skill name "
+             "must be the first positional argument. Replaces skill-batch.py.",
+    )
+    p.add_argument(
+        "--output-template",
+        metavar="TMPL",
+        default=None,
+        help="Per-input output path template. Supports {stem}, {name}, {parent}, "
+             "{ext}. e.g. 'reviewed/{stem}.csv'. Required when --batch is set.",
+    )
+    p.add_argument(
+        "--inputs-cwd",
+        type=Path,
+        default=None,
+        help="Resolve --batch glob relative to this dir (default: cwd).",
+    )
+    p.add_argument(
+        "--output-cwd",
+        type=Path,
+        default=None,
+        help="Resolve --output-template relative to this dir (default: --inputs-cwd).",
+    )
+    p.add_argument(
+        "--skip-if-exists",
+        action="store_true",
+        help="Skip batch iterations whose output path already exists.",
+    )
+    p.add_argument(
+        "--include",
+        metavar="REGEX",
+        default=None,
+        help="Only process inputs whose stem matches this regex.",
+    )
+    p.add_argument(
+        "--exclude",
+        metavar="REGEX",
+        default=None,
+        help="Skip inputs whose stem matches this regex.",
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Stop after N successful batch iterations (0 = no limit).",
+    )
+    p.add_argument(
+        "--start-at",
+        metavar="STEM",
+        default=None,
+        help="Skip inputs alphabetically before this stem.",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="In batch mode: print planned invocations and exit without running.",
+    )
+    p.add_argument(
+        "--on-failure",
+        choices=["fail", "continue"],
+        default="fail",
+        help="How to handle a batch-iteration failure. 'fail' (default) aborts; "
+             "'continue' processes remaining inputs.",
+    )
     p.add_argument(
         "skills",
         nargs="*",
-        help="One or more skill names to run in sequence. Omit when --chain is set.",
+        help="One or more skill names to run in sequence. Omit when --chain is set. "
+             "In batch mode, exactly one skill name.",
     )
     return p.parse_args(argv)
 
@@ -2113,11 +2234,141 @@ def _drain_feedback_queue() -> None:
         print(c(f"[drain-feedback] {exc}; continuing", ORANGE), flush=True)
 
 
+def run_batch_mode(args: "argparse.Namespace", harness: Harness, cwd: str) -> int:
+    """Phase 42.4: run one skill once per glob-matched input (--batch mode).
+
+    Mirrors the behavior of the old bin/skill-batch.py, now folded into the
+    canonical runner. Accepts the batch-specific namespace fields that parse_args
+    adds when --batch is set (batch, output_template, inputs_cwd, output_cwd,
+    skip_if_exists, include, exclude, limit, start_at, dry_run, on_failure) and
+    the shared flags (log_dir, no_log, on_rate_limit, max_rate_limit_pause_seconds,
+    max_pauses_per_session, harness).
+    """
+    if not args.skills or len(args.skills) != 1:
+        raise SystemExit(
+            "--batch mode requires exactly one skill name as a positional argument"
+        )
+    if not args.output_template:
+        raise SystemExit("--batch requires --output-template")
+
+    skill = args.skills[0]
+    in_base = (args.inputs_cwd or Path(cwd)).resolve()
+    out_base = (args.output_cwd or args.inputs_cwd or Path(cwd)).resolve()
+    inputs = expand_inputs(args.batch, in_base, args.include, args.exclude, args.start_at)
+    if not inputs:
+        print(f"[skill-batch] no inputs matched {args.batch!r} under {in_base}",
+              file=sys.stderr)
+        return 2
+
+    on_rate_limit = args.on_rate_limit or DEFAULT_ON_RATE_LIMIT
+    max_pause_seconds = args.max_rate_limit_pause_seconds or DEFAULT_MAX_RATE_LIMIT_PAUSE_SECONDS
+    max_pauses = args.max_pauses_per_session or DEFAULT_MAX_PAUSES_PER_SESSION
+
+    if args.no_log:
+        log_dir: "Path | None" = None
+    elif args.log_dir is not None:
+        log_dir = args.log_dir.resolve()
+    else:
+        log_dir = (Path(cwd) / ".skill-batch-runs" / f"{_utc_dirname()}_{skill}").resolve()
+
+    eff_model, eff_effort, _route = _resolve_skill_route(skill, "medium", cwd)
+
+    print(f"[skill-batch] skill={skill} matched={len(inputs)} "
+          f"on_rate_limit={on_rate_limit} log_dir={log_dir}")
+
+    manifest: dict = {
+        "mode": "batch",
+        "skill": skill,
+        "started_at": _utc_iso(),
+        "matched_inputs": len(inputs),
+        "items": [],
+        "rate_limit_pauses": [],
+    }
+
+    completed = skipped = failed = 0
+    overall_rc = 0
+    for i, inp in enumerate(inputs, 1):
+        out_path = render_output_template(args.output_template, inp, out_base)
+        if args.skip_if_exists and out_path.exists():
+            print(f"[{i}/{len(inputs)}] [skip] {inp.stem} (output exists)")
+            skipped += 1
+            manifest["items"].append({
+                "index": i, "input": str(inp), "output": str(out_path),
+                "status": "skipped", "reason": "output_exists",
+            })
+            continue
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        extra_prompt = (
+            f"Apply the skill to this single input/output pair, then exit:\n"
+            f"  input:  {inp}\n"
+            f"  output: {out_path}"
+        )
+        print(f"[{i}/{len(inputs)}] [run ] {inp.stem} -> {out_path}")
+
+        if args.dry_run:
+            cmd = harness.build_command(skill, model=eff_model, effort=eff_effort,
+                                        extra_prompt=extra_prompt)
+            print("  DRY-RUN:", " ".join(repr(c_) for c_ in cmd))
+            completed += 1
+            manifest["items"].append({
+                "index": i, "input": str(inp), "output": str(out_path),
+                "status": "dry_run",
+            })
+            continue
+
+        rc, record = run_skill_with_retry(
+            harness, skill, i, log_dir,
+            on_rate_limit=on_rate_limit,
+            max_pause_seconds=max_pause_seconds,
+            max_pauses=max_pauses,
+            pause_records=manifest["rate_limit_pauses"],
+            model=eff_model, effort=eff_effort,
+            extra_prompt=extra_prompt,
+            log_stem_override=f"{i:03d}_{inp.stem}",
+        )
+        record["input"] = str(inp)
+        record["output"] = str(out_path)
+        record["status"] = "ok" if rc == 0 else "fail"
+        manifest["items"].append(record)
+
+        if rc == 0:
+            completed += 1
+        else:
+            failed += 1
+            print(f"[{i}/{len(inputs)}] [fail] {inp.stem} (rc={rc})", file=sys.stderr)
+            if args.on_failure == "fail":
+                overall_rc = rc
+                break
+            overall_rc = rc
+
+        if args.limit and completed >= args.limit:
+            print(f"[skill-batch] hit --limit {args.limit}, stopping")
+            break
+
+    manifest["finished_at"] = _utc_iso()
+    manifest["completed"] = completed
+    manifest["skipped"] = skipped
+    manifest["failed"] = failed
+    print(f"[skill-batch] done. completed={completed} skipped={skipped} failed={failed}")
+
+    if log_dir is not None:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "MANIFEST.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        )
+    return overall_rc
+
+
 def main() -> int:
     args = parse_args(sys.argv[1:])
     harness = get_harness(args.harness)
 
     cwd = os.getcwd()
+
+    # Phase 42.4: batch mode dispatch — one skill over many inputs.
+    if args.batch is not None:
+        return run_batch_mode(args, harness, cwd)
 
     # Phase 42: resolve persona profile defaults as a layer BELOW CLI args.
     # Snapshot explicit --loop BEFORE profile loading so an explicit loop count

@@ -1,8 +1,8 @@
 ---
 name: sst-chain-driver
-description: Single-session driver for a multi-iteration skill-chain run. Spawns `bin/skill-chain.py --chain <name> --loop N` as a subprocess via `bin/drive-chain.py`, watches the live event stream, posts Telegram updates at session start, each iteration boundary (commit + per-iter spend + cumulative), every rate-limit pause/resume, supervisor escalation, and session end. Honors a `--max-budget-usd` halt and a `--max-cycles` halt independently of the chain's own loop count. Distinct from sst-manager (cron-based, multi-project, periodic) and from sst-skill-router (in-process planner inside one user request). The proprietary counterpart supplies the watched-chain name, Telegram chat ID, and budget defaults.
+description: Single-session driver for a multi-iteration skill-chain run. Invokes `bin/skill-chain.py --chain <name> --loop N` with budget gates and Telegram event notifications as native flags. Posts Telegram updates at session start, each iteration boundary (commit + per-iter spend + cumulative), every rate-limit pause/resume, supervisor escalation, and session end. Honors a `--max-budget-usd` halt and a `--max-cycles` halt independently of the chain's own loop count. Distinct from sst-manager (cron-based, multi-project, periodic) and from sst-skill-router (in-process planner inside one user request). The proprietary counterpart supplies the watched-chain name, Telegram chat ID, and budget defaults.
 user-invocable: true
-version: 1.2.2
+version: 1.3.0
 argument-hint: <chain-name> [--loop N] [--max-budget-usd $X] [--max-cycles N]
 ---
 
@@ -48,7 +48,7 @@ label: <persona-name>                # human-readable tag for telegram messages
 ### 0. Pre-flight
 
 1. Resolve the chain name. The proprietary counterpart's `watched-chain:` is the default; user CLI args override.
-2. Confirm `bin/drive-chain.py` is present at `~/Dev/skill-set/bin/drive-chain.py` (or `<repo-root>/bin/drive-chain.py` when working inside this repo). If not, the framework is not installed cleanly: bail with a clear error pointing the user at `bin/install-skills.sh`.
+2. Confirm `bin/skill-chain.py` is present at `~/Dev/skill-set/bin/skill-chain.py` (or `<repo-root>/bin/skill-chain.py` when working inside this repo). If not, the framework is not installed cleanly: bail with a clear error pointing the user at `bin/install-skills.sh`.
 3. Confirm the chain definition resolves: `bin/skill-chain.py` will look in `<cwd>/.claude/chains/<name>.yaml` first, then `<repo>/chains/<name>.yaml`. If neither exists, fail loud: there is no point spawning a chain driver over a non-existent chain.
 4. If a `telegram-env` path is configured (or passed via `--telegram-env`), confirm the file exists and exports both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Missing either = the run will produce stderr-suppressed warnings; that's a soft fail, not hard.
 
@@ -62,12 +62,12 @@ Layer (most-specific wins):
 
 Validate: budget > 0 if set, cycles >= 1 if set, loop >= 0.
 
-### 2. Spawn the chain-driver helper
+### 2. Invoke the unified chain runner
 
 Build the command and invoke via Bash:
 
 ```bash
-bin/drive-chain.py \
+bin/skill-chain.py \
   --chain <name> \
   --loop <N> \
   --max-budget-usd <X> \
@@ -76,9 +76,9 @@ bin/drive-chain.py \
   --label <persona-name>
 ```
 
-Omit any flag whose value resolved to "no cap" (the helper treats absence as no cap). If the user passed `--no-telegram`, forward that and skip the `--telegram-env` flag entirely.
+Omit any flag whose value resolved to "no cap" (`skill-chain.py` treats absence as no cap). If the user passed `--no-telegram`, include that flag and omit `--telegram-env`.
 
-The helper streams stdout from the underlying chain runner verbatim. The skill should NOT post-process or buffer — let it stream so the interactive terminal looks identical to a direct `bin/skill-chain.py` invocation.
+`skill-chain.py` streams its own stdout verbatim. The skill should NOT post-process or buffer — let it stream so the interactive terminal looks identical to a direct invocation.
 
 ### 3. Observe and report
 
@@ -120,33 +120,36 @@ Telegram has already received the user-facing session-end message; this stdout l
 
 ## Hard rules
 
-- **Never run `bin/skill-chain.py` directly.** Always go through `bin/drive-chain.py`. The whole point is the watcher; bypassing it loses the budget gate and the Telegram stream.
+- **Use `bin/skill-chain.py` directly.** The budget gates and Telegram event posts are native flags since Phase 42 — there is no separate wrapper script to go through.
 - **Never edit a `SKILL.md` from inside the chain driver.** That's `sst-supervisor`'s job (it edits skill source directly). The chain driver is read-only across `.claude/skills/`.
 - **Never spawn a second chain driver from inside one.** Recursion is meaningless here; one session = one chain. If the user asks for two parallel runs, they invoke the skill twice.
 - **Never pass project-specific paths or chat IDs in the transferable's prose.** The proprietary counterpart owns those facts. The transferable parses them from the proprietary's frontmatter / body.
-- **Never silently drop a Telegram failure.** The helper writes failed sends to stderr with a `[chain-driver]` tag; the skill should leave that visible rather than swallowing it. If the user wants no Telegram at all, they pass `--no-telegram`.
-- **Telegram messages capped at 4000 chars** (enforced by `bin/notify-telegram.sh`). The helper formats short multi-line bodies that fit; if a future event class needs longer content, write the long form to the run dir and link from the Telegram body.
+- **Never silently drop a Telegram failure.** `skill-chain.py` writes failed sends to stderr with a `[chain]` tag; the skill should leave that visible rather than swallowing it. If the user wants no Telegram at all, they pass `--no-telegram`.
+- **Telegram messages capped at 4000 chars** (enforced by `bin/notify-telegram.sh`). The runner formats short multi-line bodies that fit; if a future event class needs longer content, write the long form to the run dir and link from the Telegram body.
 
 ## Reference: command-line shape
 
-The full helper signature, for the agent to compose against:
+The full invocation, for the agent to compose against:
 
 ```
-bin/drive-chain.py
+bin/skill-chain.py
     --chain <chain-name>           [required]
-    --loop <N>                     [forwarded to skill-chain.py]
-    --max-budget-usd <X>           [omit for no cap]
-    --max-cycles <N>               [omit for no cap]
-    --telegram-env <path>          [omit when env vars are already set]
+    --loop <N>                     [optional; 0 = until failure]
+    --max-budget-usd <X>           [omit for no budget cap]
+    --max-cycles <N>               [omit for no cycle cap]
+    --telegram-env <path>          [opts into Telegram event posts]
     --no-telegram                  [suppress outbound entirely]
-    --harness <name>               [forwarded; default claude-code]
-    --log-dir <path>               [forwarded; default .skill-runs/<UTC>_<chain>/]
-    --no-log                       [forwarded; degrades iter-close to a no-cost line]
+    --harness <name>               [default claude-code]
+    --log-dir <path>               [default .skill-runs/<UTC>_<chain>/]
+    --no-log                       [disable log capture]
     --label <name>                 [tag in every Telegram body]
-    -- <extra-args-for-skill-chain.py>
+    --profile <persona>            [load defaults from persona SKILL.md]
+    --overnight                    [preset: --loop 0 + random delay; needs cap]
 ```
 
-`--label` is the human-readable tag the helper prefixes every Telegram body with. Default is the chain name. The proprietary counterpart usually overrides it to the persona name (`<persona>` rather than `dev-cycle-with-review-looped`).
+`--label` is the human-readable tag the runner prefixes every Telegram body with. Default is the chain name. The proprietary counterpart usually overrides it to the persona name (`<persona>` rather than `dev-cycle-with-review-looped`).
+
+Note: `bin/drive-chain.py` still exists as a deprecated shim that forwards to `bin/skill-chain.py`; existing callers continue to work through the shim but should be updated to use `skill-chain.py` directly.
 
 ## Worker lifecycle
 
