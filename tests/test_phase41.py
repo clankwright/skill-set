@@ -46,7 +46,10 @@ def test_sst_tester_file_exists():
 def test_sst_tester_frontmatter():
     fm = _frontmatter(_tester_text())
     assert fm.get("name") == "sst-tester", "name: must be sst-tester"
-    assert fm.get("version") == "1.0.0", "version: must be 1.0.0 for the initial author"
+    # Version advances as the skill gains features (44.1 added standalone mode,
+    # bumping past the 1.0.0 initial author); assert a valid major-1 semver, not a pin.
+    _v = fm.get("version", "")
+    assert re.match(r"^1\.\d+\.\d+$", _v), f"version: must be a major-1 semver, got {_v!r}"
     assert fm.get("model-floor") == "sonnet", "model-floor: must be sonnet"
     assert fm.get("effort-floor") == "high", "effort-floor: must be high"
     assert fm.get("user-invocable") == "true", "user-invocable: must be true"

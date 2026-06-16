@@ -10,9 +10,11 @@ description: |
   repo tree. Self-skips to a no-op when the project has no local-run/browser path
   or the cycle touched no front-end surface. Never commits, deploys, or edits repo
   source. Wrapped by a proprietary per-project skill that supplies the exact ports,
-  start/stop commands, auth-state path, and e2e specs.
+  start/stop commands, auth-state path, and e2e specs. Also runs standalone from the
+  terminal (`--phase <id>` / `--todos <ref...>`) to sweep every UI surface a whole
+  phase or set of completed todos introduced, not just the last diff.
 user-invocable: true
-version: 1.0.0
+version: 1.1.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -45,6 +47,15 @@ It runs only after the dev cycle has committed (so the changed surfaces are on d
 - **Tester self-skip.** If the tester IS spawned but finds legitimately nothing FE/UI exercisable against the dev's work, it exits 0 as a no-op and writes a findings record with `verdict: skipped`.
 
 A pre-empted or self-skipped tester is a valid, non-finding state for the reviewer — distinct from `degraded` (which means the tester tried to exercise a surface and couldn't reach part of it).
+
+## Two modes: in-chain vs standalone (D1)
+
+This skill detects its mode from its args; there is no separate skill:
+
+- **In-chain mode (default; no scope args).** Spawned by the dev chain between the dev skill and the review skill, scoped to what the LAST dev cycle changed (the `git show HEAD` diff + the dev's `tester-guidance.md`). This is everything **Run lifecycle** below describes. Findings go to the chain run-log dir for the reviewer.
+- **Standalone mode (`--phase <id>` and/or `--todos <ref...>`).** Invoked directly by the user from the terminal to deliberately exercise EVERY UI/UX surface a whole phase, or a named set of completed todos, introduced (not just the latest diff). Resolves a surface set from the scope args (D2), iterates over all of them accumulating findings (D3), and writes the findings out-of-tree (D4). See **Standalone mode** below.
+
+The presence of `--phase` or `--todos` is the only mode switch: with either flag the skill runs standalone; with neither it runs in-chain. Both modes share the same authority envelope, the same headed/headless policy, the same guaranteed teardown, the same out-of-tree artifact rule, and the same findings contract. Standalone changes only *what* is in scope and *where* the findings land, never the read-only / no-commit / no-deploy guarantees.
 
 ## Authority envelope (D5)
 
@@ -105,6 +116,37 @@ A run that cannot guarantee a clean teardown records that as a `degraded` findin
 - **Zero files under any repo working tree.** After a run, `git status --porcelain` must be empty (modulo files the dev cycle already committed). The tester writes nothing the repo would track.
 - **Binary artifacts** (screenshots, traces, video, server logs) go to a non-repo state dir: `~/.claude/state/sst-tester/<utc>/`. The findings records reference these by path; they are never copied into the repo.
 - **The reviewer-facing findings doc** (`tester-findings.{md,json}`) goes to the chain run-log dir (`<project>/.skill-runs/<run>/`), which is already gitignored, so it is visible to the reviewer without ever entering version control.
+
+## Standalone mode (`--phase <id>` / `--todos <ref...>`)
+
+Invoked from the terminal to sweep all UI/UX a phase or a set of completed todos introduced. The in-chain mode above is unchanged; this section adds only the standalone path. Standalone stays **read-only on the tree, out-of-tree for all artifacts, and full-teardown**, identical guarantees to in-chain.
+
+### Arg surface + dispatch (D1)
+
+- `--phase <id>`: resolve every closed UI surface under `### Phase <id>` of `docs/SPEC.md`.
+- `--todos <ref...>`: resolve the UI surfaces of one or more named `## Just shipped` entries in `docs/TODO.md`.
+- Either flag (or both together) selects standalone mode; the two are additive (pass both to union their resolved surface sets). With neither flag the skill runs in-chain (default) exactly as before.
+
+### Scope resolution (D2)
+
+A closed item resolves to a **UI surface** when any file path it cites is a front-end path. The default front-end predicate (a wrapper may extend it for project-specific dirs) is: a path whose extension is one of `.tsx .jsx .ts .js .vue .svelte .html .css .scss`, or a path under a front-end directory the wrapper names. Items that cite only back-end paths (e.g. `.py` handlers, `.sql` migrations), docs (`.md`), or config resolve to **no** surface and are excluded from the sweep.
+
+- **`--phase <id>`**: under `### Phase <id>`, collect every `- [x]` item (closed only; open `- [ ]` items are NOT swept, since they were never shipped). For each closed item, extract its cited paths and keep the front-end ones; map each surface to its route/component and to the project's mapped e2e spec(s) via the wrapper's phase->spec map. The resolved set is the union over all closed front-end items in that phase.
+  - *Example.* `--phase 7` over a phase whose `[x]` items cite `web/src/routes/checkout.tsx`, `web/src/components/LeadForm.jsx` (both front-end), `api/webhooks/stripe.py` (back-end), and `docs/STOREFRONT.md` (docs) resolves to `{checkout.tsx, CartSummary.tsx, LeadForm.jsx}` and excludes the back-end and docs items; a still-open `- [ ]` inventory-dashboard item in the same phase is excluded because it was never shipped.
+- **`--todos <ref...>`**: for each ref, match a `## Just shipped` entry by its leading SPEC-id token (e.g. `7.2`) OR a case-insensitive substring of the entry text (e.g. `settings`); apply the same front-end predicate to the matched entry's cited paths. A ref that matches no entry, or matches an entry with no front-end path, contributes nothing.
+  - *Example.* `--todos 7.2 settings` matches the `7.2 ... web/src/components/LeadForm.jsx` entry by id and the `6.9 settings page web/src/routes/settings.tsx` entry by substring, resolving to `{LeadForm.jsx, settings.tsx}`. A `--todos 7.3` naming a back-end-only entry resolves to nothing.
+
+If the union of resolved surfaces is empty (no closed front-end items in scope), standalone self-skips exactly like the in-chain path: write a `verdict: skipped` findings record with the reason and exit 0.
+
+### Iterate-all, collect-all (D3)
+
+Unlike the in-chain single-diff pass (which prioritizes the dev's guidance and one cycle's surfaces), standalone exercises **every** resolved surface and **does not stop at the first failure**. It runs the mapped e2e spec(s) plus exploratory checks for each surface, accumulating one or more per-check records per surface, then computes the overall verdict from the full set (green/red/degraded/skipped per the **Findings contract** rule). A broken surface becomes a `fail` check and the sweep continues to the remaining surfaces.
+
+The lifecycle is otherwise the in-chain lifecycle: start the local stack, poll readiness with a timeout, establish/degrade the session, drive each surface, then guaranteed teardown. A surface that can't be reached degrades to a finding and the sweep moves on.
+
+### Standalone output location (D4)
+
+Standalone has no chain run-log dir. It writes both `tester-findings.md` and `tester-findings.json` (the same contract as in-chain) to the out-of-tree state dir `~/.claude/state/sst-tester/<utc>/`, alongside the binary artifacts, and prints a one-line terminal summary (the overall verdict + summary) plus that artifact path. Standalone **does not** file SPEC follow-ups or edit any handoff doc; it tests and reports, and a human or a later review consumes the findings.
 
 ## Findings contract (tester → reviewer)
 

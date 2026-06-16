@@ -106,6 +106,8 @@ Pick the dev chain by intent:
 
 A proprietary `ssp-<persona>-chain-driver` skill (e.g. `ssp-chain-driver` in this repo, `ssp-sdrai-chain-driver` in a consumer) carries the chain name + cap defaults so the user types `/<persona>-chain-driver` with no flags. Override `--loop`, `--max-budget-usd`, or `--max-cycles` on the CLI for a one-off shape change.
 
+**Standalone tester sweep (`sst-tester --phase` / `--todos`).** Besides its in-chain stage, `sst-tester` (and its proprietary wrappers) runs directly from the terminal to deliberately exercise EVERY UI surface a whole phase or set of completed todos introduced, not just the last diff: `/sst-tester --phase <id>` resolves every closed `[x]` front-end item under `### Phase <id>`; `/sst-tester --todos <ref...>` resolves the named `## Just shipped` entries; pass both to union the surface sets. The standalone sweep iterates all resolved surfaces (does not stop at the first failure), writes `tester-findings.{md,json}` to the out-of-tree state dir `~/.claude/state/sst-tester/<utc>/`, and prints a one-line verdict. It stays read-only on the tree and never commits or deploys, same as the in-chain mode. A proprietary wrapper supplies the project's phase->spec map (e.g. `/ssp-cm-tester --phase 3`).
+
 ### Skill self-improvement (direct edit + commit)
 
 The supervisor (auto-appended to every chain unless `auto-supervisor: false`) edits skill source directly when a finding requires a skill's prose to change — there is no proposal file and no separate promotion step:
