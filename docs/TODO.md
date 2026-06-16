@@ -22,6 +22,7 @@
   phase blocks and `git log`.
 -->
 
+- 39.3 sst-dev-review §0.2: widen recovery sanitize gate to sst-*/SKILL.md; version 1.8.0→1.9.0; 2 new tests, 250→252 green — by sst-dev-cycle at 2026-06-16T00:00:00Z
 - 39.2 sst-dev-review §0.2 recovery: add sanitize gate — check staged `skills/framework/` paths, invoke `/sst-sanitize-transferable`, abort on must-fix; version 1.7.0→1.8.0; 4 new tests, 246→250 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-15T00:35:00Z
 - 39.1 sst-supervisor §0.5.3 fast-path: abort on review-reported findings; added `Found \d+ items:` and `Review follow-ups` abort conditions to §0.5.3 keyword list; Anti-fork constraint updated; version 2.1.0→2.2.0; 5 new tests, 241→246 green — by sst-dev-cycle at 2026-06-15T00:00:00Z
 - Phase 40 [hard batch, 40.1-40.6] remove sidecar/auto-promote mechanism wholesale: `sst-supervisor` 2.0.0 + `sst-manager` 2.0.0 rewritten to a direct-edit-and-commit model (no `SKILL.patch`/`auto-promote`/`proposals`/`promote` machinery; manager authorized to edit base-repo skills directly on user-request OR own judgment); dropped `auto-promote` from all 7 chains + schema + skill-chain.py comment; deleted `sst-promote-skill-proposal/` and `bin/apply-skill-patch.py`; scrubbed `sst-sanitize-transferable` 1.1.0, `sst-chain-driver` 1.2.2, README, CLAUDE.md, templates, manager-bot.py `/promote` verb; retired `tests/test_phase32.py`, added `tests/test_phase40.py` (19 cases incl. active-surface grep-guard); 218 green, validator clean. Implemented by sst-dev-cycle; closed manually after the cycle hit error_max_turns post-validator without committing, at 2026-06-03T01:00:00Z
@@ -46,7 +47,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 39.3 `skills/dev/sst-dev-review/SKILL.md` §0.2 step 7: widen recovery sanitize gate from `skills/framework/**` to all transferable `sst-*/SKILL.md` paths (matching sst-dev-cycle §5 contract), bump version to 1.9.0 — review of fa8f62c
 - [hard] 41.1+41.2 author the `sst-tester` transferable (`skills/framework/sst-tester/SKILL.md`) + the tester→reviewer findings contract (run-log `tester-findings.{md,json}` schema + a `tests/fixtures` sample) — new `dev → tester → review` chain stage that drives the running app in a browser between implement and review; user request 2026-06-15 (spec Phase 41, root dependency)
 - [medium] 41.3+41.4+41.9+41.10 reviewer consumes run-log tester findings + insert `sst-tester` into the framework dev chains + dev writes `tester-guidance.md` (else `[skip-tester]` pre-empt) + `bin/skill-chain.py` honors the pre-empt (skip tester → straight to review) — spec Phase 41; depends on 41.1/41.2
 - [hard] 41.5+41.6 author the `ssp-alpha-tester` wrapper (Alpha ports 5003/3000, `web/e2e` specs, `web/e2e/.auth/state.json` reuse) + insert into `alpha_app/.claude/chains/alpha-cycle.yaml` + mirror the findings-read in `ssp-alpha-dev-review` — spec Phase 41; Alpha rollout, depends on 41.1-41.4
