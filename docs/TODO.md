@@ -17,6 +17,7 @@
   phase blocks and `git log`.
 -->
 
+- 48.4: fix D1 dispatch discriminator in sst-tester SKILL.md (add tester-guidance.md in-chain guard at line 62; update stale line 132 to name looped-standalone as third mode); 2 new tests; 437→439 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-17T02:10:00Z
 - 48.1+48.2+48.3 Phase 48 close: tester-target queue (templates/TODO.md), looped-standalone drain + [no-test-work] bail (sst-tester v1.1.0→v1.2.0), NO_TEST_WORK_SENTINEL_RE + loop-abort in skill-chain.py, README looped tester example, CM tester mirror (base-version→1.2.0); 23 new tests; 414→437 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-17T00:50:00Z
 - 47.3: fix batch mode usage example (add --output-template 'reviewed/{stem}.md') + strengthen test_usage_batch_example assertion; 414→414 green — by sst-dev-cycle at 2026-06-16T23:55:00Z
 - 47.1+47.2 Phase 47 close: add ## Features (sst-/ssp- model, skill catalog table, chains table, CLI flags table) + ## Usage (4 copy-pasteable examples) to README.md; test_phase47.py 23 tests; 391→414 green — by sst-dev-cycle at 2026-06-16T23:15:00Z
@@ -40,6 +41,5 @@
   Order: blockers/highest-impact first.
 -->
 
-- [easy] [should-fix] 48.4 `sst-tester/SKILL.md:62` D1 dispatch summary lacks in-chain discriminator: "queue present" alone triggers looped-standalone even in-chain; `SKILL.md:132` standalone D1 also stale with third mode — add `tester-guidance.md` check + update line 132 — review of a43a7fa
 
 
