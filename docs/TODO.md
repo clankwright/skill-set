@@ -39,4 +39,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [medium] 48.1+48.2+48.3 looped standalone tester drain -- loop just the tester from the terminal (`bin/skill-chain.py <tester> --loop N`) over the `## Tester sweep targets` queue in `docs/TODO.md`, one target per iteration, self-terminating on a `[no-test-work]` bail that `bin/skill-chain.py`'s loop-abort recognizes (the tester analog of the dev cycle's `## Next up` + `[no-work]`); out-of-tree exercised-state keeps the tester read-only on the tree -- user request 2026-06-16 (spec Phase 48)
+
 
