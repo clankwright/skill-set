@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.2.0
+version: 1.2.1
 model-floor: sonnet
 effort-floor: high
 ---
@@ -119,6 +119,7 @@ A run that cannot guarantee a clean teardown records that as a `degraded` findin
 
 - **Zero files under any repo working tree.** After a run, `git status --porcelain` must be empty (modulo files the dev cycle already committed). The tester writes nothing the repo would track.
 - **Binary artifacts** (screenshots, traces, video, server logs) go to a non-repo state dir: `~/.claude/state/sst-tester/<utc>/`. The findings records reference these by path; they are never copied into the repo.
+- **Write each artifact directly to the out-of-tree dir; never rely on a post-hoc move.** When a tool accepts an output-path argument (for example the browser screenshot tool's `filename`), pass the ABSOLUTE out-of-tree path, not a bare filename. A bare filename is resolved relative to the process working directory (the repo root), so it deposits a binary artifact inside the tree and forces a detect-and-move that leaves the tree dirty if anything fails between the write and the move. Passing the absolute path keeps the leave-no-trace invariant true by construction rather than by recovery.
 - **The reviewer-facing findings doc** (`tester-findings.{md,json}`) goes to the chain run-log dir (`<project>/.skill-runs/<run>/`), which is already gitignored, so it is visible to the reviewer without ever entering version control.
 
 ## Standalone mode (`--phase <id>` / `--todos <ref...>`)
