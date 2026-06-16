@@ -247,3 +247,154 @@ def test_parser_uses_the_epilog():
     # Build the parser the same way parse_args does and confirm the epilog flows
     # through. We assert via the module-level constant being embedded.
     assert "drive-chain.py" in sc.UNIFIED_CLI_EPILOG
+
+
+# ---- 42.8: _apply_profile_defaults pure helper + precedence -----------------
+
+def test_apply_profile_defaults_fills_unset_fields():
+    """Profile fills all 6 unset fields when the caller set none of them."""
+    args = sc.parse_args(["sst-dev-cycle"])  # no --chain, no wrapper flags
+    profile = {
+        "watched-chain": "skill-set-cycle",
+        "default-loop": "3",
+        "default-max-budget-usd": "25.5",
+        "default-max-cycles": "4",
+        "telegram-env": "/tmp/ssp.env",
+        "label": "skill-set",
+    }
+    sc._apply_profile_defaults(args, profile, explicit_loop=False)
+    assert args.chain == "skill-set-cycle"
+    assert args.loop == 3
+    assert args.max_budget_usd == 25.5
+    assert args.max_cycles == 4
+    assert Path(args.telegram_env) == Path("/tmp/ssp.env")
+    assert args.label == "skill-set"
+
+
+def test_apply_profile_defaults_explicit_cli_wins_per_field():
+    """An explicit CLI value for every field blocks the profile from overwriting it."""
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(suffix=".env", delete=False) as f:
+        f.write(b"TELEGRAM_BOT_TOKEN=x\n")
+        explicit_env = f.name
+    try:
+        args = sc.parse_args([
+            "--chain", "explicit-chain",
+            "--loop", "7",
+            "--max-budget-usd", "50.0",
+            "--max-cycles", "10",
+            "--telegram-env", explicit_env,
+            "--label", "explicit-label",
+        ])
+        profile = {
+            "watched-chain": "profile-chain",
+            "default-loop": "3",
+            "default-max-budget-usd": "25.0",
+            "default-max-cycles": "5",
+            "telegram-env": "/tmp/profile.env",
+            "label": "profile-label",
+        }
+        sc._apply_profile_defaults(args, profile, explicit_loop=True)
+        assert args.chain == "explicit-chain"
+        assert args.loop == 7
+        assert args.max_budget_usd == 50.0
+        assert args.max_cycles == 10
+        assert Path(args.telegram_env) == Path(explicit_env)
+        assert args.label == "explicit-label"
+    finally:
+        os.unlink(explicit_env)
+
+
+def test_apply_profile_defaults_explicit_loop_suppresses_max_cycles():
+    """When explicit_loop=True, a profile default-max-cycles must NOT be applied.
+    This protects overnight-run economic guardrails: an explicit --loop N is the
+    operator's ceiling, not a floor for the profile to inflate."""
+    args = sc.parse_args(["--chain", "x", "--loop", "5"])
+    profile = {"default-max-cycles": "3"}
+    sc._apply_profile_defaults(args, profile, explicit_loop=True)
+    assert args.max_cycles is None
+
+
+def test_apply_profile_defaults_no_explicit_loop_fills_max_cycles():
+    """When explicit_loop=False, a profile default-max-cycles IS applied."""
+    args = sc.parse_args(["--chain", "x"])
+    profile = {"default-max-cycles": "3"}
+    sc._apply_profile_defaults(args, profile, explicit_loop=False)
+    assert args.max_cycles == 3
+
+
+def test_apply_profile_defaults_empty_profile_is_noop():
+    """An empty profile dict leaves all args unchanged."""
+    args = sc.parse_args(["--chain", "x"])
+    sc._apply_profile_defaults(args, {}, explicit_loop=False)
+    assert args.chain == "x"
+    assert args.loop is None
+    assert args.max_budget_usd is None
+    assert args.max_cycles is None
+
+
+# ---- 42.3: --overnight preset -----------------------------------------------
+
+def test_overnight_flag_parsed():
+    """`--overnight` is accepted by parse_args."""
+    args = sc.parse_args(["--chain", "x", "--overnight"])
+    assert args.overnight is True
+
+
+def test_preset_overnight_parsed():
+    """`--preset overnight` is accepted by parse_args."""
+    args = sc.parse_args(["--chain", "x", "--preset", "overnight"])
+    assert args.preset == "overnight"
+
+
+def test_overnight_with_budget_cap_expands():
+    """`--overnight` with a budget cap sets loop=0 and loop_delay_random to 300,1800."""
+    args = sc.parse_args(["--chain", "x", "--overnight", "--max-budget-usd", "30"])
+    sc._apply_preset(args, explicit_loop=False)
+    assert args.loop == 0
+    assert args.loop_delay_random == "300,1800"
+
+
+def test_overnight_with_cycle_cap_expands():
+    """`--overnight` with a cycle cap sets loop=0."""
+    args = sc.parse_args(["--chain", "x", "--overnight", "--max-cycles", "5"])
+    sc._apply_preset(args, explicit_loop=False)
+    assert args.loop == 0
+
+
+def test_overnight_without_cap_exits_nonzero():
+    """`--overnight` without any budget/cycle cap exits non-zero with a clear message."""
+    import pytest
+    args = sc.parse_args(["--chain", "x", "--overnight"])
+    with pytest.raises(SystemExit) as exc_info:
+        sc._apply_preset(args, explicit_loop=False)
+    assert exc_info.value.code != 0
+
+
+def test_overnight_with_explicit_loop_errors():
+    """`--overnight` and an explicit `--loop` are mutually exclusive."""
+    import pytest
+    args = sc.parse_args(["--chain", "x", "--overnight", "--max-budget-usd", "30"])
+    args.loop = 5  # simulate explicit --loop
+    with pytest.raises(SystemExit) as exc_info:
+        sc._apply_preset(args, explicit_loop=True)
+    assert exc_info.value.code != 0
+
+
+def test_overnight_preserves_explicit_loop_delay_random():
+    """`--overnight` does not override an explicitly-set --loop-delay-random."""
+    args = sc.parse_args([
+        "--chain", "x", "--overnight",
+        "--max-budget-usd", "30",
+        "--loop-delay-random", "60,120",
+    ])
+    sc._apply_preset(args, explicit_loop=False)
+    assert args.loop_delay_random == "60,120"
+
+
+def test_preset_overnight_equivalent_to_overnight_flag():
+    """`--preset overnight` behaves identically to `--overnight`."""
+    args = sc.parse_args(["--chain", "x", "--preset", "overnight", "--max-budget-usd", "30"])
+    sc._apply_preset(args, explicit_loop=False)
+    assert args.loop == 0
+    assert args.loop_delay_random == "300,1800"
