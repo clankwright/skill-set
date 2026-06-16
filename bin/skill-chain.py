@@ -1871,9 +1871,11 @@ def main() -> int:
             # Phase 36: incomplete-cycle contract violation — abort the loop
             # so a stuck "sub-skill returns, parent doesn't close" cycle
             # doesn't silently re-iterate against the same In-flight state.
-            # Phase 43 (D3/43.4): relaxed — abort only when HEAD did not advance
-            # during the iteration. A cycle the follower (sst-dev-review) recovered
-            # (HEAD advanced) is NOT a contract violation; the loop continues.
+            # Phase 43.6: relaxed — abort only when _incomplete_cycle_detected
+            # returns True (In-flight still set). The recovery follower clears
+            # the In-flight line as part of its commit; that is the genuine
+            # recovery signal, not HEAD advancement (which a supervisor commit
+            # can satisfy without the cycle actually having recovered).
             if iter_manifest.get("contract_violation"):
                 if _contract_violation_aborts(iter_manifest, cwd):
                     if "loop" in manifest:
