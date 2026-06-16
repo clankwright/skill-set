@@ -396,6 +396,36 @@ def _incomplete_cycle_detected(cwd: str) -> bool:
     return False
 
 
+def _contract_violation_aborts(iter_manifest: dict) -> bool:
+    """Phase 43 (D3/43.4): decide whether a recorded incomplete-cycle contract
+    violation should abort the loop.
+
+    The Phase 36 abort fired unconditionally on any recorded violation, killing
+    even a loop that the follower (sst-dev-review) recovered. The relaxed rule:
+    abort ONLY when HEAD did not advance during the iteration — i.e. neither the
+    dev skill nor any follower committed. When the follower recovered the cycle
+    (HEAD advanced past the SHA captured at violation time), the loop continues.
+
+    Conservative default: if either SHA is unavailable (non-git harness, or the
+    violation predates the head_at_violation stamp), we cannot prove recovery
+    happened, so we abort — preserving the prior fail-safe behavior.
+    """
+    cv = iter_manifest.get("contract_violation")
+    if not cv:
+        return False
+    head_at_violation = cv.get("head_at_violation")
+    head_now = iter_manifest.get("git_sha_after")
+    if (
+        head_at_violation is not None
+        and head_now is not None
+        and head_now != head_at_violation
+    ):
+        # A follower advanced HEAD after the violation was recorded — the cycle
+        # was recovered (e.g. sst-dev-review committed the orphaned work).
+        return False
+    return True
+
+
 def _parse_reset_time(value: Any) -> float | None:
     """Parse a rate-limit reset time into epoch seconds. Returns None on failure.
 
@@ -1547,6 +1577,10 @@ def run_iteration(
             iter_manifest["contract_violation"] = {
                 "skill": skill,
                 "kind": "incomplete-cycle",
+                # Phase 43 (D3/43.4): stamp the dev skill's post-run HEAD so the
+                # loop-level abort can tell whether a follower (sst-dev-review
+                # recovery) later advanced HEAD and healed the cycle.
+                "head_at_violation": sha_after_skill,
             }
             if i + 1 < len(skills_to_run) and skills_to_run[i + 1] != auto_supervisor:
                 print(c(
@@ -1840,10 +1874,22 @@ def main() -> int:
             # Phase 36: incomplete-cycle contract violation — abort the loop
             # so a stuck "sub-skill returns, parent doesn't close" cycle
             # doesn't silently re-iterate against the same In-flight state.
+            # Phase 43 (D3/43.4): relaxed — abort only when HEAD did not advance
+            # during the iteration. A cycle the follower (sst-dev-review) recovered
+            # (HEAD advanced) is NOT a contract violation; the loop continues.
             if iter_manifest.get("contract_violation"):
-                if "loop" in manifest:
-                    manifest["loop"]["terminated_by"] = "contract_violation"
-                break
+                if _contract_violation_aborts(iter_manifest):
+                    if "loop" in manifest:
+                        manifest["loop"]["terminated_by"] = "contract_violation"
+                    break
+                cv = iter_manifest["contract_violation"]
+                print(c(
+                    f"[contract-violation: recovered] /{cv.get('skill')}: HEAD "
+                    f"advanced during follower recovery "
+                    f"({str(cv.get('head_at_violation'))[:7]} -> "
+                    f"{str(iter_manifest.get('git_sha_after'))[:7]}); loop continues",
+                    GREEN,
+                ), flush=True)
             if not infinite and iteration >= loop_count:
                 break
             sleep_seconds = 0.0
