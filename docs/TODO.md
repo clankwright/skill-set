@@ -38,3 +38,4 @@
 -->
 
 
+- [medium] 46.1+46.2 remove the Phase 42 deprecation shims — delete `bin/drive-chain.py` + `bin/skill-batch.py`, remove/repoint their tests (`test_drive_chain_telegram.py`, shim cases in `test_phase42.py`), scrub remaining refs from `sst-chain-driver` (sanitize-gated) + `notify-telegram.sh` + `skill-chain.py` (leave SPEC-DONE historical text); unified `skill-chain.py` is the only entrypoint — user request 2026-06-16 (spec Phase 46)
