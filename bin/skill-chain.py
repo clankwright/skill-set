@@ -92,6 +92,17 @@ PROFILE_KEYS = (
     "label",
 )
 
+# Named presets (extensible). Each entry maps to the flag values it expands to
+# and an optional `requires_cap` sentinel. `--overnight` is the initial preset;
+# additional presets can be registered here without changing the dispatch logic.
+PRESETS: dict = {
+    "overnight": {
+        "loop": 0,
+        "loop_delay_random": "300,1800",
+        "requires_cap": True,
+    },
+}
+
 # ---- ANSI styling -----------------------------------------------------------
 RESET   = "\033[0m"
 DIM     = "\033[2m"
@@ -1514,6 +1525,79 @@ def _load_profile_defaults(persona: str, cwd: str) -> dict | None:
     return {k: v for k, v in data.items() if k in PROFILE_KEYS}
 
 
+def _apply_profile_defaults(
+    args: argparse.Namespace,
+    profile: dict,
+    explicit_loop: bool,
+) -> None:
+    """Apply profile-sourced defaults to `args` in-place. Explicit CLI flags win.
+
+    `explicit_loop` is captured BEFORE profile loading (args.loop is not None at
+    that point) so an explicit --loop N suppresses the profile's default-max-cycles
+    — the operator's loop is the only ceiling for that run.
+    """
+    if args.chain is None and profile.get("watched-chain"):
+        args.chain = str(profile["watched-chain"])
+    if args.loop is None and profile.get("default-loop") is not None:
+        try:
+            args.loop = int(profile["default-loop"])
+        except (TypeError, ValueError):
+            pass
+    if args.max_budget_usd is None and profile.get("default-max-budget-usd") is not None:
+        try:
+            args.max_budget_usd = float(profile["default-max-budget-usd"])
+        except (TypeError, ValueError):
+            pass
+    if (args.max_cycles is None
+            and not explicit_loop
+            and profile.get("default-max-cycles") is not None):
+        try:
+            args.max_cycles = int(profile["default-max-cycles"])
+        except (TypeError, ValueError):
+            pass
+    if args.telegram_env is None and profile.get("telegram-env"):
+        args.telegram_env = Path(
+            os.path.expanduser(str(profile["telegram-env"]))
+        )
+    if args.label is None and profile.get("label"):
+        args.label = str(profile["label"])
+
+
+def _apply_preset(args: argparse.Namespace, explicit_loop: bool) -> None:
+    """Expand --overnight / --preset into their canonical flag values.
+
+    Must be called AFTER profile defaults so a profile-sourced cap satisfies
+    the --overnight cap requirement. `explicit_loop` mirrors the same flag
+    captured before profile loading: True when the operator passed --loop
+    explicitly on the CLI.
+    """
+    # Normalize --overnight shorthand to --preset overnight.
+    if getattr(args, "overnight", False):
+        if getattr(args, "preset", None) not in (None, "overnight"):
+            raise SystemExit("--overnight and --preset are mutually exclusive")
+        args.preset = "overnight"
+
+    preset_name = getattr(args, "preset", None)
+    if not preset_name:
+        return
+
+    if preset_name == "overnight":
+        if explicit_loop:
+            raise SystemExit(
+                "--overnight / --preset overnight and --loop are mutually exclusive; "
+                "--overnight implies --loop 0"
+            )
+        if args.max_budget_usd is None and args.max_cycles is None:
+            raise SystemExit(
+                "--overnight / --preset overnight requires a budget or cycle cap "
+                "to prevent unguarded infinite runs; "
+                "add --max-budget-usd <N> or --max-cycles <N>"
+            )
+        args.loop = 0
+        if args.loop_delay_random is None:
+            args.loop_delay_random = PRESETS["overnight"]["loop_delay_random"]
+
+
 def _wrapper_telegram_enabled(args: argparse.Namespace) -> bool:
     """Telegram event posting is opt-in: enabled only when the user supplied
     --telegram-env, --profile, or --label (and did not pass --no-telegram). A
@@ -1707,6 +1791,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Human-readable label prepended (as [label]) to each Telegram body "
              "and used in event messages. Defaults to the chain name. Opts into "
              "Telegram event posts.",
+    )
+    p.add_argument(
+        "--overnight",
+        action="store_true",
+        help="Shorthand for --preset overnight. Expands to --loop 0 + "
+             "--loop-delay-random 300,1800 (5-30min human-like jitter). "
+             "Requires --max-budget-usd or --max-cycles (errors without a cap). "
+             "Mutually exclusive with --loop. Applied after --profile defaults "
+             "so a profile-sourced cap satisfies the cap requirement.",
+    )
+    p.add_argument(
+        "--preset",
+        choices=sorted(PRESETS),
+        default=None,
+        help="Apply a named preset. Presets are extensible via the PRESETS dict; "
+             "current presets: " + ", ".join(sorted(PRESETS)) + ". "
+             "--overnight is a convenient alias for --preset overnight.",
     )
     p.add_argument(
         "skills",
@@ -2019,7 +2120,6 @@ def main() -> int:
     cwd = os.getcwd()
 
     # Phase 42: resolve persona profile defaults as a layer BELOW CLI args.
-    # Fills only the fields the user didn't pass; explicit flags always win.
     # Snapshot explicit --loop BEFORE profile loading so an explicit loop count
     # suppresses a profile default-max-cycles (the user's loop is the only
     # ceiling for that run). A missing/malformed profile is a silent no-op.
@@ -2036,31 +2136,11 @@ def main() -> int:
                 file=sys.stderr, flush=True,
             )
         else:
-            if args.chain is None and profile.get("watched-chain"):
-                args.chain = str(profile["watched-chain"])
-            if args.loop is None and profile.get("default-loop") is not None:
-                try:
-                    args.loop = int(profile["default-loop"])
-                except (TypeError, ValueError):
-                    pass
-            if args.max_budget_usd is None and profile.get("default-max-budget-usd") is not None:
-                try:
-                    args.max_budget_usd = float(profile["default-max-budget-usd"])
-                except (TypeError, ValueError):
-                    pass
-            if (args.max_cycles is None
-                    and not explicit_loop
-                    and profile.get("default-max-cycles") is not None):
-                try:
-                    args.max_cycles = int(profile["default-max-cycles"])
-                except (TypeError, ValueError):
-                    pass
-            if args.telegram_env is None and profile.get("telegram-env"):
-                args.telegram_env = Path(
-                    os.path.expanduser(str(profile["telegram-env"]))
-                )
-            if args.label is None and profile.get("label"):
-                args.label = str(profile["label"])
+            _apply_profile_defaults(args, profile, explicit_loop)
+
+    # Expand --overnight / --preset after profile defaults so a profile-sourced
+    # cap satisfies the --overnight cap requirement.
+    _apply_preset(args, explicit_loop)
 
     # Resolve skills + chain name from either --chain or the positional list.
     chain_def: dict | None = None

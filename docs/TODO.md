@@ -4,11 +4,6 @@
 
 ## In flight
 
-<!--
-  Exactly one line per currently-running skill, format:
-  - [<skill-name> @ <utc-iso>] <one-line: what this skill is currently doing>
-  Rewrite (don't append) as the focus narrows. Empty when no skill is running.
--->
 
 ## Just shipped (last cycle)
 
@@ -23,6 +18,7 @@
   phase blocks and `git log`.
 -->
 
+- 42.8+42.3 extract `_apply_profile_defaults` pure helper (5 tests: all-fields/explicit-wins/explicit-loop-suppresses-max-cycles) + add `--overnight`/`--preset overnight` preset (`_apply_preset`, `PRESETS` dict, cap check, `--loop` mutual exclusion, 8 tests); 350→363 green — by sst-dev-cycle at 2026-06-16T18:00:00Z
 - 42.1+42.2 unify the chain-run CLI: merge drive-chain.py's wrapper layer natively into bin/skill-chain.py — six inert-when-unset flags (--profile/--max-budget-usd/--max-cycles/--telegram-env/--no-telegram/--label), profile defaults below CLI args, opt-in Telegram (4 event classes incl. real-time pause/resume via a notify callback), pure `_wrapper_halt_reason` budget/cycle/escalation halt, `UNIFIED_CLI_EPILOG` flag-mapping in --help; 23 new tests (tests/test_phase42.py), 327→350 green — by sst-dev-cycle at 2026-06-16T16:45:00Z
 - 41.7+41.8 Phase 41 close: 16 hygiene/tooling tests (git-status-porcelain, finally/trap teardown, port-free, out-of-tree artifacts, install-skills lists sst-tester, check-ssp-sync clean); README chain descriptions + floor table + worked example updated for dev→tester→review; CLAUDE.md updated; 311→327 green — by sst-dev-cycle at 2026-06-16T15:30:00Z
 - reconcile ssp-cm-supervisor base-version pin (2.1.0→2.2.0): reviewed wrapper against 39.1 finding-aware-abort change (§0.5.3 not overridden, reconcile is mechanical); check-ssp-sync clean for all 6 CM wrappers; 311→311 green — by sst-dev-cycle at 2026-06-16T14:10:00Z
@@ -43,9 +39,7 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] [should-fix] 42.8 `bin/skill-chain.py:2026-2063` profile default-application block in `main()` (CLI-wins-per-field + explicit-`--loop` suppression of profile `default-max-cycles`) is untested — extract to a pure `_apply_profile_defaults(args, profile, explicit_loop)` helper + add precedence tests; protects the economic-cap guardrail on profile-driven overnight runs — review of 634b8ae
-
-- [medium] 42.3+42.4+42.5+42.6+42.7 `--overnight` preset + fold `skill-batch.py` into a `--batch` mode + `drive-chain.py`/`skill-batch.py` deprecation shims + migrate `*-chain-driver` skills/cron/docs to the single runner + unified-flag-matrix tests — spec Phase 42; 42.1/42.2 now landed (native flags live in `bin/skill-chain.py`)
+- [medium] 42.4+42.5+42.6+42.7 fold `skill-batch.py` into a `--batch` mode + `drive-chain.py`/`skill-batch.py` deprecation shims + migrate `*-chain-driver` skills/cron/docs to the single runner + unified-flag-matrix tests — spec Phase 42; 42.1/42.2/42.3/42.8 now landed
 
 - [hard] 44.1+44.2 add a standalone terminal-invocable `sst-tester` mode (`--phase <id>` / `--todos <ref...>`) that resolves + iteratively exercises ALL UI/UX a phase or set of completed todos introduced (iterate-all/collect-all, out-of-tree findings) — distinct from the in-chain last-diff mode; user request 2026-06-16 (spec Phase 44)
 - [medium] 44.3+44.4 mirror the standalone mode into `ssp-cm-tester` (CM phase->`web/e2e` spec map) + document the terminal invocation in `README.md`/`CLAUDE.md` — spec Phase 44; depends on 44.1/44.2
