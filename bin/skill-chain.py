@@ -73,6 +73,25 @@ import time
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+NOTIFY_TELEGRAM = REPO_ROOT / "bin" / "notify-telegram.sh"
+TRANSFERABLE_CHAINS_DIR = REPO_ROOT / "chains"
+
+# Persona profile keys consumed from a `<persona>-chain-driver/SKILL.md`
+# "Configured defaults" yaml block. Each maps to the corresponding native CLI
+# arg as a layer BELOW it (explicit CLI flag wins). --profile gives the
+# unified runner the same defaults resolution the slash-command chain-driver
+# agent applies on its own. (Merged natively from the former drive-chain.py
+# wrapper in Phase 42.)
+PROFILE_KEYS = (
+    "watched-chain",
+    "default-loop",
+    "default-max-budget-usd",
+    "default-max-cycles",
+    "telegram-env",
+    "label",
+)
+
 # ---- ANSI styling -----------------------------------------------------------
 RESET   = "\033[0m"
 DIM     = "\033[2m"
@@ -1032,6 +1051,7 @@ def run_skill_with_retry(
     log_stem_override: str | None = None,
     loop_delay: float = 0.0,
     loop_delay_random: tuple[float, float] | None = None,
+    notify=None,
 ) -> tuple[int, dict]:
     """Run a skill with rate-limit pause-and-resume.
 
@@ -1141,12 +1161,20 @@ def run_skill_with_retry(
         }
         pause_records.append(pause_record)
 
+        # Phase 42: real-time rate-limit pause notification (native; was a
+        # stdout-banner watch in the former drive-chain.py wrapper). Inert when
+        # no notify callback is wired (bare runs / Telegram opt-out).
+        if notify is not None:
+            notify("rate-limit-pause", pause_record)
+
         # KeyboardInterrupt during the sleep propagates up to run_iteration's
         # caller, which finalizes the manifest cleanly via main()'s outer
         # try/except. No special handling needed here.
         time.sleep(sleep_seconds)
 
         pause_record["resumed_at"] = _utc_iso()
+        if notify is not None:
+            notify("rate-limit-resume", pause_record)
         retry_count += 1
         # Capture the session id from the interrupted run so the next
         # attempt can use --resume to pick up mid-skill context.
@@ -1272,10 +1300,261 @@ def find_local_supervisor(cwd: str) -> str | None:
     return None
 
 
+# ---- Unified chain-run CLI (Phase 42) --------------------------------------
+# bin/skill-chain.py is the single canonical chain-run entrypoint. The former
+# bin/drive-chain.py wrapper layer (budget gates, Telegram event posts, persona
+# profile resolution, run label) is now native here as inert-when-unset flags,
+# so nothing requires the old `-- <forwarded-args>` two-script split. The epilog
+# below is the spec'd flag-mapping surface (42.1): it lists the merged wrapper
+# flags and records which scripts reduce to deprecation shims.
+UNIFIED_CLI_EPILOG = """\
+Unified chain-run CLI (Phase 42)
+--------------------------------
+This is the single canonical entrypoint for running a chain. The wrapper layer
+that used to live in bin/drive-chain.py is now native here; you no longer pass
+skill-chain flags after a `-- ` separator.
+
+Legacy flag -> unified form (all native on this runner now):
+  drive-chain.py --max-budget-usd X   -> skill-chain.py --max-budget-usd X
+  drive-chain.py --max-cycles N       -> skill-chain.py --max-cycles N
+  drive-chain.py --telegram-env FILE  -> skill-chain.py --telegram-env FILE
+  drive-chain.py --no-telegram        -> skill-chain.py --no-telegram
+  drive-chain.py --profile PERSONA    -> skill-chain.py --profile PERSONA
+  drive-chain.py --label LABEL        -> skill-chain.py --label LABEL
+  drive-chain.py --chain C -- --loop N -> skill-chain.py --chain C --loop N
+  skill-batch.py SKILL --inputs GLOB  -> (folded into a --batch mode; 42.4)
+
+Telegram event posts are inert unless you opt in with --telegram-env, --profile,
+or --label (and not --no-telegram); a bare `skill-chain.py --chain X` never
+touches Telegram. Budget/cycle caps (--max-budget-usd / --max-cycles) work with
+or without Telegram.
+
+Shims: bin/drive-chain.py and bin/skill-batch.py reduce to thin deprecation
+shims that forward onto this runner (drive-chain shim: 42.5; batch mode: 42.4).
+"""
+
+
+def _git_subject(cwd: str, sha: str) -> str:
+    """One-line commit subject for `sha`, or a placeholder on any failure."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", cwd, "log", "-1", "--pretty=%s", sha],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0:
+            return out.stdout.strip() or "(no subject)"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return "(unknown)"
+
+
+def _read_telegram_env(path: Path) -> dict[str, str]:
+    """Parse a shell-style env file (KEY=VALUE per line, # comments, optional
+    `export `). One matching pair of surrounding quotes is stripped from values.
+    """
+    out: dict[str, str] = {}
+    if not path.exists():
+        raise SystemExit(f"--telegram-env: file does not exist: {path}")
+    for line in path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.startswith("export "):
+            s = s[len("export "):].lstrip()
+        if "=" not in s:
+            continue
+        key, _, value = s.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        out[key] = value
+    return out
+
+
+def _resolve_tg_env(
+    telegram_env_path: "Path | None",
+    os_env: "dict[str, str]",
+    repo_root: "Path",
+) -> "dict[str, str]":
+    """Merge Telegram credentials from up to three sources (first match wins per
+    key): (1) --telegram-env explicit file; (2) caller-exported env vars;
+    (3) base-dir fallback `repo_root/telegram.env`. TELEGRAM_PARSE_MODE defaults
+    to "" (plain text) so bodies with markdown-ish characters aren't mangled.
+    """
+    tg: dict[str, str] = {}
+    if telegram_env_path:
+        tg.update(_read_telegram_env(telegram_env_path))
+    for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_PARSE_MODE"):
+        if k not in tg and k in os_env:
+            tg[k] = os_env[k]
+    if "TELEGRAM_BOT_TOKEN" not in tg:
+        _base_fallback = repo_root / "telegram.env"
+        if _base_fallback.exists():
+            try:
+                tg.update(_read_telegram_env(_base_fallback))
+            except Exception:  # noqa: BLE001 — best-effort; malformed fallback never aborts
+                pass
+    tg.setdefault("TELEGRAM_PARSE_MODE", "")
+    return tg
+
+
+class TelegramSink:
+    """Sends a message via bin/notify-telegram.sh. No-op when disabled."""
+
+    def __init__(self, *, enabled: bool, env: dict[str, str]):
+        self.enabled = enabled
+        self.env = env
+        self._warned_missing = False
+
+    def send(self, message: str, *, label: str = "telegram") -> None:
+        if not self.enabled:
+            return
+        if "TELEGRAM_BOT_TOKEN" not in self.env or "TELEGRAM_CHAT_ID" not in self.env:
+            if not self._warned_missing:
+                print("[chain] TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not in env; "
+                      "skipping outbound. Pass --telegram-env <file>/--profile, set "
+                      "them, or use --no-telegram to suppress this warning.",
+                      file=sys.stderr, flush=True)
+                self._warned_missing = True
+            return
+        try:
+            r = subprocess.run(
+                ["bash", str(NOTIFY_TELEGRAM)],
+                input=message,
+                env={**os.environ, **self.env},
+                capture_output=True, text=True, timeout=20,
+            )
+            if r.returncode != 0:
+                print(f"[chain] {label}: notify-telegram exited {r.returncode}: "
+                      f"{r.stderr.strip()[:300]}", file=sys.stderr, flush=True)
+        except subprocess.TimeoutExpired:
+            print(f"[chain] {label}: notify-telegram timed out", file=sys.stderr, flush=True)
+
+
+def _iteration_cost(iter_manifest: dict) -> float:
+    """Sum total_cost_usd across an iteration manifest's skill records."""
+    return sum(float(s.get("total_cost_usd") or 0) for s in iter_manifest.get("skills", []))
+
+
+def _supervisor_verdict_path(log_dir: Path, iter_num: int, looping: bool) -> Path:
+    if looping:
+        return log_dir / f"iter_{iter_num:02d}" / "supervisor_verdict.md"
+    return log_dir / "supervisor_verdict.md"
+
+
+def _verdict_outcome(verdict_path: Path) -> str:
+    """One-word outcome label from a supervisor_verdict.md. Checks the
+    `## Outcome` markdown-header form first, the inline `Outcome:` form second,
+    then a code-span-stripped \\bescalate\\b scan. 'unknown' when absent.
+    """
+    if not verdict_path.exists():
+        return "unknown"
+    try:
+        body = verdict_path.read_text(encoding="utf-8")
+    except OSError:
+        return "unknown"
+    m = re.search(r"^##\s+Outcome\s*\n+\s*([A-Za-z_-]+)", body, re.MULTILINE)
+    if m:
+        return m.group(1).strip().lower()
+    m = re.search(r"^\s*\*?\*?Outcome\*?\*?\s*:\s*([A-Za-z_-]+)", body, re.MULTILINE)
+    if m:
+        return m.group(1).strip().lower()
+    stripped = re.sub(r"```[\s\S]*?```", "", body)
+    stripped = re.sub(r"`[^`\n]+`", "", stripped)
+    if re.search(r"\bescalate\b", stripped, re.IGNORECASE):
+        return "escalate"
+    return "clean"
+
+
+def _find_profile_skill(persona: str, cwd: str) -> Path | None:
+    """Resolve `<persona>-chain-driver/SKILL.md` (project-scoped first, then
+    personal-global). Returns None on miss."""
+    candidates = [
+        Path(cwd) / ".claude" / "skills" / f"{persona}-chain-driver" / "SKILL.md",
+        Path.home() / ".claude" / "skills" / f"{persona}-chain-driver" / "SKILL.md",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _load_profile_defaults(persona: str, cwd: str) -> dict | None:
+    """Parse the first ```yaml block under `## Configured defaults` in a
+    `<persona>-chain-driver/SKILL.md`. Returns the PROFILE_KEYS subset, or None
+    when no skill / no block / no PyYAML."""
+    path = _find_profile_skill(persona, cwd)
+    if path is None:
+        return None
+    try:
+        body = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(
+        r"^##\s+Configured defaults\s*\n(.*?)(?=^##\s+|\Z)",
+        body, re.MULTILINE | re.DOTALL,
+    )
+    if not m:
+        return None
+    section = m.group(1)
+    code = re.search(r"```yaml\s*\n(.*?)\n```", section, re.DOTALL)
+    if not code:
+        return None
+    try:
+        import yaml
+    except ImportError:
+        return None
+    try:
+        data = yaml.safe_load(code.group(1)) or {}
+    except yaml.YAMLError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return {k: v for k, v in data.items() if k in PROFILE_KEYS}
+
+
+def _wrapper_telegram_enabled(args: argparse.Namespace) -> bool:
+    """Telegram event posting is opt-in: enabled only when the user supplied
+    --telegram-env, --profile, or --label (and did not pass --no-telegram). A
+    bare `skill-chain.py --chain X` never touches Telegram (inert-when-unset)."""
+    if getattr(args, "no_telegram", False):
+        return False
+    return any([
+        getattr(args, "telegram_env", None) is not None,
+        getattr(args, "profile", None) is not None,
+        getattr(args, "label", None) is not None,
+    ])
+
+
+def _wrapper_halt_reason(
+    *,
+    cumulative_cost_usd: float,
+    completed_iterations: int,
+    max_budget_usd: "float | None",
+    max_cycles: "int | None",
+    verdict: "str | None" = None,
+) -> "str | None":
+    """Decide whether a between-iteration halt should fire, returning a one-line
+    reason or None. Pure (no I/O) so it is unit-testable. Mirrors the former
+    drive-chain.py halt thresholds: budget first, then cycle cap, then a
+    supervisor escalation verdict."""
+    if max_budget_usd is not None and cumulative_cost_usd > max_budget_usd:
+        return (f"max-budget-usd exceeded "
+                f"(${cumulative_cost_usd:.4f} > ${max_budget_usd:.2f})")
+    if max_cycles is not None and completed_iterations >= max_cycles:
+        return f"max-cycles reached ({completed_iterations} >= {max_cycles})"
+    if verdict == "escalate":
+        return "supervisor escalation"
+    return None
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="skill-chain.py",
         description="Run agent skills in sequence with prettified output and per-job log capture.",
+        epilog=UNIFIED_CLI_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "--log-dir",
@@ -1379,6 +1658,56 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              f"Overrides the chain YAML's `max-pauses-per-session:` field when "
              f"both are set.",
     )
+    # ---- Native wrapper flags (Phase 42; inert when unset) ------------------
+    p.add_argument(
+        "--profile",
+        default=None,
+        help="Persona name; loads `<persona>-chain-driver/SKILL.md`'s "
+             "`## Configured defaults` yaml block (project-scoped first, then "
+             "~/.claude/skills/) as a layer BELOW CLI args (explicit flag wins). "
+             "Fills --chain (watched-chain), --loop (default-loop), "
+             "--max-budget-usd, --max-cycles, --telegram-env, and --label. Also "
+             "opts into Telegram event posts.",
+    )
+    p.add_argument(
+        "--max-budget-usd",
+        type=float,
+        default=None,
+        help="Halt the loop at the next between-iteration boundary once "
+             "cumulative cost (summed from each iteration manifest's "
+             "skills[].total_cost_usd) exceeds this amount. Inert when unset.",
+    )
+    p.add_argument(
+        "--max-cycles",
+        type=int,
+        default=None,
+        help="Halt the loop once this many iterations have completed. "
+             "Independent of --loop (whichever fires first wins). A no-op when "
+             "the resolved loop count is finite and <= this cap (the chain "
+             "finishes naturally first); a startup note is printed in that case. "
+             "Precedence: an explicit --loop N skips any profile default-max-cycles.",
+    )
+    p.add_argument(
+        "--telegram-env",
+        type=Path,
+        default=None,
+        help="Path to a shell-style env file exporting TELEGRAM_BOT_TOKEN and "
+             "TELEGRAM_CHAT_ID. Opts into Telegram event posts (session start, "
+             "iteration close, rate-limit pause/resume, session end).",
+    )
+    p.add_argument(
+        "--no-telegram",
+        action="store_true",
+        help="Suppress all Telegram outbound even when --telegram-env/--profile/"
+             "--label is set (events still print to the terminal).",
+    )
+    p.add_argument(
+        "--label",
+        default=None,
+        help="Human-readable label prepended (as [label]) to each Telegram body "
+             "and used in event messages. Defaults to the chain name. Opts into "
+             "Telegram event posts.",
+    )
     p.add_argument(
         "skills",
         nargs="*",
@@ -1402,6 +1731,7 @@ def run_iteration(
     max_pauses: int = DEFAULT_MAX_PAUSES_PER_SESSION,
     loop_delay: float = 0.0,
     loop_delay_random: tuple[float, float] | None = None,
+    notify=None,
 ) -> tuple[int, dict]:
     """Run one pass of the chain. Returns (exit_code, iteration_manifest).
 
@@ -1498,6 +1828,7 @@ def run_iteration(
             effort=eff_effort,
             loop_delay=loop_delay,
             loop_delay_random=loop_delay_random,
+            notify=notify,
         )
         record["route"] = route_record
         if skill == auto_supervisor:
@@ -1687,6 +2018,50 @@ def main() -> int:
 
     cwd = os.getcwd()
 
+    # Phase 42: resolve persona profile defaults as a layer BELOW CLI args.
+    # Fills only the fields the user didn't pass; explicit flags always win.
+    # Snapshot explicit --loop BEFORE profile loading so an explicit loop count
+    # suppresses a profile default-max-cycles (the user's loop is the only
+    # ceiling for that run). A missing/malformed profile is a silent no-op.
+    explicit_loop = args.loop is not None
+    if args.profile:
+        profile = _load_profile_defaults(args.profile, cwd)
+        if profile is None:
+            print(
+                f"[chain] --profile {args.profile!r}: no "
+                f"'<persona>-chain-driver/SKILL.md' found under "
+                f"<cwd>/.claude/skills/ or ~/.claude/skills/, or its "
+                f"'## Configured defaults' yaml block is missing/malformed; "
+                f"continuing with CLI args + builtin defaults only.",
+                file=sys.stderr, flush=True,
+            )
+        else:
+            if args.chain is None and profile.get("watched-chain"):
+                args.chain = str(profile["watched-chain"])
+            if args.loop is None and profile.get("default-loop") is not None:
+                try:
+                    args.loop = int(profile["default-loop"])
+                except (TypeError, ValueError):
+                    pass
+            if args.max_budget_usd is None and profile.get("default-max-budget-usd") is not None:
+                try:
+                    args.max_budget_usd = float(profile["default-max-budget-usd"])
+                except (TypeError, ValueError):
+                    pass
+            if (args.max_cycles is None
+                    and not explicit_loop
+                    and profile.get("default-max-cycles") is not None):
+                try:
+                    args.max_cycles = int(profile["default-max-cycles"])
+                except (TypeError, ValueError):
+                    pass
+            if args.telegram_env is None and profile.get("telegram-env"):
+                args.telegram_env = Path(
+                    os.path.expanduser(str(profile["telegram-env"]))
+                )
+            if args.label is None and profile.get("label"):
+                args.label = str(profile["label"])
+
     # Resolve skills + chain name from either --chain or the positional list.
     chain_def: dict | None = None
     if args.chain and args.skills:
@@ -1795,8 +2170,26 @@ def main() -> int:
     if max_pauses < 1:
         raise SystemExit("--max-pauses-per-session must be >= 1")
 
+    # Phase 42: native budget / cycle caps (inert when unset).
+    if args.max_budget_usd is not None and args.max_budget_usd <= 0:
+        raise SystemExit("--max-budget-usd must be > 0")
+    if args.max_cycles is not None and args.max_cycles < 1:
+        raise SystemExit("--max-cycles must be >= 1")
+
     looping = (loop_count != 1)
     infinite = (loop_count == 0)
+
+    # --max-cycles no-op note: when the resolved loop count is finite and <= the
+    # cap, the cap can never fire (the chain finishes naturally first). Surface
+    # this at startup so a silent no-op isn't read as "the cap worked." A
+    # `loop: 0` (until-failure) run keeps the cap meaningful, so don't warn there.
+    if args.max_cycles is not None and 0 < loop_count <= args.max_cycles:
+        print(c(
+            f"[note] --max-cycles {args.max_cycles} is a no-op: this run loops "
+            f"{loop_count} time(s) and exits naturally before the cap can fire. "
+            f"The cap is the safety net for multi-iter runs (--loop N>"
+            f"{args.max_cycles}, or chain `loop: 0`).", ORANGE,
+        ), flush=True)
 
     log_dir: Path | None
     if args.no_log:
@@ -1863,6 +2256,63 @@ def main() -> int:
         }
         manifest["iterations"] = []
 
+    # Phase 42: native Telegram event posts (opt-in via --telegram-env /
+    # --profile / --label; inert otherwise). Credential resolution reuses the
+    # full fallback chain (explicit file -> env -> base-dir telegram.env).
+    telegram_enabled = _wrapper_telegram_enabled(args)
+    label = args.label or chain_name
+    tg_env = _resolve_tg_env(args.telegram_env, dict(os.environ), REPO_ROOT) \
+        if telegram_enabled else {}
+    if telegram_enabled and label:
+        # Threaded into the env so notify-telegram.sh prepends "[label]" to
+        # every outbound body automatically (SPEC 28.1).
+        tg_env["TELEGRAM_LABEL"] = label
+    telegram = TelegramSink(enabled=telegram_enabled, env=tg_env)
+
+    def _notify(event: str, payload: dict) -> None:
+        """Format + send one Telegram event. No-op when Telegram is disabled."""
+        if not telegram_enabled:
+            return
+        if event == "rate-limit-pause":
+            telegram.send(
+                f"chain [{label}]: RATE-LIMIT pause\n"
+                f"type: {payload.get('type')} | skill: /{payload.get('skill')}\n"
+                f"sleeping {payload.get('sleep_seconds')}s until {payload.get('wake_at')}\n"
+                f"at: {payload.get('at')}",
+                label="rate-limit-pause",
+            )
+        elif event == "rate-limit-resume":
+            telegram.send(
+                f"chain [{label}]: rate-limit RESUME\n"
+                f"skill resumed: /{payload.get('skill')}\n"
+                f"at: {payload.get('resumed_at')}",
+                label="rate-limit-resume",
+            )
+
+    if telegram_enabled:
+        cap_lines: list[str] = []
+        if args.max_budget_usd is not None:
+            cap_lines.append(f"budget cap ${args.max_budget_usd:.2f}")
+        if args.max_cycles is not None:
+            cap_lines.append(f"cycle cap {args.max_cycles}")
+        cap_text = " | ".join(cap_lines) if cap_lines else "no caps"
+        loop_desc_tg = (
+            "until failure / Ctrl-C" if infinite
+            else (f"{loop_count} iterations" if looping else "single run")
+        )
+        telegram.send(
+            f"chain: session START — {label}\n"
+            f"chain: {chain_name} ({loop_desc_tg})\n"
+            f"cwd: {cwd}\n"
+            f"caps: {cap_text}\n"
+            f"log: {log_dir if log_dir else '(none)'}\n"
+            f"started_at: {_utc_iso()}",
+            label="session-start",
+        )
+
+    cumulative_cost_usd = 0.0
+    halt_reason: str | None = None
+
     final_rc = 0
     iteration = 0
     iterations_collected: list[dict] = []
@@ -1893,6 +2343,7 @@ def main() -> int:
                 max_pauses=max_pauses,
                 loop_delay=loop_delay,
                 loop_delay_random=loop_delay_random,
+                notify=_notify,
             )
             iterations_collected.append(iter_manifest)
 
@@ -1903,8 +2354,59 @@ def main() -> int:
                     json.dumps(iter_manifest, indent=2) + "\n", encoding="utf-8"
                 )
 
+            # Phase 42: iteration-close Telegram + budget/cycle halt (native;
+            # was a subprocess-stdout watch in the former drive-chain.py). Cost
+            # accumulates whether or not Telegram is enabled so the cap fires
+            # in headless runs too.
+            iter_cost = _iteration_cost(iter_manifest)
+            cumulative_cost_usd += iter_cost
+            iter_verdict = "unknown"
+            if log_dir is not None:
+                iter_verdict = _verdict_outcome(
+                    _supervisor_verdict_path(log_dir, iteration, looping)
+                )
+            if telegram_enabled:
+                sha_b = iter_manifest.get("git_sha_before")
+                sha_a = iter_manifest.get("git_sha_after")
+                commit_line = "no commit"
+                if sha_b and sha_a and sha_b != sha_a:
+                    commit_line = f"{sha_a[:8]} {_git_subject(cwd, sha_a)}"
+                rl_pauses = iter_manifest.get("rate_limit_pauses") or []
+                pause_note = f" | {len(rl_pauses)} rate-limit pause(s)" if rl_pauses else ""
+                telegram.send(
+                    f"chain [{label}]: iter {iteration} CLOSE\n"
+                    f"commit: {commit_line}\n"
+                    f"cost: ${iter_cost:.4f} (cumulative ${cumulative_cost_usd:.4f})\n"
+                    f"verdict: {iter_verdict}{pause_note}\n"
+                    f"at: {_utc_iso()}",
+                    label="iter-close",
+                )
+
             if rc != 0:
                 final_rc = rc
+                break
+
+            # Phase 42: between-iteration halt on budget / cycle cap / escalation.
+            halt_reason = _wrapper_halt_reason(
+                cumulative_cost_usd=cumulative_cost_usd,
+                completed_iterations=iteration,
+                max_budget_usd=args.max_budget_usd,
+                max_cycles=args.max_cycles,
+                verdict=iter_verdict,
+            )
+            if halt_reason is not None:
+                if "loop" in manifest:
+                    manifest["loop"]["terminated_by"] = "wrapper_halt"
+                    manifest["loop"]["halt_reason"] = halt_reason
+                print(c(f"[halt] {halt_reason}; ending run after "
+                        f"{iteration} iteration(s)", ORANGE), flush=True)
+                if telegram_enabled:
+                    telegram.send(
+                        f"chain [{label}]: HALT — {halt_reason}\n"
+                        f"after {iteration} iteration(s) | "
+                        f"cumulative ${cumulative_cost_usd:.4f}",
+                        label="halt",
+                    )
                 break
             # Phase 17: empty-queue bail aborts the loop entirely (no further
             # iterations). Recorded on the top-level loop manifest so a chain
@@ -1990,6 +2492,22 @@ def main() -> int:
         (log_dir / "MANIFEST.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )
+
+    # Phase 42: session-end Telegram (native; was drive-chain.py's final post).
+    if telegram_enabled:
+        completed = manifest.get("loop", {}).get("completed", iteration) \
+            if "loop" in manifest else iteration
+        end_lines = [
+            f"chain: session END — {label}",
+            f"exit_code: {final_rc}"
+            + (f" (HALT: {halt_reason})" if halt_reason else ""),
+            f"iterations completed: {completed}",
+            f"cumulative cost: ${cumulative_cost_usd:.4f}",
+        ]
+        if log_dir is not None:
+            end_lines.append(f"manifest: {log_dir / 'MANIFEST.json'}")
+        end_lines.append(f"finished_at: {_utc_iso()}")
+        telegram.send("\n".join(end_lines), label="session-end")
 
     return final_rc
 
