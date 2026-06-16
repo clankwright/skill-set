@@ -1623,11 +1623,19 @@ def run_iteration(
                 # recovery) later advanced HEAD and healed the cycle.
                 "head_at_violation": sha_after_skill,
             }
-            if i + 1 < len(skills_to_run) and skills_to_run[i + 1] != auto_supervisor:
+            # Find the first non-tester, non-supervisor skill after the dev:
+            # that's the recovery-capable follower. A *-tester has no recovery
+            # contract; naming it in the message misleads debugging.
+            recovery_follower = next(
+                (s for s in skills_to_run[i + 1:]
+                 if not s.endswith("-tester") and s != auto_supervisor),
+                None,
+            )
+            if recovery_follower is not None:
                 print(c(
                     f"\n[contract-violation: incomplete-cycle] /{skill}: "
                     f"exited [ok] with no commit but docs/TODO.md indicates "
-                    f"incomplete work; passing to /{skills_to_run[i + 1]} "
+                    f"incomplete work; passing to /{recovery_follower} "
                     f"for orphaned-cycle recovery",
                     ORANGE,
                 ), flush=True)
