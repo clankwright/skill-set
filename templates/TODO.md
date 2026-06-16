@@ -36,3 +36,23 @@
   appendix for the full contract.
   Order: blockers/highest-impact first (label is independent of priority).
 -->
+
+## Tester sweep targets
+
+<!--
+  Queue of UI/UX surfaces for the looped standalone tester to drain one per
+  iteration. The looped-standalone mode of sst-tester (and proprietary *-tester
+  wrappers) reads this section to pick the next unexercised target, tracks
+  exercised state out-of-tree at
+  ~/.claude/state/sst-tester/<project-slug>/queue-<run-utc>.json, and
+  self-terminates on [no-test-work] when the queue is empty or the section is
+  absent. Run: `bin/skill-chain.py <tester-skill> --loop N`
+
+  Format: - [P1|P2|P3] <surface description> [covered|partial|GAP]
+    P1 = high impact / blocking; P2 = normal; P3 = low / polish.
+    covered = exercised and green; partial = exercised with gaps; GAP = not yet exercised.
+  Example:
+  - [P1] Login and auth redirect flow GAP
+  - [P2] Allocation page: submit + result table partial
+  - [P3] Settings panel: all field types covered
+-->

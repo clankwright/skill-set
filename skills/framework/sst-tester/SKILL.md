@@ -12,9 +12,12 @@ description: |
   source. Wrapped by a proprietary per-project skill that supplies the exact ports,
   start/stop commands, auth-state path, and e2e specs. Also runs standalone from the
   terminal (`--phase <id>` / `--todos <ref...>`) to sweep every UI surface a whole
-  phase or set of completed todos introduced, not just the last diff.
+  phase or set of completed todos introduced. Runs in looped-standalone drain mode
+  (`bin/skill-chain.py <tester> --loop N`) to drain a `## Tester sweep targets`
+  queue one target per iteration, self-terminating on `[no-test-work]` when the
+  queue is exhausted.
 user-invocable: true
-version: 1.1.0
+version: 1.2.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -48,14 +51,15 @@ It runs only after the dev cycle has committed (so the changed surfaces are on d
 
 A pre-empted or self-skipped tester is a valid, non-finding state for the reviewer — distinct from `degraded` (which means the tester tried to exercise a surface and couldn't reach part of it).
 
-## Two modes: in-chain vs standalone (D1)
+## Three modes: in-chain vs standalone vs looped-standalone (D1)
 
-This skill detects its mode from its args; there is no separate skill:
+This skill detects its mode from its args and environment; there is no separate skill:
 
 - **In-chain mode (default; no scope args).** Spawned by the dev chain between the dev skill and the review skill, scoped to what the LAST dev cycle changed (the `git show HEAD` diff + the dev's `tester-guidance.md`). This is everything **Run lifecycle** below describes. Findings go to the chain run-log dir for the reviewer.
 - **Standalone mode (`--phase <id>` and/or `--todos <ref...>`).** Invoked directly by the user from the terminal to deliberately exercise EVERY UI/UX surface a whole phase, or a named set of completed todos, introduced (not just the latest diff). Resolves a surface set from the scope args (D2), iterates over all of them accumulating findings (D3), and writes the findings out-of-tree (D4). See **Standalone mode** below.
+- **Looped-standalone mode (no scope args; `## Tester sweep targets` queue present).** Invoked via `bin/skill-chain.py <tester-skill> --loop N` with no `--phase`/`--todos`. Selects the next unexercised target from the `## Tester sweep targets` section of `docs/TODO.md`, exercises it, and exits. Each iteration drains one target; the out-of-tree exercised-state file at `~/.claude/state/sst-tester/<project-slug>/queue-<run-utc>.json` accumulates across iterations so each pass picks a fresh target. When the queue is exhausted (or absent), emits `[no-test-work]` and exits 0 WITHOUT starting the browser or local stack; the chain runner aborts the loop on this sentinel. See **Looped standalone drain** below.
 
-The presence of `--phase` or `--todos` is the only mode switch: with either flag the skill runs standalone; with neither it runs in-chain. Both modes share the same authority envelope, the same headed/headless policy, the same guaranteed teardown, the same out-of-tree artifact rule, and the same findings contract. Standalone changes only *what* is in scope and *where* the findings land, never the read-only / no-commit / no-deploy guarantees.
+The presence of `--phase` or `--todos` selects standalone mode; their absence with a `## Tester sweep targets` queue present selects looped-standalone mode; their absence with no queue (or when invoked in-chain by the dev chain) runs in-chain. All three modes share the same authority envelope, the same headed/headless policy, the same guaranteed teardown, the same out-of-tree artifact rule, and the same findings contract. Mode changes only *what* is in scope and *where* the findings land, never the read-only / no-commit / no-deploy guarantees.
 
 ## Authority envelope (D5)
 
@@ -147,6 +151,62 @@ The lifecycle is otherwise the in-chain lifecycle: start the local stack, poll r
 ### Standalone output location (D4)
 
 Standalone has no chain run-log dir. It writes both `tester-findings.md` and `tester-findings.json` (the same contract as in-chain) to the out-of-tree state dir `~/.claude/state/sst-tester/<utc>/`, alongside the binary artifacts, and prints a one-line terminal summary (the overall verdict + summary) plus that artifact path. Standalone **does not** file SPEC follow-ups or edit any handoff doc; it tests and reports, and a human or a later review consumes the findings.
+
+## Looped standalone drain
+
+Drain a `## Tester sweep targets` queue one target per iteration using the unified runner:
+
+```bash
+bin/skill-chain.py <tester-skill> --loop N
+```
+
+The queue in `docs/TODO.md` is the scope; pass the loop count and no other scope args. The runner loops up to N times; the tester exits early on `[no-test-work]` when the queue is exhausted, so the actual iteration count is `min(N, queue_length)`.
+
+### Queue format (`## Tester sweep targets` in `docs/TODO.md`)
+
+Each entry is a bullet line under the `## Tester sweep targets` section:
+
+```
+## Tester sweep targets
+- [P1] <surface description> [covered|partial|GAP]
+- [P2] <surface description> GAP
+- [P3] <surface description> partial
+```
+
+Priority tags: `P1` = high-impact / blocking; `P2` = normal; `P3` = low / polish. Coverage tags: `covered` = exercised green; `partial` = exercised with gaps; `GAP` = not yet exercised.
+
+### Draining selector
+
+Per iteration the tester:
+
+1. Reads `## Tester sweep targets` from `docs/TODO.md`. If the section is absent or empty, skips to the `[no-test-work]` bail.
+2. Loads the out-of-tree exercised-state file `~/.claude/state/sst-tester/<project-slug>/queue-<run-utc>.json`. The `<run-utc>` is stamped once at the start of the loop run; all iterations within the same `--loop N` invocation share the same file so the state accumulates across iterations.
+3. Returns the first item whose key (the item text stripped of the leading `- `) is NOT present in the already-exercised set.
+4. If no such item exists (all entries are recorded), returns `None` and the tester emits `[no-test-work]`.
+
+### `[no-test-work]` bail
+
+When the draining selector returns `None` (queue drained, or the section is absent / has no front-end targets), the tester:
+
+- Prints exactly one line on stdout: `[no-test-work] <reason>` (e.g. `[no-test-work] queue drained; 3/3 targets exercised this run`)
+- Exits 0 WITHOUT starting the browser or the local stack
+
+The chain runner recognizes the `[no-test-work]` sentinel, records `terminated_by: "no_test_work_bail"` in the loop manifest, and breaks the outer loop so the run self-terminates cleanly. This is the tester analog of the dev cycle's `[no-work]` sentinel.
+
+### Exercised-state file
+
+The exercised-state file is written and updated by the tester out-of-tree at `~/.claude/state/sst-tester/<project-slug>/queue-<run-utc>.json`. It is a JSON object mapping exercised item keys to their run timestamp. The file is NEVER written under the repo working tree; after any looped drain `git status --porcelain` must be empty.
+
+The `<project-slug>` is derived from the project's root directory name (the basename of `cwd`). The `<run-utc>` is fixed for the lifetime of one `--loop N` invocation so all iterations share a single state file.
+
+### Authority and guarantees
+
+Looped-standalone mode inherits all guarantees of in-chain and standalone modes unchanged:
+
+- Read-only on the tree; never commits, deploys, or edits repo source.
+- All artifacts (screenshots, traces, findings) go out-of-tree.
+- Guaranteed teardown fires even on exception or timeout.
+- `git status --porcelain` is empty after every iteration.
 
 ## Findings contract (tester → reviewer)
 
