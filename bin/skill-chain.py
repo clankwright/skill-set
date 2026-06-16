@@ -396,34 +396,31 @@ def _incomplete_cycle_detected(cwd: str) -> bool:
     return False
 
 
-def _contract_violation_aborts(iter_manifest: dict) -> bool:
-    """Phase 43 (D3/43.4): decide whether a recorded incomplete-cycle contract
-    violation should abort the loop.
+def _contract_violation_aborts(iter_manifest: dict, cwd: str) -> bool:
+    """Phase 43 (D3/43.4) + 43.6: decide whether a recorded incomplete-cycle
+    contract violation should abort the loop.
 
-    The Phase 36 abort fired unconditionally on any recorded violation, killing
-    even a loop that the follower (sst-dev-review) recovered. The relaxed rule:
-    abort ONLY when HEAD did not advance during the iteration — i.e. neither the
-    dev skill nor any follower committed. When the follower recovered the cycle
-    (HEAD advanced past the SHA captured at violation time), the loop continues.
+    Phase 43.4 used a HEAD-advance proxy: if git_sha_after != head_at_violation,
+    some follower committed, so recovery was assumed. This was flawed: the
+    auto-appended supervisor's normal commits advance HEAD even when the recovery
+    follower (sst-dev-review §0.2) failed to commit, so the proxy could be satisfied
+    by a supervisor-only commit, masking an unrecovered cycle.
 
-    Conservative default: if either SHA is unavailable (non-git harness, or the
-    violation predates the head_at_violation stamp), we cannot prove recovery
-    happened, so we abort — preserving the prior fail-safe behavior.
+    Fix (43.6): re-evaluate _incomplete_cycle_detected(cwd) at the loop-level abort.
+    A recovery follower that succeeds MUST clear the In-flight line as part of its
+    commit; the supervisor never touches In-flight state. So the actual In-flight
+    state is the correct, supervisor-immune recovery signal.
+
+    Conservative default: if docs/TODO.md is absent (non-standard setup),
+    _incomplete_cycle_detected returns False, treating the cycle as recovered
+    (fail-open, same as the prior missing-SHA path).
     """
     cv = iter_manifest.get("contract_violation")
     if not cv:
         return False
-    head_at_violation = cv.get("head_at_violation")
-    head_now = iter_manifest.get("git_sha_after")
-    if (
-        head_at_violation is not None
-        and head_now is not None
-        and head_now != head_at_violation
-    ):
-        # A follower advanced HEAD after the violation was recorded — the cycle
-        # was recovered (e.g. sst-dev-review committed the orphaned work).
-        return False
-    return True
+    # Phase 43.6: use the actual incomplete-cycle state, not the post-supervisor
+    # SHA proxy from Phase 43.4.
+    return _incomplete_cycle_detected(cwd)
 
 
 def _parse_reset_time(value: Any) -> float | None:
@@ -1878,16 +1875,14 @@ def main() -> int:
             # during the iteration. A cycle the follower (sst-dev-review) recovered
             # (HEAD advanced) is NOT a contract violation; the loop continues.
             if iter_manifest.get("contract_violation"):
-                if _contract_violation_aborts(iter_manifest):
+                if _contract_violation_aborts(iter_manifest, cwd):
                     if "loop" in manifest:
                         manifest["loop"]["terminated_by"] = "contract_violation"
                     break
                 cv = iter_manifest["contract_violation"]
                 print(c(
-                    f"[contract-violation: recovered] /{cv.get('skill')}: HEAD "
-                    f"advanced during follower recovery "
-                    f"({str(cv.get('head_at_violation'))[:7]} -> "
-                    f"{str(iter_manifest.get('git_sha_after'))[:7]}); loop continues",
+                    f"[contract-violation: recovered] /{cv.get('skill')}: "
+                    f"recovery follower cleared In-flight; loop continues",
                     GREEN,
                 ), flush=True)
             if not infinite and iteration >= loop_count:
