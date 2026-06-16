@@ -1,0 +1,153 @@
+---
+name: sst-tester
+description: |
+  Interactive UI/UX test stage that runs between the dev cycle and the review.
+  After the dev skill commits, the tester resolves what changed, starts the
+  project's local front+back-end stack, drives the affected surfaces in a real
+  browser (headed when a display exists, headless fallback), writes a structured
+  findings artifact for the reviewer, then tears the stack down and exits cleanly
+  — never persisting screenshots, traces, or any test-time artifact inside the
+  repo tree. Self-skips to a no-op when the project has no local-run/browser path
+  or the cycle touched no front-end surface. Never commits, deploys, or edits repo
+  source. Wrapped by a proprietary per-project skill that supplies the exact ports,
+  start/stop commands, auth-state path, and e2e specs.
+user-invocable: true
+version: 1.0.0
+model-floor: sonnet
+effort-floor: high
+---
+
+# Interactive UI/UX Tester
+
+One invocation = one runtime pass over the front-end surfaces a dev cycle just changed. This skill sits **after the dev skill and before the review skill** in a dev chain: the dev cycle ships a commit, the tester spins up the running app and drives the changed surfaces in a browser, and the reviewer then reads the tester's findings alongside the diff instead of judging UI work from the diff alone.
+
+This is the project-agnostic transferable. It owns the **contract** — chain position, authority envelope, run lifecycle, degrade/self-skip discipline, headed/headless policy, the out-of-tree artifact rule, and the findings format. A proprietary wrapper (e.g. an `ssp-*-tester`) supplies the concrete facts this skill deliberately does not hardcode: the exact ports, the start/stop commands, the saved-auth-state path, and the mapping from changed surfaces to the project's e2e specs. Nothing in this file names a port, a path, or a project.
+
+## Operating principles
+
+- **Observe, never mutate the tree.** The tester is read-only on the repo. It starts and stops local servers, drives a browser, and writes findings — it never commits, never deploys, never edits repo source, and never pushes. (See **Authority envelope** below.)
+- **Degrade, don't hang.** Every external dependency (a server that won't come up, a stale login session, a surface that 404s) becomes a *finding*, not a blocked run. The tester never blocks on an interactive prompt and never waits without a timeout. A run that can reach only half the surfaces reports on that half and records the rest as degraded.
+- **Add value or get out of the way.** If there is nothing front-end to exercise — no local-run path, or a cycle that touched no UI surface — the tester exits 0 as a clean no-op (`verdict: skipped`). Adding this stage to a non-UI chain is harmless.
+- **Leave no trace.** Zero files under any repo working tree. Binary artifacts (screenshots, traces, video) go to an out-of-tree state dir; the reviewer-facing findings doc goes to the chain run-log dir (already gitignored). Both servers and the browser are torn down even on exception or timeout.
+- **Author no committed specs.** The tester RUNS the project's existing e2e specs mapped to the changed surfaces and does exploratory checks of net-new functionality, but it does NOT write committed spec files — authoring "failing tests first" stays the dev cycle's job. A coverage gap is filed as a finding, not closed by writing a spec.
+
+## Chain position
+
+The tester is inserted immediately between the dev skill and the review skill:
+
+```
+<dev-skill> → sst-tester → <review-skill>
+```
+
+It runs only after the dev cycle has committed (so the changed surfaces are on disk and HEAD reflects them) and before the reviewer forms its verdict (so the reviewer can read the findings). Two skip paths keep it from running when it adds nothing:
+
+- **Dev pre-empt.** When the dev cycle's work has no front-end/UI surface, the dev skill emits a `[skip-tester] <reason>` sentinel on its final line and the chain runner skips this stage entirely (the tester is never spawned) and proceeds straight to review.
+- **Tester self-skip.** If the tester IS spawned but finds legitimately nothing FE/UI exercisable against the dev's work, it exits 0 as a no-op and writes a findings record with `verdict: skipped`.
+
+A pre-empted or self-skipped tester is a valid, non-finding state for the reviewer — distinct from `degraded` (which means the tester tried to exercise a surface and couldn't reach part of it).
+
+## Authority envelope (D5)
+
+The tester's authority is strictly bounded. It MAY:
+
+- start and stop the project's local front-end and back-end servers;
+- drive a browser against `localhost` surfaces;
+- read the repo (git history, the diff, the handoff docs, the project's e2e spec files);
+- write the findings artifact to the run-log dir and binary artifacts to the out-of-tree state dir.
+
+It MUST NOT, under any circumstance:
+
+- commit, amend, or push — the tester **never commits**;
+- deploy or restart any non-local / managed service — the tester **never deploys**;
+- edit, create, or delete any file under the repo working tree (the e2e specs it runs are read and executed, never modified);
+- spawn another harness or chain.
+
+A wrapper inherits this envelope unchanged and may only *narrow* it (e.g. an explicit "never touch this project's protected branches" rule).
+
+## Run lifecycle
+
+The chain runner reports the run-log directory on every invocation as `[log-dir] <path>`. Resolve it from there (or, when invoked standalone, default to the most recent `.skill-runs/<*>/` directory under the current working directory). All steps below run inside a guaranteed-teardown wrapper (see **Teardown** — the teardown fires even if an early step throws or times out).
+
+1. **Read the dev's guidance + derive what changed.** Read the dev-authored `tester-guidance.md` from the run-log dir if present (D6): it names the most meaningful surfaces/flows to exercise this cycle, each tied to a changed file or feature. Use it to prioritize the highest-value checks rather than re-deriving everything. Independently derive the change set as a cross-check and as a fallback when no guidance exists:
+   - `git show HEAD --stat` and `git show HEAD` — the files and hunks the dev cycle committed;
+   - `docs/TODO.md`'s `## Just shipped (last cycle)` top entry — the human-readable summary of what shipped;
+   - the SPEC items the dev cycle flipped to `[x]` (diff `docs/SPEC.md` against the prior commit) — the intended behavior.
+   Map the changed files to front-end surfaces (routes, components, views). If none of the changed surfaces is front-end/UI, go to step 2's self-skip.
+2. **Self-skip decision (D4 / D7).** If the project documents no local-run/browser path, OR the change set touches no exercisable front-end surface, write a findings record with `verdict: skipped` and a one-line reason (`no local-run path; nothing to exercise`, or `cycle touched no front-end surface`) and exit 0. Do not start any server.
+3. **Start the local stack.** Start the project's back-end and front-end servers (the wrapper supplies the exact commands). Capture each server's stdout/stderr to the out-of-tree state dir so a crash is diagnosable without polluting the repo.
+4. **Poll readiness with a timeout.** Poll each server's readiness endpoint/port until ready or a bounded timeout elapses. If a server never becomes ready, record a `degraded` finding naming which server and its captured log tail, and continue with whatever surface IS reachable (or self-skip to `degraded` if nothing is reachable).
+5. **Establish session, degrade if stale (D2).** If the changed surfaces require authentication, reuse the project's saved browser session/auth state (the wrapper supplies the path and freshness window). A missing or stale session degrades to a finding and the tester exercises only the reachable (unauthenticated) surface — it **never blocks** on an interactive login prompt.
+6. **Drive the changed surfaces.** For each changed surface, in priority order from the guidance:
+   - RUN the project's existing e2e spec(s) mapped to that surface, redirecting any spec-runner output to the out-of-tree state dir (never the repo tree);
+   - do exploratory browser checks of net-new functionality not yet covered by a committed spec;
+   - watch for console errors, failed network requests, and broken interactions.
+   Each surface produces one or more per-check records (see **Findings contract**). A missing spec for a changed surface is itself a finding (coverage gap), recorded as `needs-change`, not silently skipped.
+7. **Collect findings + compute the verdict.** Aggregate the per-check records into the overall verdict (see **Findings contract** for the green/red/degraded/skipped rule) and a one-line summary.
+8. **Tear down.** See **Teardown** — stop both servers and close the browser; assert the documented ports are free and no orphan processes remain.
+9. **Write findings + exit.** Write `tester-findings.md` and `tester-findings.json` to the run-log dir, then exit. The reviewer reads them on its next turn.
+
+### Headed vs headless (D2)
+
+Run **headed** when a display is available (e.g. a live `DISPLAY` session), so a human watching the run sees the real interaction; fall back to **headless** when no display exists (CI, a detached cron run, an overnight drain). The headed/headless choice never changes which surfaces are exercised — only whether a window is shown. Headless is the safe default when detection is ambiguous.
+
+### Teardown (guaranteed)
+
+All server-starting and browser-driving steps run inside a `finally`/trap path so teardown ALWAYS fires — on success, on a thrown exception, on a readiness timeout, or on Ctrl-C. Teardown:
+
+- gracefully stops the back-end and front-end servers (never `kill -9` a server that has a graceful stop);
+- closes the browser context;
+- confirms the documented ports have no remaining listener and no orphan server/browser processes survive.
+
+A run that cannot guarantee a clean teardown records that as a `degraded` finding so the reviewer knows the environment may be dirty.
+
+### Artifacts — out of tree (D3)
+
+- **Zero files under any repo working tree.** After a run, `git status --porcelain` must be empty (modulo files the dev cycle already committed). The tester writes nothing the repo would track.
+- **Binary artifacts** (screenshots, traces, video, server logs) go to a non-repo state dir: `~/.claude/state/sst-tester/<utc>/`. The findings records reference these by path; they are never copied into the repo.
+- **The reviewer-facing findings doc** (`tester-findings.{md,json}`) goes to the chain run-log dir (`<project>/.skill-runs/<run>/`), which is already gitignored, so it is visible to the reviewer without ever entering version control.
+
+## Findings contract (tester → reviewer)
+
+The tester writes two files to the run-log dir on every run that is not a dev pre-empt:
+
+- **`tester-findings.md`** — reviewer-facing. A short human-readable summary: the overall verdict, the one-line summary, and a table/list of per-check records with their evidence paths and recommendations.
+- **`tester-findings.json`** — machine-readable. The reviewer parses this to escalate findings into its own review.
+
+### `tester-findings.json` schema
+
+```json
+{
+  "verdict": "green | red | degraded | skipped",
+  "summary": "one-line human summary of the run",
+  "checks": [
+    {
+      "area": "the surface/route/component exercised",
+      "change_ref": "the changed file or SPEC id this check covers",
+      "status": "pass | fail | needs-change",
+      "evidence": "out-of-tree artifact path (e.g. ~/.claude/state/sst-tester/<utc>/checkout.png)",
+      "recommendation": "what the reviewer/next cycle should do, or empty on pass"
+    }
+  ]
+}
+```
+
+Field rules:
+
+- **`verdict`** — one of:
+  - `green` — every check passed; the changed surfaces work at runtime.
+  - `red` — at least one check is `fail` (a changed surface is broken at runtime).
+  - `degraded` — the tester could not fully exercise the intended surface (server didn't come up, stale auth session, partial reachability); the reviewer should treat coverage as incomplete, not as "passed."
+  - `skipped` — self-skip no-op (no local-run path, or no front-end surface in the change set); a valid non-finding state, distinct from `degraded`. A `skipped` record carries an empty or single explanatory `checks` entry and the reason in `summary`.
+- **`summary`** — a single line; the reviewer surfaces it verbatim in its `Tester:` report line.
+- **`checks[].status`** — one of:
+  - `pass` — the surface behaved correctly.
+  - `fail` — the surface is broken (console error, failed assertion, broken interaction); becomes a review `[blocker]`.
+  - `needs-change` — the surface works but something should change (a missing committed spec for a changed surface, a UX rough edge, a coverage gap); becomes (or strengthens) a review `[should-fix]`.
+- **`checks[].evidence`** — a path under the out-of-tree state dir, never a repo path. Empty is allowed only for a `pass` with nothing worth capturing.
+- **`checks[].change_ref`** — ties the check back to a changed file or the SPEC id the dev cycle flipped, so the reviewer can correlate runtime behavior with the diff.
+
+The reviewer's contract for consuming these files (read on its open, escalate `fail`→`blocker` / `needs-change`→`should-fix`, surface `degraded`, treat `skipped` as a non-finding, and proceed unchanged when the files are absent) lives in the review skill, not here.
+
+## When invoked with no run-log dir argument
+
+Default to the most recent `.skill-runs/<*>/` directory under the current working directory. If none exists, there is no dev cycle to test against — exit 0 with a one-line `verdict: skipped` reason and write nothing further.
