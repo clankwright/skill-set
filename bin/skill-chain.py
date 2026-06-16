@@ -169,6 +169,17 @@ BLOCKED_ON_HUMAN_SENTINEL_RE = re.compile(
     r"^\s*\[blocked-on-human\](?:\s+(.*\S))?\s*$", re.MULTILINE
 )
 
+# ---- Skip-tester sentinel (Phase 41.10) -------------------------------------
+# When a dev-cycle skill's work has no front-end/UI surface it prints
+# `[skip-tester] <reason>` as its final line and exits. The chain runner
+# checks whether the immediately-following skill's name ends in `-tester`; if
+# so it skips that skill (never spawns it) and proceeds to the next skill in
+# the list (typically sst-dev-review). The skip + reason are recorded in the
+# iter manifest under `tester_skipped`. A non-tester immediate follower is
+# never skipped, even if the sentinel was emitted.
+SKIP_TESTER_SENTINEL_RE = re.compile(
+    r"^\s*\[skip-tester\](?:\s+(.*\S))?\s*$", re.MULTILINE
+)
 
 # ---- Per-skill model + effort routing (Phase 19) ---------------------------
 # Each iter pre-parses the picked item's difficulty bracket from
@@ -811,6 +822,15 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
                     if bm:
                         reason = (bm.group(1) or "").strip() or "no reason given"
                         skill_record["blocked_on_human"] = reason
+                # Phase 41.10: [skip-tester] sentinel — dev skill found no
+                # front-end/UI surface, so the tester stage should be skipped.
+                # First match wins; run_iteration checks this after the skill
+                # exits and skips the immediately-following *-tester skill.
+                if "skip_tester" not in skill_record:
+                    stm = SKIP_TESTER_SENTINEL_RE.search(text)
+                    if stm:
+                        reason = (stm.group(1) or "").strip() or "no reason given"
+                        skill_record["skip_tester"] = reason
                 # Phase 19 (5): capture the dev skill's `[picked-difficulty:
                 # <tier>]` sentinel so run_iteration can override the iter's
                 # pre-parsed difficulty for any skill that runs after the dev.
@@ -1553,6 +1573,30 @@ def run_iteration(
             print(c(f"\n[blocked-on-human] /{skill}: {record['blocked_on_human']}: "
                     f"skipping remaining skills + aborting loop", BLUE), flush=True)
             break
+        # Phase 41.10: [skip-tester] sentinel — the preceding skill signalled
+        # no front-end/UI surface. Check whether the immediately-following
+        # skill is a *-tester; if so, remove it from skills_to_run so the
+        # outer loop skips it and continues to the next skill naturally.
+        # Only the direct follower is eligible; a non-tester immediate follower
+        # is never skipped even when the sentinel was emitted.
+        if record.get("skip_tester") and i + 1 < len(skills_to_run):
+            next_skill = skills_to_run[i + 1]
+            if next_skill.endswith("-tester"):
+                skip_reason = record["skip_tester"]
+                iter_manifest["tester_skipped"] = {
+                    "skill": next_skill,
+                    "reason": skip_reason,
+                    "skipped_by": skill,
+                }
+                # Pop the tester from the list. The list iterator advances by
+                # index position, so after the pop the next index (i+1) now
+                # holds what was skills_to_run[i+2] — exactly the follower we
+                # want to run next (typically sst-dev-review).
+                skills_to_run.pop(i + 1)
+                _snapshot_manifest()
+                print(c(f"\n[skip-tester] /{skill}: {skip_reason}: "
+                        f"skipping /{next_skill}, proceeding to next skill", BLUE),
+                      flush=True)
         # Phase 36: incomplete-cycle detection — fires only on the dev skill
         # (i==0), when it exits clean with no commit but docs/TODO.md still
         # shows an In-flight line or a Sanitize: must-fix=PENDING placeholder.

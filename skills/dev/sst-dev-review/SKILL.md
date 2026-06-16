@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.10.0
+version: 1.11.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -82,8 +82,19 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, `docs/FUTURE-WORK.md`, and `doc
    - Do NOT stash, checkout, or modify any of the dirty files. They are out-of-scope for the review.
    - The §5 stage-narrowly rule is the structural guard: stage only the spec file (plus `docs/TODO.md` if a Next-up entry was added, plus `docs/FUTURE-WORK.md` if §4 routed findings there), never `git add -A` or `git add .`. Working-tree dirt cannot accidentally ride into the review commit if §5 is followed.
    - One exception still halts: if a dirty file is the spec file itself, `docs/TODO.md`, `docs/FUTURE-WORK.md`, or `docs/HUMAN.md` (the four files this skill writes to in §4), stop. Concurrent writers on the same files is the one collision the note-and-proceed pattern doesn't survive; surface to the user and exit.
-4. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported summary (no SHA in that format — a commit cannot contain its own hash; correlate the top Just-shipped line to HEAD, or to the matching commit via `git log --oneline --grep`).
-5. Identify the commit under review:
+4. **Tester findings (back-compat: review proceeds unchanged when files are absent).** Locate the chain run-log dir (most recent `.skill-runs/<*>/` under the current working directory, or the path the chain runner printed as `[log-dir] <path>`). If the tester stage ran for this cycle, `tester-findings.json` and `tester-findings.md` are present there. Read both when present; when absent, the tester was either pre-empted (`[skip-tester]`) or not yet inserted into the chain — in both cases the review proceeds exactly as before 41.3 with no gap flagged for tester absence.
+
+   When the findings files ARE present, integrate them:
+   - A check with `status: fail` becomes or strengthens a `[blocker]` in §4 (a broken surface at runtime is as serious as a code correctness bug).
+   - A check with `status: needs-change` becomes or strengthens a `[should-fix]`.
+   - An overall `verdict: degraded` (the tester tried but could not fully exercise the surface — server didn't come up, stale auth, partial reachability) is itself surfaced as a `[should-fix]` noting incomplete runtime coverage.
+   - An overall `verdict: skipped` (self-skip no-op, or the dev emitted `[skip-tester]` and the runner never spawned the tester) is a valid non-finding state — do NOT file any finding for it.
+   - An overall `verdict: green` with all checks passing is a non-finding state.
+
+   Include the tester verdict in the §6 report regardless of whether findings were escalated (see §6 template below).
+
+5. Read `docs/SPEC.md` and `docs/TODO.md` end-to-end. The spec tells you what the cycle claimed to close; `TODO.md`'s `## Just shipped` confirms the cycle's own self-reported summary (no SHA in that format — a commit cannot contain its own hash; correlate the top Just-shipped line to HEAD, or to the matching commit via `git log --oneline --grep`).
+6. Identify the commit under review:
    ```bash
    git log -1 --format='%H %s'
    ```
@@ -327,11 +338,13 @@ Two forms — pick one, no follow-up question, no offer to fix.
 
 **Clean:**
 
-> Reviewed commit `<sha>` (`<scope>: <summary>`). Checked all review axes (parity, correctness, coverage, docs, prod-verify, security, style, performance). No substantive findings at the blocker or should-fix bar. Spec unchanged.
+> Reviewed commit `<sha>` (`<scope>: <summary>`). Checked all review axes (parity, correctness, coverage, docs, prod-verify, security, style, performance). No substantive findings at the blocker or should-fix bar. Spec unchanged. Tester: <green|skipped|degraded|red> (<n> checks).
 
 **With findings:**
 
-> Reviewed commit `<sha>` (`<scope>: <summary>`). Found <N> items: <B> blocker, <S> should-fix. Appended a "Review follow-ups" block under `<section>` in the spec and committed as `<review-sha>`. Highest-impact: <one-line description of the worst item>.
+> Reviewed commit `<sha>` (`<scope>: <summary>`). Found <N> items: <B> blocker, <S> should-fix. Appended a "Review follow-ups" block under `<section>` in the spec and committed as `<review-sha>`. Highest-impact: <one-line description of the worst item>. Tester: <green|skipped|degraded|red> (<n> checks).
+
+`Tester:` line rules: use `skipped` when findings are absent or `verdict: skipped`; `green` when `verdict: green`; `degraded` when `verdict: degraded`; `red` when `verdict: red`. Include the check count from `checks[]` when the file is present (`0` when skipped/absent). When tester files are absent, emit `Tester: skipped (0 checks)` so the supervisor can track tester coverage across iterations.
 
 ## Pitfalls to avoid
 
