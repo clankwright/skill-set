@@ -136,8 +136,13 @@ def test_usage_overnight_example():
 
 
 def test_usage_batch_example():
-    """Usage section must show a batch mode example."""
-    assert "--batch" in _text()
+    """Usage section must show a complete batch mode example with --output-template."""
+    text = _text()
+    assert "--batch" in text
+    assert "--output-template" in text, (
+        "README.md batch example is missing required --output-template flag; "
+        "running it as written would exit with '--batch requires --output-template'"
+    )
 
 
 def test_usage_standalone_tester_example():

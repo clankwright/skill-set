@@ -72,7 +72,7 @@ bin/skill-chain.py --chain dev-cycle-overnight --overnight --max-budget-usd 30
 **Batch mode (run a skill over every matching file):**
 
 ```bash
-bin/skill-chain.py sst-dev-review --batch 'skills/**/*.md'
+bin/skill-chain.py sst-dev-review --batch 'skills/**/*.md' --output-template 'reviewed/{stem}.md'
 ```
 
 **Standalone tester sweep (exercise every UI surface a phase or set of shipped items introduced):**
