@@ -35,10 +35,6 @@
       "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
       "description": "PROPRIETARY chains only: the name of the transferable chain this is a project-specific instantiation of. Informational (no inheritance / override behavior in MVP); used by the supervisor to correlate cycles across projects that follow the same conceptual flow."
     },
-    "transferable-version": {
-      "type": "string",
-      "description": "PROPRIETARY chains only: npm-style range pinning the transferable counterpart."
-    },
     "auto-supervisor": {
       "type": "boolean",
       "default": true,
@@ -88,10 +84,6 @@
     }
   },
   "allOf": [
-    {
-      "if": { "required": ["transferable-version"] },
-      "then": { "required": ["transferable"] }
-    },
     {
       "not": { "required": ["loop-delay", "loop-delay-random"] }
     }

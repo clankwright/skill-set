@@ -30,7 +30,6 @@ skills:                            # required, ordered
   - sst-dev-cycle
   - sst-dev-review
 transferable: dev-cycle-with-review  # proprietary only
-transferable-version: ">=1.0.0"      # proprietary only, optional
 ```
 
 Invocation:
@@ -54,7 +53,6 @@ name: ssp-dev-cycle                  # proprietary; MUST differ from `transferab
 description: ...
 user-invocable: true
 transferable: sst-dev-cycle          # transferable counterpart
-transferable-version: ">=1.0.0"
 ---
 ```
 

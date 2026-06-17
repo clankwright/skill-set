@@ -31,10 +31,6 @@
       "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
       "description": "PROPRIETARY skills only: the name of the transferable counterpart in the master repo. Transferable skills omit this field."
     },
-    "transferable-version": {
-      "type": "string",
-      "description": "PROPRIETARY skills only: npm-style version range pinning the transferable counterpart (e.g. '>=1.0.0', '^1.2.0', '~1.0.5')."
-    },
     "model-floor": {
       "type": "string",
       "enum": ["opus", "sonnet", "haiku"],
@@ -45,11 +41,5 @@
       "enum": ["low", "medium", "high", "xhigh", "max"],
       "description": "Phase 19 effort-tier routing: lowest reasoning-effort tier this skill is ever allowed to run on, regardless of item difficulty. Resolved at iter-start as `effective_effort = max(item.effort_tier, skill.effort_floor)` over the order {low < medium < high < xhigh < max}. Optional; defaults to 'high' when absent (matches the API-standard default; Opus 4.7's CLI implicit 'xhigh' is downshifted by the runner's pinned `--effort high`). Framework-level skills pin 'xhigh'; review-class 'high'; mechanical 'medium' (recorded for forward-compat with future Haiku tiers that support effort)."
     }
-  },
-  "allOf": [
-    {
-      "if": { "required": ["transferable-version"] },
-      "then": { "required": ["transferable"] }
-    }
-  ]
+  }
 }
