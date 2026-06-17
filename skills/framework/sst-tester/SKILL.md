@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.3.0
+version: 1.4.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -33,7 +33,7 @@ This is the project-agnostic transferable. It owns the **contract** — chain po
 - **Observe, never mutate the tree.** The tester is read-only on the repo. It starts and stops local servers, drives a browser, and writes findings — it never commits, never deploys, never edits repo source, and never pushes. (See **Authority envelope** below.)
 - **Degrade, don't hang.** Every external dependency (a server that won't come up, a stale login session, a surface that 404s) becomes a *finding*, not a blocked run. The tester never blocks on an interactive prompt and never waits without a timeout. A run that can reach only half the surfaces reports on that half and records the rest as degraded.
 - **Add value or get out of the way.** If there is nothing front-end to exercise — no local-run path, or a cycle that touched no UI surface — the tester exits 0 as a clean no-op (`verdict: skipped`). Adding this stage to a non-UI chain is harmless.
-- **Leave no trace.** Zero files under any repo working tree. Binary artifacts (screenshots, traces, video) go to an out-of-tree state dir; the reviewer-facing findings doc goes to the chain run-log dir (already gitignored). Both servers and the browser are torn down even on exception or timeout.
+- **Leave no trace.** Zero files under any repo working tree. Binary artifacts (screenshots, traces, video) go to an out-of-tree state dir; the reviewer-facing findings doc goes to the chain run-log dir (already gitignored). The servers are always torn down even on exception or timeout. The browser is closed too by default — UNLESS the wrapper defines a browser-reuse policy that keeps one long-lived browser open across runs (see **Teardown**); a deliberately-reused browser is the one sanctioned exception to full teardown and is not an orphan.
 - **Author no committed specs.** The tester RUNS the project's existing e2e specs mapped to the changed surfaces and does exploratory checks of net-new functionality, but it does NOT write committed spec files — authoring "failing tests first" stays the dev cycle's job. A coverage gap is filed as a finding, not closed by writing a spec.
 - **Wind down before the turn cap.** Of all the chain's agents the tester is the one most likely to approach the harness's per-agent turn ceiling (long browser / tool-call sweeps). The chain runner injects a soft turn-budget directive into the tester's prompt naming a working budget below the hard cap — honor it. As you approach the budget, stop opening new surfaces: write the findings you already have to a clean state, run teardown, and exit so the reviewer gets a usable handoff instead of a mid-sweep chop. A partial-but-clean findings record beats being cut off.
 
@@ -99,7 +99,7 @@ The chain runner reports the run-log directory on every invocation as `[log-dir]
    - watch for console errors, failed network requests, and broken interactions.
    Each surface produces one or more per-check records (see **Findings contract**). A missing spec for a changed surface is itself a finding (coverage gap), recorded as `needs-change`, not silently skipped.
 7. **Collect findings + compute the verdict.** Aggregate the per-check records into the overall verdict (see **Findings contract** for the green/red/degraded/skipped rule) and a one-line summary.
-8. **Tear down.** See **Teardown** — stop both servers and close the browser; assert the documented ports are free and no orphan processes remain.
+8. **Tear down.** See **Teardown** — stop both servers and close the browser (unless the wrapper opts into browser reuse); assert the documented ports are free and no orphan server processes remain.
 9. **Write findings + exit.** Write `tester-findings.md` and `tester-findings.json` to the run-log dir, then exit. The reviewer reads them on its next turn.
 
 ### Headed vs headless (D2)
@@ -111,8 +111,8 @@ Run **headed** when a display is available (e.g. a live `DISPLAY` session), so a
 All server-starting and browser-driving steps run inside a `finally`/trap path so teardown ALWAYS fires — on success, on a thrown exception, on a readiness timeout, or on Ctrl-C. Teardown:
 
 - gracefully stops the back-end and front-end servers (never `kill -9` a server that has a graceful stop);
-- closes the browser context;
-- confirms the documented ports have no remaining listener and no orphan server/browser processes survive.
+- closes the browser context — UNLESS the wrapper defines a browser-reuse policy (one long-lived browser kept open across runs, so iterative or local-headed runs reattach to it instead of cold-launching each time). When the wrapper opts in, the browser is deliberately LEFT OPEN; only the servers are torn down. Server teardown is never optional;
+- confirms the documented ports have no remaining listener and no orphan server processes survive (a wrapper's deliberately-kept-open reuse browser is expected, NOT an orphan — do not kill it).
 
 A run that cannot guarantee a clean teardown records that as a `degraded` finding so the reviewer knows the environment may be dirty.
 
