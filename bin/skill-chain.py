@@ -253,22 +253,26 @@ DEFAULT_DIFFICULTY   = "medium"
 DEFAULT_MAX_TURNS        = 250   # hard per-agent ceiling (harness backstop)
 WIND_DOWN_TURN_HEADROOM  = 50    # turns reserved below the hard cap for wrap-up
 
-# Cold-start prompt addendum that turns the hard turn cap into a graceful
-# wind-down. Injected ONLY for `*-tester` skills: the tester is the agent that
-# routinely approaches the turn ceiling (long Playwright / tool-call sweeps),
-# so it is the one that benefits from self-pacing; other skills rarely get
-# close and don't need the prompt overhead. Kept project-agnostic
-# (transferable-safe): no project nouns, no stack specifics. Formatted with the
-# resolved {hard} and {soft} turn counts so the advertised budget always tracks
-# the real --max-turns value.
+# Cold-start prompt addendum that encourages graceful self-pacing wind-down.
+# Injected ONLY for `*-tester` skills: the tester is the agent that routinely
+# approaches the turn ceiling on long Playwright / tool-call sweeps, so it is
+# the one that benefits from self-pacing; other skills rarely get close and
+# don't need the prompt overhead. Kept project-agnostic (transferable-safe): no
+# project nouns, no stack specifics. Formatted with the resolved {hard} and
+# {soft} turn counts. The cap claim is CONDITIONAL so the text is accurate both
+# when --max-turns is in force (chain runner) and when it is absent (standalone
+# invocations via the Skill tool or a manual /sst-tester call): in those cases
+# the directive still reaches the agent but no hard chop is behind it, so
+# over-claiming would be a false promise.
 WIND_DOWN_DIRECTIVE_TEMPLATE = (
-    "Turn budget: the harness enforces a hard ceiling of {hard} agent turns for "
-    "this skill and will cut you off there with no chance to finish. Treat ~{soft} "
-    "turns as your working budget. As you approach it, stop opening new threads of "
-    "work: bring what you already have to a clean, committed, handoff-ready state "
-    "and end your turn yourself. Do NOT rely on the hard ceiling — an agent chopped "
-    "mid-task leaves a half-done state for the next skill in the chain. Winding down "
-    "early and handing off cleanly always beats being cut off."
+    "Turn budget: if a hard ceiling is in force it is {hard} agent turns — "
+    "the harness will cut you off there with no chance to finish. Regardless, "
+    "treat ~{soft} turns as your working budget. As you approach it, stop "
+    "opening new threads of work: bring what you already have to a clean, "
+    "handoff-ready state and end your turn yourself. Do NOT wait for the hard "
+    "ceiling — an agent chopped mid-task leaves a half-done state for the next "
+    "skill in the chain. Winding down early and handing off cleanly always "
+    "beats being cut off."
 )
 
 PICKED_DIFFICULTY_SENTINEL_RE = re.compile(

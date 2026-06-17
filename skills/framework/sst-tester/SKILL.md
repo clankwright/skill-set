@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.4.0
+version: 1.5.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -35,7 +35,7 @@ This is the project-agnostic transferable. It owns the **contract** — chain po
 - **Add value or get out of the way.** If there is nothing front-end to exercise — no local-run path, or a cycle that touched no UI surface — the tester exits 0 as a clean no-op (`verdict: skipped`). Adding this stage to a non-UI chain is harmless.
 - **Leave no trace.** Zero files under any repo working tree. Binary artifacts (screenshots, traces, video) go to an out-of-tree state dir; the reviewer-facing findings doc goes to the chain run-log dir (already gitignored). The servers are always torn down even on exception or timeout. The browser is closed too by default — UNLESS the wrapper defines a browser-reuse policy that keeps one long-lived browser open across runs (see **Teardown**); a deliberately-reused browser is the one sanctioned exception to full teardown and is not an orphan.
 - **Author no committed specs.** The tester RUNS the project's existing e2e specs mapped to the changed surfaces and does exploratory checks of net-new functionality, but it does NOT write committed spec files — authoring "failing tests first" stays the dev cycle's job. A coverage gap is filed as a finding, not closed by writing a spec.
-- **Wind down before the turn cap.** Of all the chain's agents the tester is the one most likely to approach the harness's per-agent turn ceiling (long browser / tool-call sweeps). The chain runner injects a soft turn-budget directive into the tester's prompt naming a working budget below the hard cap — honor it. As you approach the budget, stop opening new surfaces: write the findings you already have to a clean state, run teardown, and exit so the reviewer gets a usable handoff instead of a mid-sweep chop. A partial-but-clean findings record beats being cut off.
+- **Wind down before the turn cap — or the soft budget, regardless.** Of all the chain's agents the tester is the one most likely to approach the harness's per-agent turn ceiling (long browser / tool-call sweeps). The chain runner injects a soft turn-budget directive into the tester's prompt naming a working budget below the hard cap. When invoked standalone (manual `/sst-tester`, a Skill-tool invocation, or a looped-standalone drain) the same directive may reach you WITHOUT a real hard cut behind it — honor the soft budget as self-pacing whether or not a hard ceiling will actually arrive; do not wait to feel the ceiling. As you approach the budget, stop opening new surfaces: write the findings you already have to a clean state, run teardown, and exit so the reviewer (or the next looped iteration) gets a usable handoff instead of a mid-sweep chop. A partial-but-clean findings record beats being cut off.
 
 ## Chain position
 
@@ -200,6 +200,14 @@ The chain runner recognizes the `[no-test-work]` sentinel, records `terminated_b
 The exercised-state file is written and updated by the tester out-of-tree at `~/.claude/state/sst-tester/<project-slug>/queue-<run-utc>.json`. It is a JSON object mapping exercised item keys to their run timestamp. The file is NEVER written under the repo working tree; after any looped drain `git status --porcelain` must be empty.
 
 The `<project-slug>` is derived from the project's root directory name (the basename of `cwd`). The `<run-utc>` is fixed for the lifetime of one `--loop N` invocation so all iterations share a single state file.
+
+### Per-target flush and session budget
+
+**Write each target's findings immediately, not only at run end.** As soon as a target is verdicted, write its record to the exercised-state file (`queue-<run-utc>.json`) AND flush any per-target findings output. Writing incrementally means a context compaction or a turn chop can never lose an in-flight verdict: the cursor always reflects which targets have been exercised so far.
+
+**Do not drain a multi-target range past the soft budget in one session.** As you approach the soft turn budget, stop before opening a new target: finish the current target cleanly, run teardown, and exit. The next invocation resumes from the queue cursor (already-exercised targets are recorded in the exercised-state file). Opening a fresh target when only a few turns remain risks a mid-exercise chop that leaves the servers still bound.
+
+**The canonical drain is runner-looped.** `bin/skill-chain.py <tester-skill> --loop N` is the canonical approach: it spawns a fresh, separately-budgeted subprocess per target so each invocation starts with a full turn budget. Manual invocations (direct `/sst-tester` or Skill-tool calls) should also exercise one target per invocation — prefer the runner-looped form over packing many targets into one session.
 
 ### Authority and guarantees
 
