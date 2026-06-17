@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.2.0
+version: 2.3.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -62,7 +62,7 @@ Read these in order, all from the run log directory passed to you (the chain run
 
 When all four signals below say "clean," skip the deep walk through §1-7 and write a one-line verdict instead. This saves the analysis cost on cycles that produce zero findings (commonly about half of all runs once a chain is mature, since "the skills behaved correctly" is the default state of a healthy framework).
 
-Eligibility — all four conditions must hold:
+Eligibility — all five conditions must hold:
 
 1. **No prior escalation flag.** Locate the immediately-preceding `supervisor_verdict.md`: for multi-iter runs (`MANIFEST.iteration > 1`), look at `<base>/iter_<NN-1>/supervisor_verdict.md`; for single-iter runs or iter_01, collect all verdict files matching EITHER `<cwd>/.skill-runs/*/supervisor_verdict.md` (flat, single-iter shape) OR `<cwd>/.skill-runs/*/iter_*/supervisor_verdict.md` (nested, multi-iter shape), exclude any path under this run's directory, then pick the most recent by sorting on the run-directory name (timestamp-prefixed) with the `iter_NN` index as a tiebreaker for files in the same run directory. If the `## Outcome` line of the selected file contains `escalate`, abort the fast-path: the prior session asked for human attention and skipping the deep walk would lose that continuity. If no prior verdict exists (first run on this project), treat as no-escalation.
 
@@ -83,7 +83,9 @@ Eligibility — all four conditions must hold:
 
 4. **§3.5 batch-window refinement check returns "no refinement needed."** Run §3.5's trigger-evaluation step (3.5.1 only — the cheap trailing-window scan; do NOT yet edit any prose) to decide whether the dev skill's window prose needs adjusting. If the trailing-window thresholds are below the trigger AND stable-termination is engaged OR not yet eligible, return "no refinement needed" and proceed; the cost is one read of `MANIFEST.json` plus a transcript-grep over the trailing iters' `<i>_<dev-review>.txt` files (cheap). If the trigger fires, abort the fast-path: §3.5 will make a refinement edit in the deep walk, and that edit IS the iter's finding. The check is intentionally hoisted into the fast-path eligibility set so refinement keeps firing on otherwise-clean iters; without this condition, a long run of clean iters would let `[batch-sizing]` findings accumulate without ever crossing the deep walk.
 
-When all four conditions hold, write the minimal verdict file and return:
+5. **No un-triaged solo-tester findings.** If the chain ran a tester stage but NO dev-review stage (no `*-dev-review` transcript among the run dir's `<i>_<skill>.txt` files), read `tester-findings.json` from the run dir. Abort the fast-path if it is present AND its overall `verdict` is `red` or `degraded`, OR any check carries `status: fail` or `status: needs-change`: those findings have not been triaged into the spec by any review stage, and §5a (deep walk) must file the agent-actionable ones. A `verdict: green`/`skipped`, an absent findings file, or a chain that DID run a dev-review (which already consumed the findings per `sst-dev-review` §4, so re-filing would duplicate) all leave this condition satisfied. This is the tester-only-chain analogue of condition #3: in a solo-tester run no review skill emits the `Found N items:` line that condition #3 keys on, so the structured findings file is the signal instead.
+
+When all five conditions hold, write the minimal verdict file and return:
 
 ```markdown
 # Supervisor verdict — <run-dir-name>
@@ -108,7 +110,7 @@ The §8 exit gate is satisfied because the verdict file exists.
 
 When any condition fails, fall through to §1 with no annotation in the eventual verdict. The fast-path is an optimization, not a user-facing contract surface.
 
-**Anti-fork constraint.** Do not extend the keyword list with soft matches like `warning`, `caveat`, or `should`: those appear routinely in clean prose. Do not add a fifth eligibility condition without spec'ing it first. The two review-findings entries above (`Found \d+ items:` and `Review follow-ups`) are the spec-authorized exception: they anchor strictly to the review skill's fixed §6 report template, not free prose — that is why they satisfy the anti-fork discipline even though they are new keyword additions (Phase 39.1). The bar is intentionally tuned to favor running the deep walk when uncertain: a missed-finding from an over-eager fast-path is a real defect, while a deep-walk-on-clean is just spent compute.
+**Anti-fork constraint.** Do not extend the keyword list with soft matches like `warning`, `caveat`, or `should`: those appear routinely in clean prose. Condition #5 (un-triaged solo-tester findings) is the spec'd fifth condition; do not add a sixth without spec'ing it first. The two review-findings entries above (`Found \d+ items:` and `Review follow-ups`) are the spec-authorized exception: they anchor strictly to the review skill's fixed §6 report template, not free prose — that is why they satisfy the anti-fork discipline even though they are new keyword additions (Phase 39.1). The bar is intentionally tuned to favor running the deep walk when uncertain: a missed-finding from an over-eager fast-path is a real defect, while a deep-walk-on-clean is just spent compute.
 
 ### 1. Walk every skill in MANIFEST.skills
 
@@ -316,6 +318,19 @@ Do not move existing entries; do not touch `## In flight` or `## Just shipped`.
 **Bounded-item rule.** Any item appended to `## Next up` must be a *specific, completable action* — one whose done-state is unambiguous and whose SPEC `[ ]` can meaningfully flip to `[x]`. Forbidden: "continue improving X", "iterative Y polish", or any description of a recurring process with no natural end-state. Required instead: name the exact target file and symbol, or state a concrete acceptance criterion (e.g. "validator rejects vague bullets in unit tests for `bin/validate-frontmatter.py`"). If the needed work resists being named as a finite deliverable, file a `docs/FUTURE-WORK.md` entry instead.
 
 **Route acceptance findings to FUTURE-WORK.md instead (optional).** When a finding implies work that cannot be autonomously verified by a future dev cycle — acceptance tests requiring a real chain-driver round-trip, human-verified smoke tests, production observation — the supervisor MAY append the item to `docs/FUTURE-WORK.md` (under `## Manual / human verification` or an appropriate sub-section) instead of `## Next up`. Items in FUTURE-WORK.md are intentionally parked; a human flips them back to `## Next up` when ready. Use `## Next up` when the dev cycle can execute the work autonomously without human-in-the-loop verification.
+
+### 5a. Solo-tester findings triage (when no dev-review stage ran)
+
+In a full chain the dev-review consumes the tester's `tester-findings.json` and files each runtime finding to the spec + `## Next up` (`sst-dev-review` §4: `status: fail` -> `[blocker]`, `status: needs-change` -> `[should-fix]`). A **solo-tester chain** (a tester run with an auto-supervisor but NO review stage) has no skill in the loop to do that, so without this step the tester's findings would reach only the verdict's `## Notes for the manager` -- bouncing agent-actionable work to a human. Close that gap here.
+
+Trigger: the run dir has a `tester-findings.json` AND no `*-dev-review` transcript is present (confirm by listing the run dir's `<i>_<skill>.txt` files). When it fires, the supervisor itself applies the `sst-dev-review` §4 status->severity mapping:
+
+- a check with `status: fail` -> a `[blocker]`-class follow-up;
+- a check with `status: needs-change` -> a `[should-fix]`-class follow-up;
+- an overall `verdict: degraded` (tester tried but could not fully exercise the surface) -> a `[should-fix]` noting the incomplete runtime coverage;
+- `verdict: green` / `skipped`, or an absent findings file -> nothing to file.
+
+File each as a `## Next up` line in `docs/TODO.md` using §5's format and **bounded-item rule** (and mirror it to a `## Review follow-ups` entry in `docs/SPEC.md` when the project keeps that section), citing the tester check's recommendation and evidence path. **Dedup first:** read `docs/SPEC.md` / `docs/TODO.md` before filing -- if a finding already maps to an existing SPEC `[ ]` item, cite that ID in the verdict instead of adding a duplicate line. A finding whose fix needs a human (an auth/secret/credential, or a genuine product/UX decision the tester only flagged, not an agent-fixable bug) routes to `docs/HUMAN.md` per §5b, not `## Next up`. Record what was filed (and what was deduped) under `## Edits written`; only the residual that genuinely needs a human goes in `## Notes for the manager`. The principle: nothing an autonomous dev cycle can act on is left only in the manager notes.
 
 ### 5b. Route to HUMAN.md for human-only blockers (when applicable)
 
