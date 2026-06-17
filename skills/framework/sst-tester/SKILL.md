@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.5.0
+version: 1.6.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -94,7 +94,7 @@ The chain runner reports the run-log directory on every invocation as `[log-dir]
 4. **Poll readiness with a timeout.** Poll each server's readiness endpoint/port until ready or a bounded timeout elapses. If a server never becomes ready, record a `degraded` finding naming which server and its captured log tail, and continue with whatever surface IS reachable (or self-skip to `degraded` if nothing is reachable).
 5. **Establish session, degrade if stale (D2).** If the changed surfaces require authentication, reuse the project's saved browser session/auth state (the wrapper supplies the path and freshness window). A missing or stale session degrades to a finding and the tester exercises only the reachable (unauthenticated) surface — it **never blocks** on an interactive login prompt.
 6. **Drive the changed surfaces.** For each changed surface, in priority order from the guidance:
-   - RUN the project's existing e2e spec(s) mapped to that surface, redirecting any spec-runner output to the out-of-tree state dir (never the repo tree);
+   - RUN the project's existing e2e spec(s) mapped to that surface **in the foreground, so the run blocks until the spec process exits**, redirecting any spec-runner output to the out-of-tree state dir (never the repo tree). Do NOT launch the spec as a background/detached job and then end your turn while it is still running: a backgrounded command does not block the agent loop, so ending the turn on a "waiting for the spec to finish" note silently skips steps 7-9 (collect findings, tear down servers, write findings), leaving NO findings artifact and the servers still bound. If a spec genuinely must be backgrounded, you MUST poll it to completion before proceeding; steps 8 (teardown) and 9 (write findings) are mandatory terminal steps you execute explicitly, not a trap that fires on its own;
    - do exploratory browser checks of net-new functionality not yet covered by a committed spec;
    - watch for console errors, failed network requests, and broken interactions.
    Each surface produces one or more per-check records (see **Findings contract**). A missing spec for a changed surface is itself a finding (coverage gap), recorded as `needs-change`, not silently skipped.
