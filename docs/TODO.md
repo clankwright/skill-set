@@ -6,6 +6,8 @@
 
 ## Just shipped (last cycle)
 
+- 49.1+49.2 Phase 49 close: soften WIND_DOWN_DIRECTIVE_TEMPLATE false enforcement claim (conditional "if a hard ceiling is in force it is {hard} turns"); update sst-tester SKILL.md wind-down principle + new Per-target flush and session budget subsection (v1.4.0→1.5.0); update ssp-cm-tester base-version to 1.5.0; 8 new tests; 446→454 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-17T06:40:00Z
+
 <!--
   Append-on-close, newest first. Format:
   - <one-line summary> — by <skill-name> at <utc-iso>
@@ -26,12 +28,6 @@
 - 42.10: move mkdir below dry-run continue in run_batch_mode(), add no-dir-creation test; 378→379 green — by sst-dev-cycle at 2026-06-16T21:10:00Z
 - 42.4+42.5+42.6+42.7: --batch mode in skill-chain.py, drive-chain.py shim, caller migration + tests; 364→378 green — by sst-dev-cycle at 2026-06-16T20:30:00Z
 - 42.9 add integration test: profile-sourced budget satisfies --overnight cap requirement (no CLI cap + profile fills → no SystemExit, loop=0); 363→364 green — by sst-dev-cycle at 2026-06-16T19:05:00Z
-- 42.8+42.3 extract `_apply_profile_defaults` pure helper (5 tests: all-fields/explicit-wins/explicit-loop-suppresses-max-cycles) + add `--overnight`/`--preset overnight` preset (`_apply_preset`, `PRESETS` dict, cap check, `--loop` mutual exclusion, 8 tests); 350→363 green — by sst-dev-cycle at 2026-06-16T18:00:00Z
-- 42.1+42.2 unify the chain-run CLI: merge drive-chain.py's wrapper layer natively into bin/skill-chain.py — six inert-when-unset flags (--profile/--max-budget-usd/--max-cycles/--telegram-env/--no-telegram/--label), profile defaults below CLI args, opt-in Telegram (4 event classes incl. real-time pause/resume via a notify callback), pure `_wrapper_halt_reason` budget/cycle/escalation halt, `UNIFIED_CLI_EPILOG` flag-mapping in --help; 23 new tests (tests/test_phase42.py), 327→350 green — by sst-dev-cycle at 2026-06-16T16:45:00Z
-- 41.7+41.8 Phase 41 close: 16 hygiene/tooling tests (git-status-porcelain, finally/trap teardown, port-free, out-of-tree artifacts, install-skills lists sst-tester, check-ssp-sync clean); README chain descriptions + floor table + worked example updated for dev→tester→review; CLAUDE.md updated; 311→327 green — by sst-dev-cycle at 2026-06-16T15:30:00Z
-- reconcile ssp-cm-supervisor base-version pin (2.1.0→2.2.0): reviewed wrapper against 39.1 finding-aware-abort change (§0.5.3 not overridden, reconcile is mechanical); check-ssp-sync clean for all 6 CM wrappers; 311→311 green — by sst-dev-cycle at 2026-06-16T14:10:00Z
-- 41.5+41.6 CM tester rollout: author `ssp-cm-tester` wrapper (CM ports 5003/3000, `web/e2e` spec map, `.auth/state.json` 36h reuse, full teardown, never push/main/test/dev1), insert it into `cm-cycle.yaml` (dev → tester → review, v1.2.0), mirror the tester-findings read into `ssp-cm-dev-review` + the guidance/`[skip-tester]` branch into `ssp-cm-dev`, reconcile both wrappers' base-version pins (dev→1.9.0, review→1.11.0); CM `.claude/` is gitignored runtime state so deliverables persist on disk (no CM commit); validate-frontmatter + schema + check-ssp-sync (3 wrappers in-sync) all clean; skill-set suite 311→311 green; FUTURE-WORK acceptance filed — by sst-dev-cycle at 2026-06-16T13:30:00Z
-- 41.11 fix incomplete-cycle recovery message: use first non-tester non-supervisor follower; 1 new test, 310→311 green — by sst-dev-cycle at 2026-06-16T12:00:00Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -41,7 +37,5 @@
   Order: blockers/highest-impact first.
 -->
 
-- sst-tester wind-down directive over-claims enforcement in non-chain launches: `WIND_DOWN_DIRECTIVE_TEMPLATE` (bin/skill-chain.py:264) asserts "the harness enforces a hard ceiling of {hard} agent turns ... and will cut you off there." When the tester is launched standalone (manual `/sst-tester`, a Skill-tool invocation, or a multi-target drain) the directive text reaches the agent but NO `--max-turns` chop is in force, so the claim is false. Live evidence 2026-06-17: a CM looped-standalone T7-T15 drain (transcript 309210d5) reached 471 assistant turns and auto-compacted once -- impossible under a real 250-turn cap. Fix options: (a) soften the template so it states the cap conditionally ("if a hard turn cap is in force it is {hard}; regardless treat ~{soft} turns as your working budget and wind down") so the self-pacing value survives without a false promise, and/or (b) make the looped-standalone/runner path actually pass `--max-turns` so the claim is true. Recommend (a) plus auditing every launch path for the cap. -- source: live tester-run assessment 2026-06-17 (Phase 48 looped-standalone mode); affects sst-tester SKILL.md §wind-down + bin/skill-chain.py template
-- sst-tester multi-target single-session drains balloon past the turn budget and risk mid-test compaction: single-target sessions self-paced cleanly (194-285 turns), but one session draining 9 targets (T7-T15) ran 471 turns + 1 compaction. It survived ONLY because findings were flushed to the out-of-tree queue cursor per target. Harden the base contract: (1) make per-target findings flush (write each verdict to the out-of-tree findings + `queue-<run-utc>.json` as soon as the target is verdicted, not at run end) an EXPLICIT requirement, not an emergent accident; (2) document that a single agent session must NOT drain a multi-target range past the soft budget -- finish the current target, exit, and let the next invocation resume from the queue cursor; (3) state that the canonical drain is runner-looped (`bin/skill-chain.py <tester> --loop N`, one separately-budgeted subprocess per target) and steer manual/Skill-tool drains toward one target per invocation. -- source: live tester-run assessment 2026-06-17; affects sst-tester SKILL.md looped-standalone subsection (mirror the already-applied ssp-cm-tester §5 wind-down/flush wording back into the base, after sanitize)
 
 
