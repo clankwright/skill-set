@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.2.1
+version: 1.3.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -35,6 +35,7 @@ This is the project-agnostic transferable. It owns the **contract** — chain po
 - **Add value or get out of the way.** If there is nothing front-end to exercise — no local-run path, or a cycle that touched no UI surface — the tester exits 0 as a clean no-op (`verdict: skipped`). Adding this stage to a non-UI chain is harmless.
 - **Leave no trace.** Zero files under any repo working tree. Binary artifacts (screenshots, traces, video) go to an out-of-tree state dir; the reviewer-facing findings doc goes to the chain run-log dir (already gitignored). Both servers and the browser are torn down even on exception or timeout.
 - **Author no committed specs.** The tester RUNS the project's existing e2e specs mapped to the changed surfaces and does exploratory checks of net-new functionality, but it does NOT write committed spec files — authoring "failing tests first" stays the dev cycle's job. A coverage gap is filed as a finding, not closed by writing a spec.
+- **Wind down before the turn cap.** Of all the chain's agents the tester is the one most likely to approach the harness's per-agent turn ceiling (long browser / tool-call sweeps). The chain runner injects a soft turn-budget directive into the tester's prompt naming a working budget below the hard cap — honor it. As you approach the budget, stop opening new surfaces: write the findings you already have to a clean state, run teardown, and exit so the reviewer gets a usable handoff instead of a mid-sweep chop. A partial-but-clean findings record beats being cut off.
 
 ## Chain position
 

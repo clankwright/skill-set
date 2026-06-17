@@ -245,6 +245,32 @@ DEFAULT_MODEL_FLOOR  = "opus"
 DEFAULT_EFFORT_FLOOR = "high"
 DEFAULT_DIFFICULTY   = "medium"
 
+# Per-agent turn budget. The harness enforces a HARD ceiling (`--max-turns`)
+# below which the Claude Code CLI cuts an agent off mid-task with no chance to
+# finish. WIND_DOWN_TURN_HEADROOM turns are reserved below that ceiling and
+# advertised to the agent as a SOFT budget, so it wraps up + hands off cleanly
+# before the hard chop instead of leaving a half-done state for the next skill.
+DEFAULT_MAX_TURNS        = 250   # hard per-agent ceiling (harness backstop)
+WIND_DOWN_TURN_HEADROOM  = 50    # turns reserved below the hard cap for wrap-up
+
+# Cold-start prompt addendum that turns the hard turn cap into a graceful
+# wind-down. Injected ONLY for `*-tester` skills: the tester is the agent that
+# routinely approaches the turn ceiling (long Playwright / tool-call sweeps),
+# so it is the one that benefits from self-pacing; other skills rarely get
+# close and don't need the prompt overhead. Kept project-agnostic
+# (transferable-safe): no project nouns, no stack specifics. Formatted with the
+# resolved {hard} and {soft} turn counts so the advertised budget always tracks
+# the real --max-turns value.
+WIND_DOWN_DIRECTIVE_TEMPLATE = (
+    "Turn budget: the harness enforces a hard ceiling of {hard} agent turns for "
+    "this skill and will cut you off there with no chance to finish. Treat ~{soft} "
+    "turns as your working budget. As you approach it, stop opening new threads of "
+    "work: bring what you already have to a clean, committed, handoff-ready state "
+    "and end your turn yourself. Do NOT rely on the hard ceiling — an agent chopped "
+    "mid-task leaves a half-done state for the next skill in the chain. Winding down "
+    "early and handing off cleanly always beats being cut off."
+)
+
 PICKED_DIFFICULTY_SENTINEL_RE = re.compile(
     r"^\s*\[picked-difficulty:\s*(easy|medium|hard)\]\s*$",
     re.MULTILINE | re.IGNORECASE,
@@ -591,6 +617,9 @@ class Harness:
     """
 
     name: str = "abstract"
+    # Hard per-agent turn ceiling. Overridable per-run (main sets it from
+    # --max-turns). Harnesses that honor a turn cap read this; others ignore it.
+    max_turns: int = DEFAULT_MAX_TURNS
 
     def build_command(
         self,
@@ -631,6 +660,18 @@ class ClaudeCodeHarness(Harness):
             )
         if extra_prompt:
             prompt = prompt + "\n\n" + extra_prompt
+        # Graceful turn wind-down: advertise a SOFT budget below the hard cap so
+        # the agent wraps up + hands off cleanly before the harness chops it.
+        # Scoped to `*-tester` skills (the only ones that routinely approach the
+        # ceiling) and to cold starts only — a resume after a rate-limit pause
+        # keeps the bare "continue" prompt so the in-flight context restores
+        # without re-steering.
+        hard_turns = self.max_turns
+        soft_turns = max(1, hard_turns - WIND_DOWN_TURN_HEADROOM)
+        if not resume_session_id and skill_name.endswith("-tester"):
+            prompt = prompt + "\n\n" + WIND_DOWN_DIRECTIVE_TEMPLATE.format(
+                hard=hard_turns, soft=soft_turns
+            )
         # Phase 19 (4): model and effort are resolved by the runner from
         # max(item_difficulty_tier, skill_floor) and passed in. Fall back to
         # the conservative framework defaults (opus / high) when either is
@@ -651,10 +692,12 @@ class ClaudeCodeHarness(Harness):
             # Without it, supervisor runs that do a proprietary edit +
             # transferable sanitize + transferable edit + verdict have
             # terminated cleanly at ~31 turns with `[ok]` status mid-workflow
-            # (server-side pause_turn). 150 buys headroom for multi-write
-            # cycles without burning cache on runaway agents. See
-            # github.com/anthropics/claude-code/issues/16963.
-            "--max-turns", "150",
+            # (server-side pause_turn). This is the HARD backstop; `*-tester`
+            # skills also get a SOFT wind-down budget (WIND_DOWN_TURN_HEADROOM
+            # turns below it) in their prompt so they hand off cleanly before
+            # the chop. Default DEFAULT_MAX_TURNS (250); override with
+            # --max-turns. See github.com/anthropics/claude-code/issues/16963.
+            "--max-turns", str(hard_turns),
             "--model",  model  or DEFAULT_MODEL_FLOOR,
             "--effort", effort or DEFAULT_EFFORT_FLOOR,
         ]
@@ -1795,6 +1838,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              f"Overrides the chain YAML's `max-pauses-per-session:` field when "
              f"both are set.",
     )
+    p.add_argument(
+        "--max-turns",
+        type=int,
+        default=DEFAULT_MAX_TURNS,
+        help=f"Hard per-agent turn ceiling passed to each skill subprocess "
+             f"(the harness chops an agent here). Default {DEFAULT_MAX_TURNS}. "
+             f"`*-tester` skills additionally get a soft wind-down budget "
+             f"({WIND_DOWN_TURN_HEADROOM} turns below this) in their prompt so "
+             f"they wrap up + hand off cleanly before the hard chop.",
+    )
     # ---- Native wrapper flags (Phase 42; inert when unset) ------------------
     p.add_argument(
         "--profile",
@@ -2376,6 +2429,7 @@ def run_batch_mode(args: "argparse.Namespace", harness: Harness, cwd: str) -> in
 def main() -> int:
     args = parse_args(sys.argv[1:])
     harness = get_harness(args.harness)
+    harness.max_turns = args.max_turns
 
     cwd = os.getcwd()
 
