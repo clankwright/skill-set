@@ -727,3 +727,74 @@ def test_find_local_supervisor_multiple_proprietary_returns_none(tmp_path, monke
     _make_supervisor(home / ".claude" / "skills", "sst-supervisor")
     monkeypatch.setenv("HOME", str(home))
     assert sc.find_local_supervisor(str(proj)) is None
+
+
+# ---- Per-agent turn wind-down (graceful --max-turns) ------------------------
+
+def _max_turns_value(cmd):
+    """Extract the integer following --max-turns in a built command."""
+    idx = cmd.index("--max-turns")
+    return int(cmd[idx + 1])
+
+
+def test_build_command_default_hard_turn_cap_is_250():
+    """Every agent gets the hard --max-turns backstop (default 250)."""
+    h = ClaudeCodeHarness()
+    for skill in ("sst-dev-cycle", "sst-tester", "sst-supervisor"):
+        assert _max_turns_value(h.build_command(skill)) == sc.DEFAULT_MAX_TURNS == 250
+
+
+def test_build_command_tester_cold_start_appends_wind_down():
+    """A *-tester cold start advertises the soft budget below the hard cap."""
+    h = ClaudeCodeHarness()
+    prompt = h.build_command("sst-tester")[-1]
+    hard = sc.DEFAULT_MAX_TURNS
+    soft = hard - sc.WIND_DOWN_TURN_HEADROOM
+    assert "Turn budget" in prompt
+    assert str(hard) in prompt
+    assert str(soft) in prompt
+    # Still invokes the skill — the directive is appended, not a replacement.
+    assert "Use the Skill tool" in prompt
+    assert "sst-tester" in prompt
+
+
+def test_build_command_proprietary_tester_also_winds_down():
+    """Proprietary *-tester wrappers (e.g. ssp-cm-tester) get the directive too."""
+    h = ClaudeCodeHarness()
+    prompt = h.build_command("ssp-cm-tester")[-1]
+    assert "Turn budget" in prompt
+
+
+def test_build_command_non_tester_has_no_wind_down():
+    """Non-tester skills do not carry the soft wind-down directive."""
+    h = ClaudeCodeHarness()
+    for skill in ("sst-dev-cycle", "sst-dev-review", "sst-supervisor", "ssp-cm-dev"):
+        prompt = h.build_command(skill)[-1]
+        assert "Turn budget" not in prompt
+
+
+def test_build_command_tester_resume_keeps_bare_continue():
+    """A resumed tester (post rate-limit pause) keeps the bare 'continue' prompt."""
+    h = ClaudeCodeHarness()
+    prompt = h.build_command("sst-tester", resume_session_id="sess_abc123")[-1]
+    assert prompt == "continue"
+    assert "Turn budget" not in prompt
+
+
+def test_build_command_custom_max_turns_tracks_soft_budget():
+    """Overriding harness.max_turns moves both the hard cap and the advertised soft budget."""
+    h = ClaudeCodeHarness()
+    h.max_turns = 300
+    cmd = h.build_command("sst-tester")
+    assert _max_turns_value(cmd) == 300
+    prompt = cmd[-1]
+    assert "300" in prompt           # hard
+    assert "250" in prompt           # soft = 300 - 50
+
+
+def test_build_command_tiny_max_turns_soft_budget_floored():
+    """A pathologically small cap floors the soft budget at >= 1 (no negative)."""
+    h = ClaudeCodeHarness()
+    h.max_turns = 10
+    prompt = h.build_command("sst-tester")[-1]
+    assert "Turn budget" in prompt   # still injected; just degenerate headroom
