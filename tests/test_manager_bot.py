@@ -81,7 +81,7 @@ def test_discover_no_watched_projects_block():
         skill_dir = root / "x-manager"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(
-            "---\nname: x-manager\ntransferable: sst-manager\ntransferable-version: \">=1.0.0\"\n---\n\n# no projects block\n"
+            "---\nname: x-manager\ntransferable: sst-manager\n---\n\n# no projects block\n"
         )
         result = mb._discover_manager_personas(root)
     assert len(result) == 1
@@ -110,7 +110,7 @@ def test_discover_keeps_proprietary_skill():
         skill_dir = root / "cm-manager"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(
-            "---\nname: cm-manager\ntransferable: sst-manager\ntransferable-version: \">=1.0.0\"\n---\n\n"
+            "---\nname: cm-manager\ntransferable: sst-manager\n---\n\n"
             "```yaml\nwatched-projects:\n  - path: /home/rob/Dev/claim_management\n    name: claim_management\n```\n"
         )
         result = mb._discover_manager_personas(root)
