@@ -280,6 +280,16 @@ PICKED_DIFFICULTY_SENTINEL_RE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
+# ---- Batch-pick block (Phase 50) -------------------------------------------
+# sst-dev-cycle §1 mandates the dev emit a `[batch-pick] N items @ <difficulty>;
+# window-target ~XXk; rationale: <one-line>` block at pick time -- even for a
+# single-item pick. Downstream batch-coherence review (sst-dev-review §2.10) and
+# stuck-item detection (sst-supervisor §3.6) read it and silently fall back to
+# bracket-parsing when it is absent. run_iteration flags its ABSENCE on a
+# committed dev iter as a non-fatal contract violation so the gap is loud + in
+# the MANIFEST rather than only discoverable by a jsonl grep.
+BATCH_PICK_SENTINEL_RE = re.compile(r"^\s*\[batch-pick\]", re.MULTILINE)
+
 _NEXT_UP_HEADER_RE = re.compile(r"^##\s+Next up\b", re.MULTILINE)
 _HEADING_RE        = re.compile(r"^##\s+", re.MULTILINE)
 _HTML_COMMENT_RE   = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -940,6 +950,14 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
                     pm = PICKED_DIFFICULTY_SENTINEL_RE.search(text)
                     if pm:
                         skill_record["picked_difficulty"] = pm.group(1).lower()
+                # Phase 50: capture the dev's mandatory [batch-pick] block
+                # (sst-dev-cycle §1). run_iteration flags its ABSENCE on a
+                # committed dev iter as a non-fatal contract violation. First
+                # match wins; tool inputs/results are not scanned (text only),
+                # mirroring the other sentinels' discipline.
+                if not skill_record.get("emitted_batch_pick"):
+                    if BATCH_PICK_SENTINEL_RE.search(text):
+                        skill_record["emitted_batch_pick"] = True
             elif bt == "tool_use":
                 print_tool_use(sink, block.get("name", "?"), block.get("input", {}))
                 # Phase 49: detect the dev writing tester-guidance.md so the
@@ -2208,6 +2226,41 @@ def run_iteration(
             print(c(f"\n[no-test-work] /{skill}: {record['no_test_work_bail']}: "
                     f"skipping remaining skills + aborting loop", BLUE), flush=True)
             break
+        # Phase 50: [batch-pick] emission gate. sst-dev-cycle §1 mandates the
+        # dev emit a `[batch-pick] N items @ <difficulty>; ...` block at pick
+        # time (even for a single-item pick); downstream batch-coherence review
+        # (sst-dev-review §2.10) and stuck-item detection (sst-supervisor §3.6)
+        # read it and silently fall back to bracket-parsing when it is absent.
+        # The dev had stopped emitting it for many consecutive iters; the prose
+        # already mandates it, so this is a model-compliance gap a prose edit
+        # cannot durably close. Flag its ABSENCE here as a NON-FATAL contract
+        # violation: the cycle's shipped work is unaffected and the run
+        # continues, but the iter MANIFEST records it + we print a warning, so
+        # the degradation is deterministic instead of jsonl-grep-only (the
+        # supervisor escalates on the sustained pattern from the recorded flag).
+        # Commit-gated (sha advanced) so only a real pick-and-ship dev iter
+        # trips it -- testers/reviews/supervisors do not commit; the `-tester`
+        # guard additionally excludes a solo tester sweep at i==0.
+        if (
+            i == 0
+            and not skill.endswith("-tester")
+            and sha_before_skill is not None
+            and sha_after_skill is not None
+            and sha_before_skill != sha_after_skill
+            and not record.get("emitted_batch_pick")
+        ):
+            iter_manifest["batch_pick_missing"] = {
+                "skill": skill,
+                "picked_difficulty_emitted": bool(record.get("picked_difficulty")),
+                "note": ("dev shipped a pick-and-implement commit without the "
+                         "mandatory [batch-pick] block (sst-dev-cycle §1); "
+                         "batch-coherence review + stuck-item detection degrade "
+                         "to bracket-parsing fallbacks"),
+            }
+            _snapshot_manifest()
+            print(c(f"\n[batch-pick MISSING] /{skill} shipped a commit with no "
+                    f"[batch-pick] block (sst-dev-cycle §1); recording non-fatal "
+                    f"contract violation, continuing", ORANGE), flush=True)
         # Phase 41.10: [skip-tester] sentinel — the preceding skill signalled
         # no front-end/UI surface. Check whether the immediately-following
         # skill is a *-tester; if so, remove it from skills_to_run so the
