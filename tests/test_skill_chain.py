@@ -798,3 +798,115 @@ def test_build_command_tiny_max_turns_soft_budget_floored():
     h.max_turns = 10
     prompt = h.build_command("sst-tester")[-1]
     assert "Turn budget" in prompt   # still injected; just degenerate headroom
+
+
+# ---- "never both" runner enforcement (Phase 49) ------------------------------
+#
+# A dev skill that WRITES a tester-guidance.md has, by writing it, committed the
+# cycle to a tester RUN. Emitting [skip-tester] in the same run is a
+# self-contradiction ("never both"). Prose-level "pick exactly one" did not
+# converge across repeated iters, so bin/skill-chain.py enforces it at the
+# runner level: handle_event flags the guidance write on the skill record, and
+# run_iteration VOIDS the skip (runs the tester anyway) when the flag is set.
+# Keyed on the skill's own tool-use this run, not a stale on-disk file.
+
+def _guidance_write_event(file_path):
+    """An assistant event whose single tool_use writes to file_path."""
+    return {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {"type": "tool_use", "name": "Write",
+                 "input": {"file_path": file_path, "content": "guidance"}},
+            ]
+        },
+    }
+
+
+def test_handle_event_detects_tester_guidance_write():
+    """A Write whose file_path ends in tester-guidance.md sets the record flag."""
+    rec: dict = {}
+    sink = sc._Sink(None)
+    sc.handle_event(sink, _guidance_write_event("/run/iter_01/tester-guidance.md"), rec)
+    assert rec.get("wrote_tester_guidance") is True
+
+
+def test_handle_event_ignores_other_file_writes():
+    """A Write to an unrelated file does NOT set the guidance flag."""
+    rec: dict = {}
+    sink = sc._Sink(None)
+    sc.handle_event(sink, _guidance_write_event("/run/iter_01/some-other-file.md"), rec)
+    assert "wrote_tester_guidance" not in rec
+
+
+def test_run_iteration_skip_tester_voided_when_guidance_written():
+    """Dev that wrote guidance AND emitted [skip-tester] -> tester runs anyway.
+
+    The skip is self-contradictory ('never both'); run_iteration must void it,
+    keep the tester in the run list (so it IS called), and record the void in
+    the iter manifest rather than the normal tester_skipped entry.
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        if skill_name == "sst-dev-cycle":
+            return (0, {"skip_tester": "refactor-only: no UI surface change",
+                        "wrote_tester_guidance": True})
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-tester", "sst-dev-review"],
+            None, None, 1, 1, "/tmp",
+        )
+
+    assert rc == 0
+    assert "sst-tester" in calls, \
+        "tester MUST run when the dev wrote guidance + emitted skip (never-both)"
+    assert "tester_skip_voided" in iter_manifest, \
+        "the voided skip must be recorded in the iter manifest"
+    assert iter_manifest["tester_skip_voided"]["emitted_by"] == "sst-dev-cycle"
+    assert "tester_skipped" not in iter_manifest, \
+        "a voided skip must NOT also record a normal tester_skipped entry"
+
+
+def test_run_iteration_skip_tester_honored_when_no_guidance():
+    """Dev that emitted [skip-tester] WITHOUT writing guidance -> tester skipped.
+
+    Preserves the existing Phase 41.10 behavior: a legitimate backend-only skip
+    pops the tester from the run list (it is never called).
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        if skill_name == "sst-dev-cycle":
+            return (0, {"skip_tester": "backend-only: pytest + SQL"})
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-tester", "sst-dev-review"],
+            None, None, 1, 1, "/tmp",
+        )
+
+    assert rc == 0
+    assert "sst-tester" not in calls, \
+        "tester must be skipped on a legitimate guidance-free [skip-tester]"
+    assert iter_manifest.get("tester_skipped", {}).get("skill") == "sst-tester"
+    assert "tester_skip_voided" not in iter_manifest

@@ -6,6 +6,7 @@
 
 ## Just shipped (last cycle)
 
+- 49.3: runner-level never-both enforcement in bin/skill-chain.py -- handle_event sets wrote_tester_guidance on a tester-guidance.md tool-use; run_iteration voids a same-run [skip-tester] (records tester_skip_voided) instead of popping the tester, so a dev that wrote guidance always gets its touched surface exercised; 4 new tests in test_skill_chain.py; 454→458 green -- integrated from a CM-agent fix by the user at 2026-06-18
 - 49.1+49.2 Phase 49 close: soften WIND_DOWN_DIRECTIVE_TEMPLATE false enforcement claim (conditional "if a hard ceiling is in force it is {hard} turns"); update sst-tester SKILL.md wind-down principle + new Per-target flush and session budget subsection (v1.4.0→1.5.0); update ssp-cm-tester base-version to 1.5.0; 8 new tests; 446→454 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-17T06:40:00Z
 
 <!--

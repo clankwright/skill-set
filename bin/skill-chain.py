@@ -942,6 +942,17 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
                         skill_record["picked_difficulty"] = pm.group(1).lower()
             elif bt == "tool_use":
                 print_tool_use(sink, block.get("name", "?"), block.get("input", {}))
+                # Phase 49: detect the dev writing tester-guidance.md so the
+                # [skip-tester] gate in run_iteration can enforce "never both" --
+                # writing guidance commits the cycle to a tester RUN, so a
+                # [skip-tester] in the same run is voided, not honored. Keyed on
+                # the skill's own tool-use this run (any tool whose file_path
+                # targets tester-guidance.md), not a stale on-disk file.
+                if not skill_record.get("wrote_tester_guidance"):
+                    _tu_input = block.get("input", {}) or {}
+                    _tu_path = str(_tu_input.get("file_path", "") or "")
+                    if _tu_path.endswith("tester-guidance.md"):
+                        skill_record["wrote_tester_guidance"] = True
         return
 
     if t == "user":
@@ -2207,20 +2218,44 @@ def run_iteration(
             next_skill = skills_to_run[i + 1]
             if next_skill.endswith("-tester"):
                 skip_reason = record["skip_tester"]
-                iter_manifest["tester_skipped"] = {
-                    "skill": next_skill,
-                    "reason": skip_reason,
-                    "skipped_by": skill,
-                }
-                # Pop the tester from the list. The list iterator advances by
-                # index position, so after the pop the next index (i+1) now
-                # holds what was skills_to_run[i+2] — exactly the follower we
-                # want to run next (typically sst-dev-review).
-                skills_to_run.pop(i + 1)
-                _snapshot_manifest()
-                print(c(f"\n[skip-tester] /{skill}: {skip_reason}: "
-                        f"skipping /{next_skill}, proceeding to next skill", BLUE),
-                      flush=True)
+                # Phase 49: "never both" runner-level enforcement. A dev skill
+                # that WROTE a tester-guidance.md this run has, by writing it,
+                # committed the cycle to a tester RUN; emitting [skip-tester] in
+                # the same run is a self-contradiction the runner must not honor.
+                # Prose-level "pick exactly one" did not converge over repeated
+                # iters, so void the skip and let the tester run -- the safe
+                # direction (a touched surface gets exercised). Keyed on the
+                # skill's own tool-use this run (record["wrote_tester_guidance"],
+                # set by handle_event), not a stale on-disk file. Cf. the Phase
+                # 36 incomplete-cycle block below: runner enforcement of a
+                # contract that prose-level defenses could not uphold.
+                if record.get("wrote_tester_guidance"):
+                    iter_manifest["tester_skip_voided"] = {
+                        "skill": next_skill,
+                        "reason": skip_reason,
+                        "emitted_by": skill,
+                        "voided_by": "wrote_tester_guidance",
+                    }
+                    _snapshot_manifest()
+                    print(c(f"\n[skip-tester VOIDED] /{skill} wrote tester-guidance.md "
+                            f"AND emitted [skip-tester] ({skip_reason}); running "
+                            f"/{next_skill} anyway (never-both contract)", ORANGE),
+                          flush=True)
+                else:
+                    iter_manifest["tester_skipped"] = {
+                        "skill": next_skill,
+                        "reason": skip_reason,
+                        "skipped_by": skill,
+                    }
+                    # Pop the tester from the list. The list iterator advances by
+                    # index position, so after the pop the next index (i+1) now
+                    # holds what was skills_to_run[i+2] — exactly the follower we
+                    # want to run next (typically sst-dev-review).
+                    skills_to_run.pop(i + 1)
+                    _snapshot_manifest()
+                    print(c(f"\n[skip-tester] /{skill}: {skip_reason}: "
+                            f"skipping /{next_skill}, proceeding to next skill", BLUE),
+                          flush=True)
         # Phase 36: incomplete-cycle detection — fires only on the dev skill
         # (i==0), when it exits clean with no commit but docs/TODO.md still
         # shows an In-flight line or a Sanitize: must-fix=PENDING placeholder.
