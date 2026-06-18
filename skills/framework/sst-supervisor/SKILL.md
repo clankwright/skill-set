@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.3.0
+version: 2.4.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -121,6 +121,8 @@ For each skill record, ask three questions:
 3. **Was its decision-making good?** When the skill made a choice (which item to pick, which test to write first, which deploy step to run), was the choice justified by the inputs available to it?
 
 Mistakes uncovered are findings against the *skill*, not the *cycle*. If the skill's prose is ambiguous, that's a `should-fix` proposal targeting the prose. If the skill missed a step, that's a `blocker`.
+
+**Runner-recorded contract flags.** Beyond the per-skill records, the iter MANIFEST may carry runner-set non-fatal contract-violation flags at the top level (e.g. `batch_pick_missing`, which the chain runner sets when the dev shipped a commit without the mandatory `[batch-pick]` block). Read these directly from the MANIFEST rather than re-deriving them from a transcript grep; they are deterministic. Dispose of them per §7's non-fatal-flag carve-out: a tracked note in `## Notes for the manager`, not an escalation.
 
 ### 2. Severity bar
 
@@ -451,6 +453,8 @@ Set the verdict outcome to `escalate` (and write a note to the manager) when:
 - The same blocker has surfaced in 2+ consecutive runs (the prior verdict_*.md files in adjacent run dirs will tell you).
 - The skill's commit landed on the wrong branch, on top of someone else's work, or rewrote history.
 - A `sst-sanitize-transferable` rejection happened (so the user knows the system caught something potentially sensitive, even though the transferable edit was blocked and stayed proprietary-only).
+
+**Carve-out: runner-recorded non-fatal contract flags do NOT escalate.** A non-fatal contract-violation flag the chain runner records on the iter MANIFEST (e.g. `batch_pick_missing`, set when the dev shipped a commit without the mandatory `[batch-pick]` block) is a TRACKED note in `## Notes for the manager`, NOT an escalation trigger, even when it recurs across consecutive runs (it does not count toward the "2+ consecutive runs" bar above). The runner already makes the violation deterministic and visible, so the silent-degradation reason to escalate is gone; the residual is a model-compliance gap no prose edit can durably close, and re-escalating every run would only halt the autonomous loop without advancing a fix. Escalate ONLY if THIS run shows the missing telemetry caused concrete downstream harm (e.g. a multi-item batch the review could consequently neither size nor cover): that is a distinct, evidenced blocker, not the bare flag.
 
 Escalation does NOT change what the supervisor writes; it just sets a flag the manager will pick up and surface to the user.
 
