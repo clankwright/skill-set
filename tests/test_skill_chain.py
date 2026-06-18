@@ -910,3 +910,136 @@ def test_run_iteration_skip_tester_honored_when_no_guidance():
         "tester must be skipped on a legitimate guidance-free [skip-tester]"
     assert iter_manifest.get("tester_skipped", {}).get("skill") == "sst-tester"
     assert "tester_skip_voided" not in iter_manifest
+
+
+# ---- [batch-pick] emission gate (Phase 50) ----------------------------------
+#
+# sst-dev-cycle §1 mandates a `[batch-pick] N items @ <difficulty>; ...` block
+# at pick time (even for single-item picks). The dev had stopped emitting it for
+# many consecutive iters, silently degrading downstream batch-coherence review
+# (sst-dev-review §2.10) and stuck-item detection (sst-supervisor §3.6) to
+# bracket-parsing fallbacks. The runner flags its ABSENCE on a dev iter that
+# shipped a commit as a NON-FATAL contract violation (recorded in the iter
+# MANIFEST + printed) so the gap is deterministic, not jsonl-grep-only. Keyed on
+# a committed dev iter so testers/reviews/supervisors (which do not commit) are
+# excluded; a `-tester` name guard covers a solo tester sweep at i==0.
+
+_BATCH_PICK_LINE = ("[batch-pick] 1 items @ easy; window-target ~150k; "
+                    "rationale: only actionable item this cycle")
+
+
+def _sha_commit_seq():
+    """A _git_sha side_effect where sha_before != sha_after (a commit shipped),
+    robust to extra calls: s0 for the first 2 calls (iter-init, sha_before),
+    s1 thereafter (sha_after + iter-final)."""
+    state = {"n": 0}
+    def f(_cwd):
+        state["n"] += 1
+        return "s0" if state["n"] <= 2 else "s1"
+    return f
+
+
+def test_batch_pick_sentinel_re_matches_canonical_block():
+    assert sc.BATCH_PICK_SENTINEL_RE.search(_BATCH_PICK_LINE)
+
+
+def test_batch_pick_sentinel_re_matches_multi_item_block():
+    assert sc.BATCH_PICK_SENTINEL_RE.search(
+        "[batch-pick] 3 items @ medium; window-target ~250k; rationale: same-file cluster")
+
+
+def test_batch_pick_sentinel_re_no_match_when_absent():
+    assert sc.BATCH_PICK_SENTINEL_RE.search("just some prose with no sentinel") is None
+
+
+def test_handle_event_detects_batch_pick_block():
+    rec: dict = {}
+    sc.handle_event(sc._Sink(None), {
+        "type": "assistant",
+        "message": {"content": [
+            {"type": "text", "text": "picking now\n" + _BATCH_PICK_LINE + "\n[picked-difficulty: easy]"}]},
+    }, rec)
+    assert rec.get("emitted_batch_pick") is True
+
+
+def test_handle_event_no_batch_pick_flag_when_absent():
+    rec: dict = {}
+    sc.handle_event(sc._Sink(None), {
+        "type": "assistant",
+        "message": {"content": [{"type": "text", "text": "implementing without the block"}]},
+    }, rec)
+    assert "emitted_batch_pick" not in rec
+
+
+def test_run_iteration_flags_missing_batch_pick_when_dev_commits():
+    """A dev that shipped a commit but emitted no [batch-pick] block -> the iter
+    manifest records a non-fatal batch_pick_missing violation; rc stays 0."""
+    h = ClaudeCodeHarness()
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        return (0, {})  # committed (sha seq), no emitted_batch_pick, no picked_difficulty
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty", return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route", return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", side_effect=_sha_commit_seq()), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=False):
+        rc, iter_manifest = run_iteration(h, ["sst-dev-cycle"], None, None, 1, 1, "/tmp")
+
+    assert rc == 0, "a missing [batch-pick] is non-fatal -- the cycle's shipped work stands"
+    assert "batch_pick_missing" in iter_manifest
+    assert iter_manifest["batch_pick_missing"]["skill"] == "sst-dev-cycle"
+    assert iter_manifest["batch_pick_missing"]["picked_difficulty_emitted"] is False
+
+
+def test_run_iteration_no_batch_pick_flag_when_dev_emits_block():
+    """A dev that emitted the [batch-pick] block -> no violation recorded."""
+    h = ClaudeCodeHarness()
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        return (0, {"emitted_batch_pick": True, "picked_difficulty": "easy"})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty", return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route", return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", side_effect=_sha_commit_seq()), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=False):
+        rc, iter_manifest = run_iteration(h, ["sst-dev-cycle"], None, None, 1, 1, "/tmp")
+
+    assert "batch_pick_missing" not in iter_manifest
+
+
+def test_run_iteration_no_batch_pick_flag_when_dev_makes_no_commit():
+    """No commit (sha unchanged) -> the gate does not fire (it is commit-gated,
+    so non-committing skills and incomplete cycles are excluded)."""
+    h = ClaudeCodeHarness()
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty", return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route", return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=False):
+        rc, iter_manifest = run_iteration(h, ["sst-dev-cycle"], None, None, 1, 1, "/tmp")
+
+    assert "batch_pick_missing" not in iter_manifest
+
+
+def test_run_iteration_no_batch_pick_flag_on_solo_tester():
+    """A solo tester at i==0 must never trip the gate, even if sha advanced --
+    the -tester name guard excludes it (testers do not emit [batch-pick])."""
+    h = ClaudeCodeHarness()
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty", return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route", return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", side_effect=_sha_commit_seq()), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=False):
+        rc, iter_manifest = run_iteration(h, ["sst-tester"], None, None, 1, 1, "/tmp")
+
+    assert "batch_pick_missing" not in iter_manifest
