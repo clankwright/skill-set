@@ -1585,9 +1585,18 @@ def _supervisor_verdict_path(log_dir: Path, iter_num: int, looping: bool) -> Pat
 
 
 def _verdict_outcome(verdict_path: Path) -> str:
-    """One-word outcome label from a supervisor_verdict.md. Checks the
-    `## Outcome` markdown-header form first, the inline `Outcome:` form second,
-    then a code-span-stripped \\bescalate\\b scan. 'unknown' when absent.
+    """Outcome label from a supervisor_verdict.md, used for the iter-close
+    display and the between-iteration halt (the loop halts iff this returns
+    "escalate"). Reads the structured `## Outcome` header (or inline `Outcome:`)
+    first, captures the full outcome LINE, and classifies it as "escalate" ONLY
+    when that line begins with the word "escalate". This matters because an
+    outcome like "1 edit" / "2 edits" leads with a digit: the earlier
+    `[A-Za-z_-]+` capture failed on it and fell through to the whole-body
+    \\bescalate\\b scan, which false-positives on verdict prose that merely
+    DISCUSSES escalation (e.g. a §7 carve-out stating a flag does NOT escalate),
+    halting an otherwise-fine loop. Returns "escalate", else the outcome line
+    lowercased, else "clean"; "unknown" when the file is absent. The whole-body
+    scan survives only as a last resort for a verdict with no Outcome line.
     """
     if not verdict_path.exists():
         return "unknown"
@@ -1595,12 +1604,27 @@ def _verdict_outcome(verdict_path: Path) -> str:
         body = verdict_path.read_text(encoding="utf-8")
     except OSError:
         return "unknown"
-    m = re.search(r"^##\s+Outcome\s*\n+\s*([A-Za-z_-]+)", body, re.MULTILINE)
-    if m:
-        return m.group(1).strip().lower()
-    m = re.search(r"^\s*\*?\*?Outcome\*?\*?\s*:\s*([A-Za-z_-]+)", body, re.MULTILINE)
-    if m:
-        return m.group(1).strip().lower()
+
+    def _classify(line: str) -> str:
+        line = line.strip()
+        # Escalate only when the OUTCOME LINE ITSELF leads with "escalate"; a
+        # mid-line or negated mention ("Not escalated.") does not count.
+        if re.match(r"\*{0,2}escalate\b", line, re.IGNORECASE):
+            return "escalate"
+        return line.lower()
+
+    # `## Outcome` header form: classify the first non-empty line beneath it.
+    hm = re.search(r"^##\s+Outcome\b.*$", body, re.MULTILINE)
+    if hm:
+        for ln in body[hm.end():].splitlines():
+            if ln.strip():
+                return _classify(ln)
+        return "clean"  # header present but no content line
+    # Inline `Outcome: <...>` form.
+    im = re.search(r"^\s*\*?\*?Outcome\*?\*?\s*:\s*(\S.*)$", body, re.MULTILINE)
+    if im:
+        return _classify(im.group(1))
+    # Last resort: no structured Outcome line at all -> whole-body scan.
     stripped = re.sub(r"```[\s\S]*?```", "", body)
     stripped = re.sub(r"`[^`\n]+`", "", stripped)
     if re.search(r"\bescalate\b", stripped, re.IGNORECASE):

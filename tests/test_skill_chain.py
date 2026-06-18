@@ -1043,3 +1043,61 @@ def test_run_iteration_no_batch_pick_flag_on_solo_tester():
         rc, iter_manifest = run_iteration(h, ["sst-tester"], None, None, 1, 1, "/tmp")
 
     assert "batch_pick_missing" not in iter_manifest
+
+
+# ---- verdict-outcome classification (false-positive escalate-halt fix) -------
+#
+# _verdict_outcome drives the between-iteration halt: the runner halts iff it
+# returns "escalate". It previously captured the `## Outcome` value with
+# [A-Za-z_-]+, which silently failed on a digit-leading outcome ("1 edit" /
+# "2 edits") and fell through to a whole-body \bescalate\b scan -- which
+# false-positives on verdict prose that merely DISCUSSES escalation (e.g. a §7
+# carve-out stating a MANIFEST flag does NOT escalate), halting a fine loop.
+
+def _verdict_file(tmp_path, body):
+    p = tmp_path / "supervisor_verdict.md"
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+def test_verdict_outcome_digit_leading_outcome_not_escalate(tmp_path):
+    """Regression: a "1 edit" outcome whose body merely discusses escalation
+    must NOT be classified as an escalate verdict (no false halt)."""
+    body = ("# Supervisor verdict\n\n## Outcome\n\n1 edit\n\n"
+            "Per the carve-out this MANIFEST flag does NOT escalate; the next "
+            "supervisor should escalate only on concrete downstream harm.\n")
+    assert sc._verdict_outcome(_verdict_file(tmp_path, body)) != "escalate"
+
+
+def test_verdict_outcome_escalate_header_detected(tmp_path):
+    body = "## Outcome\n\nescalate (0 edits)\n\ndetail about the blocker\n"
+    assert sc._verdict_outcome(_verdict_file(tmp_path, body)) == "escalate"
+
+
+def test_verdict_outcome_clean_header_not_escalate(tmp_path):
+    body = "## Outcome\n\nclean -- deep walk ran, zero findings\n"
+    out = sc._verdict_outcome(_verdict_file(tmp_path, body))
+    assert out != "escalate" and out.startswith("clean")
+
+
+def test_verdict_outcome_not_escalated_phrase_not_escalate(tmp_path):
+    """An outcome line that ends with "Not escalated." must not classify as
+    escalate (the word 'escalate' appears only mid-line, negated)."""
+    body = "## Outcome\n\n2 findings -- 3 skill edits. Not escalated.\n"
+    assert sc._verdict_outcome(_verdict_file(tmp_path, body)) != "escalate"
+
+
+def test_verdict_outcome_inline_outcome_form_escalate(tmp_path):
+    body = "**Outcome**: escalate -- recurring blocker\n\ndetail\n"
+    assert sc._verdict_outcome(_verdict_file(tmp_path, body)) == "escalate"
+
+
+def test_verdict_outcome_body_scan_fallback_when_no_header(tmp_path):
+    """No structured Outcome line -> the last-resort whole-body scan still
+    catches a genuine escalate verdict."""
+    body = "# verdict\n\nThe supervisor decided to escalate this run.\n"
+    assert sc._verdict_outcome(_verdict_file(tmp_path, body)) == "escalate"
+
+
+def test_verdict_outcome_missing_file_is_unknown(tmp_path):
+    assert sc._verdict_outcome(tmp_path / "nope.md") == "unknown"
