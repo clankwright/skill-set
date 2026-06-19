@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.10.0
+version: 1.11.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -304,6 +304,12 @@ Keep the list short (3-5 items max), ordered by user-facing impact. Each entry t
 ```
 
 Where `<reason>` briefly names why the tester stage should be skipped (e.g. `no front-end surface in this cycle`, `backend-only change: bin/skill-chain.py`, `prose-only: docs/SPEC.md`). Write no `tester-guidance.md`. The chain runner recognizes `[skip-tester]` from the preceding skill and skips the tester stage when the immediately-following skill's name ends in `-tester`, proceeding straight to review.
+
+**Mutually exclusive: write guidance XOR emit `[skip-tester]`, never both (hard terminal rule).** The two branches above are ONE terminal decision, not two independent emissions:
+
+- **Mixed change sets are guidance cycles.** If ANY changed file is a front-end/UI surface (a component, route, view, style, or a changed/new e2e spec), write `tester-guidance.md` and do NOT emit `[skip-tester]`, even when the change set ALSO touches backend, CLI, schema, or docs files. The presence of non-UI files alongside a UI surface never licenses a skip. `backend-only` / `docs-only` is a valid skip reason ONLY when EVERY changed file is non-UI.
+- **Terminal self-check before this skill exits.** Confirm you did exactly one of the two. If you wrote `tester-guidance.md` at any point this run, you MUST NOT also emit a `[skip-tester]` final line; if you emitted `[skip-tester]`, you MUST NOT have written `tester-guidance.md`.
+- **Runner backstop (do not rely on it).** If the runner sees a skill BOTH write `tester-guidance.md` AND emit `[skip-tester]` in one run, it VOIDS the skip and runs the tester anyway (recorded as `tester_skip_voided` in the iter manifest), choosing the safe direction so a touched surface gets exercised. That backstop exists because prose-level "pick exactly one" did not converge on its own; it is a safety net, not a license. Emitting both is still a contract violation that signals muddled scope reasoning even when the outcome is harmless. Decide once.
 
 ## 8. Deploy
 
