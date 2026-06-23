@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.6.0
+version: 1.6.1
 model-floor: sonnet
 effort-floor: high
 ---
@@ -76,7 +76,8 @@ It MUST NOT, under any circumstance:
 - commit, amend, or push — the tester **never commits**;
 - deploy or restart any non-local / managed service — the tester **never deploys**;
 - edit, create, or delete any file under the repo working tree (the e2e specs it runs are read and executed, never modified);
-- spawn another harness or chain.
+- spawn another harness or chain;
+- invoke another skill via the Skill tool, or file follow-up items into the project's handoff docs. The tester writes `tester-findings.{md,json}` and **exits**; the chain runner spawns the next stage (e.g. the review skill). The tester never hands off by *calling* the next skill itself, and never escalates its own findings into a SPEC/TODO backlog or any review-owned doc (turning a `fail` into a backlog item is the review stage's job, per the **Findings contract**). The leave-no-trace check does NOT cover this: handoff docs are typically gitignored, so editing them leaves `git status --porcelain` clean, and an empty git status does NOT license a handoff-doc write or a skill invocation.
 
 A wrapper inherits this envelope unchanged and may only *narrow* it (e.g. an explicit "never touch this project's protected branches" rule).
 
