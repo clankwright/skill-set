@@ -1151,3 +1151,27 @@ def test_verdict_outcome_body_scan_fallback_when_no_header(tmp_path):
 
 def test_verdict_outcome_missing_file_is_unknown(tmp_path):
     assert sc._verdict_outcome(tmp_path / "nope.md") == "unknown"
+
+
+# ---- sst-supervisor §7 outcome-line convention guard -------------------------
+#
+# The runner halts the loop iff _verdict_outcome returns "escalate".  It uses
+# an anchored re.match so ONLY an outcome line that BEGINS with "escalate" is
+# classified as an escalation.  A supervisor that writes "2 findings,
+# escalating" (trailing suffix) or "triggered escalation" (non-leading word)
+# silently under-halts the loop.  sst-supervisor §7 now documents the
+# leading-word requirement; these tests guard against regressions.
+
+def test_verdict_outcome_trailing_escalating_not_escalate(tmp_path):
+    """Convention guard: an outcome line ending with 'escalating' must NOT
+    classify as escalate.  Only a line that BEGINS with 'escalate' halts the
+    loop; mid-line or trailing uses are not recognized by the anchored match."""
+    body = "## Outcome\n\n2 findings, escalating\n\ndetail\n"
+    assert sc._verdict_outcome(_verdict_file(tmp_path, body)) != "escalate"
+
+
+def test_verdict_outcome_non_leading_escalate_word_not_escalate(tmp_path):
+    """Convention guard: an outcome line like 'triggered escalation' (where
+    'escalat*' is not the first word) must NOT classify as escalate."""
+    body = "## Outcome\n\ntriggered escalation\n\ndetail\n"
+    assert sc._verdict_outcome(_verdict_file(tmp_path, body)) != "escalate"
