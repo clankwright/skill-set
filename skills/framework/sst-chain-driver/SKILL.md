@@ -2,7 +2,7 @@
 name: sst-chain-driver
 description: Single-session driver for a multi-iteration skill-chain run. Invokes `bin/skill-chain.py --chain <name> --loop N` with budget gates and Telegram event notifications as native flags. Posts Telegram updates at session start, each iteration boundary (commit + per-iter spend + cumulative), every rate-limit pause/resume, supervisor escalation, and session end. Honors a `--max-budget-usd` halt and a `--max-cycles` halt independently of the chain's own loop count. Distinct from sst-manager (cron-based, multi-project, periodic) and from sst-skill-router (in-process planner inside one user request). The proprietary counterpart supplies the watched-chain name, Telegram chat ID, and budget defaults.
 user-invocable: true
-version: 1.3.0
+version: 1.4.0
 argument-hint: <chain-name> [--loop N] [--max-budget-usd $X] [--max-cycles N]
 ---
 
@@ -20,7 +20,7 @@ The chain driver NEVER:
 - **One subprocess, one session.** The chain driver wraps exactly one `bin/skill-chain.py` invocation. To watch a different chain, spawn a second chain driver. Don't multiplex multiple chains inside one session.
 - **Halt is best-effort, not pre-emptive.** A budget or cycle cap fires SIGINT to the chain runner between iterations (or between skills). The chain runner's `KeyboardInterrupt` path finalizes manifests cleanly and exits with 130. There is no kill-mid-skill: a skill that has already started will run to completion before the halt lands.
 - **Telegram is best-effort too.** A failed Telegram send (network, bad token, missing chat ID) prints to stderr but does not abort the driven run. The chain itself is the source of truth; Telegram is a courtesy stream.
-- **No retries on the chain runner.** Rate-limit pause-and-resume happens INSIDE `bin/skill-chain.py` (Phase 13). The chain driver just observes and forwards. If the chain exits non-zero, the chain driver exits non-zero.
+- **No retries on the chain runner.** Rate-limit pause-and-resume and overload exponential-backoff retry (Phase 50: 5xx / 529 Overloaded) both happen INSIDE `bin/skill-chain.py`. The chain driver just observes and forwards. If the chain exits non-zero, the chain driver exits non-zero.
 - **Iteration boundaries are the unit of accountability.** Per-iteration `MANIFEST.json` files are the canonical record of cost, commit SHA, and supervisor verdict. The chain driver reads those: it does not estimate costs from streamed events, and it does not parse skill output for project facts.
 
 ## Inputs
@@ -91,6 +91,8 @@ The helper handles every Telegram event automatically:
 | rate-limit-pause | `[rate-limit] ... sleeping ... before retrying /<skill>` | type, skill, sleep seconds, wake utc, current iter |
 | rate-limit-resume | `>>` session banner after a pause | resumed skill, utc |
 | rate-limit-abort | `[rate-limit] ... aborting chain` / `max-pauses-per-session` / `max-rate-limit-pause-seconds` | reason, raw line |
+| overload-retry | `[overload] <skill> got 529 (attempt N/M); sleeping Xs` | skill, status code, attempt N of M (M = `--max-overload-retries`), sleep seconds, utc |
+| overload-resume | `>>` session banner after overload sleep | resumed skill, utc |
 | halt-request | budget/cycle cap exceeded OR supervisor verdict outcome is `escalate` | reason, SIGINT sent at next safe boundary |
 | session-end | subprocess exit | exit code, halt reason if any, completed iterations, cumulative cost, manifest path, finished_at |
 
@@ -145,6 +147,7 @@ bin/skill-chain.py
     --label <name>                 [tag in every Telegram body]
     --profile <persona>            [load defaults from persona SKILL.md]
     --overnight                    [preset: --loop 0 + random delay; needs cap]
+    --max-overload-retries <N>     [runner-level 5xx overload retries; default 10]
 ```
 
 `--label` is the human-readable tag the runner prefixes every Telegram body with. Default is the chain name. The proprietary counterpart usually overrides it to the persona name (`<persona>` rather than `dev-cycle-with-review-looped`).
