@@ -173,6 +173,40 @@ DEFAULT_LOOP_DELAY_RANDOM = (300.0, 1800.0)
 RATE_LIMIT_JITTER_RANGE = (15, 60)              # extra seconds after parsed reset
 RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_time
 
+# ---- Overload retry (Phase 50) ---------------------------------------------
+# When the harness reports a transient server-overload error (529 / 5xx), a
+# SEPARATE exponential-backoff retry loop runs inside run_skill_with_retry,
+# independent of the rate-limit pause-and-resume path. The two paths share
+# the same session-resume mechanism (`--resume <session_id>`) but use
+# separate counters and separate manifest keys so they can be diagnosed
+# independently in run logs.
+#
+# Detection sources (checked in priority order inside handle_event /
+# run_skill):
+#   1. result-frame `api_error_status` in OVERLOAD_HTTP_STATUSES with
+#      `is_error: true` — structured, preferred.
+#   2. `api_retry` system events with `error_status` in
+#      OVERLOAD_HTTP_STATUSES — the harness's own retry layer, logged for
+#      telemetry but NOT consumed as a retry trigger here.
+#   3. OVERLOAD_TEXT_RE matched against non-JSON subprocess output lines —
+#      text fallback for when the subprocess dies before a clean event.
+#
+# `--max-overload-retries` (default OVERLOAD_MAX_RETRIES) caps the
+# runner-level retry count per skill invocation. On exhaustion, the wrapper
+# gives up with `overload_aborted = "overload_retries_exhausted"`. The
+# rate-limit pause budget is NOT consumed by overload retries.
+
+OVERLOAD_HTTP_STATUSES = frozenset({500, 502, 503, 504, 529})
+
+OVERLOAD_TEXT_RE = re.compile(
+    r"(?:API Error:\s*(5\d{2})|overloaded)",
+    re.IGNORECASE,
+)
+
+OVERLOAD_MAX_RETRIES = 10
+OVERLOAD_BACKOFF_BASE_SECONDS = 10
+OVERLOAD_BACKOFF_CAP_SECONDS = 300
+
 
 # ---- No-work sentinel (Phase 17) -------------------------------------------
 # When a skill (typically a dev cycle in steady state) finds nothing to do and
@@ -897,6 +931,16 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
         )
         return
 
+    # Phase 50: `api_retry` system events record the harness's own internal
+    # retry layer for transient 5xx errors. Count them for telemetry; they
+    # do NOT trigger the runner-level overload retry (that fires only on a
+    # non-zero exit from run_skill, keyed on the result frame below).
+    if t == "system" and event.get("subtype") == "api_retry":
+        status = int(event.get("error_status") or 0)
+        if status in OVERLOAD_HTTP_STATUSES:
+            skill_record["overload_retry_events"] = skill_record.get("overload_retry_events", 0) + 1
+        return
+
     if t == "assistant":
         for block in event.get("message", {}).get("content", []):
             bt = block.get("type")
@@ -1021,6 +1065,17 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
         skill_record["num_turns"]        = event.get("num_turns", 0)
         skill_record["duration_ms"]      = event.get("duration_ms") or 0
         skill_record["model_usage"]      = event.get("modelUsage", {}) or {}
+        # Phase 50: structured overload detection from the result frame.
+        # Only fires when is_error=true AND api_error_status is a known
+        # transient 5xx code; a successful result never sets this.
+        # Must NOT overlap with rate_limit_signal (different failure modes).
+        if skill_record.get("is_error"):
+            api_status = int(event.get("api_error_status") or 0)
+            if api_status in OVERLOAD_HTTP_STATUSES and "overload_signal" not in skill_record:
+                skill_record["overload_signal"] = {
+                    "status": api_status,
+                    "source": "result_frame",
+                }
         return
 
 
@@ -1116,6 +1171,18 @@ def run_skill(
                         reset_match = RATE_LIMIT_RESET_RE.search(line)
                         if reset_match:
                             skill_record["rate_limit_text_reset"] = reset_match.group(1).strip()
+                # Phase 50: also scan for transient 5xx overload patterns.
+                # Fallback only — the structured result-frame signal takes
+                # precedence. Only set when the structured signal is absent.
+                if "overload_signal" not in skill_record:
+                    om = OVERLOAD_TEXT_RE.search(line)
+                    if om:
+                        status_code = int(om.group(1)) if om.group(1) else 0
+                        if not om.group(1) or status_code in OVERLOAD_HTTP_STATUSES:
+                            skill_record["overload_signal"] = {
+                                "status": status_code,
+                                "source": "text_fallback",
+                            }
                 sink.write(c(line, GRAY))
                 continue
             try:
@@ -1160,16 +1227,22 @@ def run_skill_with_retry(
     loop_delay: float = 0.0,
     loop_delay_random: tuple[float, float] | None = None,
     notify=None,
+    max_overload_retries: int = OVERLOAD_MAX_RETRIES,
+    overload_retry_records: list[dict] | None = None,
 ) -> tuple[int, dict]:
-    """Run a skill with rate-limit pause-and-resume.
+    """Run a skill with rate-limit pause-and-resume and overload exponential-backoff retry.
 
-    On non-zero exit, inspect the skill_record for a structured rate-limit
-    signal (preferred) or a text-fallback match (subprocess died before clean
-    event). Under `pause` / `pause-with-cap`, sleep until the parsed reset
-    + jitter, archive the failed attempt, and re-invoke the skill via
-    `--resume <session_id>` so the agent picks up mid-skill instead of
-    restarting from scratch. Aborts after `max_pauses` retries on the same
-    skill or when `pause-with-cap` exceeds `max_pause_seconds`.
+    Rate-limit path: on non-zero exit with a rate_limit_signal (or text
+    fallback), sleep until the parsed reset + jitter, archive the failed
+    attempt, and re-invoke via `--resume <session_id>`. Aborts after
+    `max_pauses` retries or when `pause-with-cap` exceeds `max_pause_seconds`.
+
+    Overload path (Phase 50): on non-zero exit with an overload_signal
+    (api_error_status 5xx / text fallback), retry via exponential backoff
+    min(OVERLOAD_BACKOFF_CAP_SECONDS, BASE * 2**attempt) + jitter, capped at
+    `max_overload_retries`. The rate-limit pause budget (max_pauses) is NOT
+    consumed. Priority: when both signals appear, the rate-limit path runs
+    (overload path is checked only when rate_limit_signal is absent).
 
     After the rate-limit sleep ends and before retrying the skill, an
     additional human-like delay drawn from `loop_delay_random` (or a flat
@@ -1179,10 +1252,14 @@ def run_skill_with_retry(
     cadence on both inter-iter boundaries and post-pause resumes. The
     sampled value is recorded as `pause_record["post_pause_delay"]`.
 
-    pause_records is mutated in place with one entry per executed pause so
+    pause_records and overload_retry_records are mutated in place so
     run_iteration can fold them into the iteration manifest.
     """
+    if overload_retry_records is None:
+        overload_retry_records = []
     retry_count = 0
+    _ol_retry_count = 0
+    _archive_idx = 0          # shared monotone index for archive file naming
     resume_session_id: str | None = None
     while True:
         rc, record = run_skill(
@@ -1195,6 +1272,54 @@ def run_skill_with_retry(
 
         if rc == 0:
             return rc, record
+
+        # Phase 50: overload retry — checked BEFORE the on_rate_limit gate so
+        # the overload path runs regardless of --on-rate-limit. Only fires
+        # when rate_limit_signal is absent (rate-limit path takes priority on
+        # the unlikely case both signals appear simultaneously).
+        ol_signal = record.get("overload_signal")
+        rl_signal = record.get("rate_limit_signal")
+        rl_text   = record.get("rate_limit_text_match")
+        if ol_signal and not rl_signal and not rl_text:
+            if _ol_retry_count >= max_overload_retries:
+                print(c(
+                    f"[overload] {skill_name} hit max-overload-retries "
+                    f"({max_overload_retries}); giving up",
+                    RED,
+                ), flush=True)
+                record["overload_aborted"] = "overload_retries_exhausted"
+                return rc, record
+            sleep_seconds = min(
+                OVERLOAD_BACKOFF_CAP_SECONDS,
+                float(OVERLOAD_BACKOFF_BASE_SECONDS) * (2 ** _ol_retry_count),
+            ) + random.randint(*RATE_LIMIT_JITTER_RANGE)
+            print(c(
+                f"[overload] {skill_name} got {ol_signal.get('status', '5xx')} "
+                f"(attempt {_ol_retry_count + 1}/{max_overload_retries}); "
+                f"sleeping {sleep_seconds:.0f}s before retry",
+                ORANGE,
+            ), flush=True)
+            ol_record = {
+                "at": _utc_iso(),
+                "status": ol_signal.get("status"),
+                "source": ol_signal.get("source"),
+                "sleep_seconds": round(sleep_seconds, 1),
+                "attempt": _ol_retry_count + 1,
+                "skill": skill_name,
+            }
+            overload_retry_records.append(ol_record)
+            if notify is not None:
+                notify("overload-retry", ol_record)
+            time.sleep(sleep_seconds)
+            ol_record["resumed_at"] = _utc_iso()
+            if notify is not None:
+                notify("overload-resume", ol_record)
+            resume_session_id = record.get("session_id") or None
+            _archive_attempt(log_dir, index, skill_name, _archive_idx)
+            _archive_idx += 1
+            _ol_retry_count += 1
+            continue
+
         if on_rate_limit == "fail":
             return rc, record
 
@@ -1287,9 +1412,10 @@ def run_skill_with_retry(
         # attempt can use --resume to pick up mid-skill context.
         resume_session_id = record.get("session_id") or None
         # Archive the failed attempt's transcript files before the retry
-        # overwrites the canonical names. Uses retry_count - 1 so the first
-        # failure becomes .retry-0, the second .retry-1, etc.
-        _archive_attempt(log_dir, index, skill_name, retry_count - 1)
+        # overwrites the canonical names. Uses _archive_idx (shared with the
+        # overload path) so file suffixes are monotone across both retry types.
+        _archive_attempt(log_dir, index, skill_name, _archive_idx)
+        _archive_idx += 1
 
         # Post-pause human-like delay before retrying. Same knobs as the
         # inter-iter sleep: a configured loop_delay_random samples from
@@ -1891,9 +2017,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help=f"Hard cap on rate-limit pauses per skill within one chain "
              f"invocation. Default {DEFAULT_MAX_PAUSES_PER_SESSION}. Repeated "
              f"pauses on the same skill suggest a quota-burning loop, not a "
-             f"genuine window crossing — abort the chain after this many. "
+             f"genuine window crossing; abort the chain after this many. "
              f"Overrides the chain YAML's `max-pauses-per-session:` field when "
              f"both are set.",
+    )
+    p.add_argument(
+        "--max-overload-retries",
+        type=int,
+        default=None,
+        help=f"Hard cap on runner-level exponential-backoff retries per skill "
+             f"for transient server-overload errors (HTTP 5xx / 529). Default "
+             f"{OVERLOAD_MAX_RETRIES}. Independent of --on-rate-limit and "
+             f"--max-pauses-per-session; overload retries do NOT consume the "
+             f"rate-limit pause budget. On exhaustion the chain aborts with "
+             f"overload_aborted=overload_retries_exhausted.",
     )
     p.add_argument(
         "--max-turns",
@@ -2066,6 +2203,7 @@ def run_iteration(
     loop_delay: float = 0.0,
     loop_delay_random: tuple[float, float] | None = None,
     notify=None,
+    max_overload_retries: int = OVERLOAD_MAX_RETRIES,
 ) -> tuple[int, dict]:
     """Run one pass of the chain. Returns (exit_code, iteration_manifest).
 
@@ -2114,6 +2252,7 @@ def run_iteration(
         "difficulty_source": difficulty_source,
         "skills": [],
         "rate_limit_pauses": [],
+        "overload_retry_records": [],
     }
 
     def _snapshot_manifest() -> None:
@@ -2163,6 +2302,8 @@ def run_iteration(
             loop_delay=loop_delay,
             loop_delay_random=loop_delay_random,
             notify=notify,
+            max_overload_retries=max_overload_retries,
+            overload_retry_records=iter_manifest["overload_retry_records"],
         )
         record["route"] = route_record
         if skill == auto_supervisor:
@@ -2684,6 +2825,14 @@ def main() -> int:
     if max_pauses < 1:
         raise SystemExit("--max-pauses-per-session must be >= 1")
 
+    # Phase 50: overload retry cap.
+    if args.max_overload_retries is not None:
+        max_overload_retries = args.max_overload_retries
+    else:
+        max_overload_retries = OVERLOAD_MAX_RETRIES
+    if max_overload_retries < 0:
+        raise SystemExit("--max-overload-retries must be >= 0")
+
     # Phase 42: native budget / cycle caps (inert when unset).
     if args.max_budget_usd is not None and args.max_budget_usd <= 0:
         raise SystemExit("--max-budget-usd must be > 0")
@@ -2759,6 +2908,11 @@ def main() -> int:
             "max_rate_limit_pause_seconds": max_pause_seconds,
             "max_pauses_per_session": max_pauses,
         },
+        "overload_retry_policy": {
+            "max_overload_retries": max_overload_retries,
+            "backoff_base_seconds": OVERLOAD_BACKOFF_BASE_SECONDS,
+            "backoff_cap_seconds": OVERLOAD_BACKOFF_CAP_SECONDS,
+        },
     }
     if looping:
         manifest["loop"] = {
@@ -2801,6 +2955,22 @@ def main() -> int:
                 f"skill resumed: /{payload.get('skill')}\n"
                 f"at: {payload.get('resumed_at')}",
                 label="rate-limit-resume",
+            )
+        elif event == "overload-retry":
+            telegram.send(
+                f"chain [{label}]: OVERLOAD retry\n"
+                f"skill: /{payload.get('skill')} | status: {payload.get('status')}\n"
+                f"attempt {payload.get('attempt')}/{max_overload_retries} | "
+                f"sleeping {payload.get('sleep_seconds')}s\n"
+                f"at: {payload.get('at')}",
+                label="overload-retry",
+            )
+        elif event == "overload-resume":
+            telegram.send(
+                f"chain [{label}]: overload RESUME\n"
+                f"skill resumed: /{payload.get('skill')}\n"
+                f"at: {payload.get('resumed_at')}",
+                label="overload-resume",
             )
 
     if telegram_enabled:
@@ -2858,6 +3028,7 @@ def main() -> int:
                 loop_delay=loop_delay,
                 loop_delay_random=loop_delay_random,
                 notify=_notify,
+                max_overload_retries=max_overload_retries,
             )
             iterations_collected.append(iter_manifest)
 

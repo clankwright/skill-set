@@ -163,7 +163,7 @@ user-invocable: true            # default true; false = chain-only, not picked b
 auto-supervisor: true           # default true; false = don't auto-append the project's supervisor
 ```
 
-CLI flags (`--loop`, `--loop-delay`, `--on-rate-limit`, etc.) override the corresponding YAML field per invocation. Schema reference: `schema/skill-chain.schema.json`.
+CLI flags (`--loop`, `--loop-delay`, `--on-rate-limit`, `--max-overload-retries`, etc.) override the corresponding YAML field per invocation. Schema reference: `schema/skill-chain.schema.json`.
 
 ### Loop mode
 
@@ -209,6 +209,12 @@ The supervisor's lessons land immediately: proprietary edits are live for the ne
 ### Rate-limit handling
 
 When the active model run hits the rolling 5h Anthropic quota (or weekly / extra usage cap), `on-rate-limit: pause` (default) makes the runner sleep until the reset timestamp + jitter and re-invoke the killed skill from scratch. Each retry archives the prior attempt's `.txt`/`.jsonl` to `<stem>.retry-N.{ext}` so the audit trail is preserved. `pause-with-cap` falls back to `fail` when a single computed pause would exceed `max-rate-limit-pause-seconds`. `fail` (legacy) treats a rate-limit hit like any other non-zero exit. `max-pauses-per-session` aborts the chain when the same skill needs more than N pauses in one invocation, on the assumption that repeated pauses signal a quota-burning loop, not a genuine quota crossing.
+
+### Overload / 5xx retry (Phase 50)
+
+Separate from rate-limit pauses, the runner has an independent exponential-backoff retry path for transient server-overload errors (HTTP 529 Overloaded and other 5xx codes). When a skill exits non-zero and the result frame carries `api_error_status` in `{500, 502, 503, 504, 529}` (or a text fallback matches `API Error: 5xx` / `overloaded` in non-JSON subprocess output), the runner retries the skill via `--resume` with backoff `min(300, 10 * 2**attempt) + jitter` seconds, up to `--max-overload-retries` attempts (default 10). On exhaustion the manifest records `overload_aborted: overload_retries_exhausted`.
+
+Key distinction from rate-limit pauses: overload retries run regardless of `--on-rate-limit` and do NOT consume the `--max-pauses-per-session` budget. The two paths use separate manifest keys (`overload_retry_records` vs `rate_limit_pauses`) and separate counters so they can be diagnosed independently. When both signals appear simultaneously (unlikely), the rate-limit path takes priority.
 
 ## Model-tier routing
 
