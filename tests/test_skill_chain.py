@@ -823,6 +823,33 @@ def _guidance_write_event(file_path):
     }
 
 
+def _guidance_read_event(file_path):
+    """An assistant event whose single tool_use reads file_path."""
+    return {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {"type": "tool_use", "name": "Read",
+                 "input": {"file_path": file_path}},
+            ]
+        },
+    }
+
+
+def _guidance_edit_event(file_path):
+    """An assistant event whose single tool_use edits file_path."""
+    return {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {"type": "tool_use", "name": "Edit",
+                 "input": {"file_path": file_path,
+                           "old_string": "x", "new_string": "y"}},
+            ]
+        },
+    }
+
+
 def test_handle_event_detects_tester_guidance_write():
     """A Write whose file_path ends in tester-guidance.md sets the record flag."""
     rec: dict = {}
@@ -837,6 +864,29 @@ def test_handle_event_ignores_other_file_writes():
     sink = sc._Sink(None)
     sc.handle_event(sink, _guidance_write_event("/run/iter_01/some-other-file.md"), rec)
     assert "wrote_tester_guidance" not in rec
+
+
+def test_handle_event_read_does_not_trip_guidance_flag():
+    """A Read of tester-guidance.md must NOT set wrote_tester_guidance.
+
+    A dev that merely reads a stale guidance file from a prior cycle would
+    otherwise trip the Phase 49 never-both gate and get a legitimate
+    [skip-tester] incorrectly voided.
+    """
+    rec: dict = {}
+    sink = sc._Sink(None)
+    sc.handle_event(sink, _guidance_read_event("/run/iter_01/tester-guidance.md"), rec)
+    assert "wrote_tester_guidance" not in rec, (
+        "Read tool must NOT set wrote_tester_guidance; only Write/Edit should"
+    )
+
+
+def test_handle_event_edit_sets_guidance_flag():
+    """An Edit whose file_path ends in tester-guidance.md sets the record flag."""
+    rec: dict = {}
+    sink = sc._Sink(None)
+    sc.handle_event(sink, _guidance_edit_event("/run/iter_01/tester-guidance.md"), rec)
+    assert rec.get("wrote_tester_guidance") is True
 
 
 def test_run_iteration_skip_tester_voided_when_guidance_written():

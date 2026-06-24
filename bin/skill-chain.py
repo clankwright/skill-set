@@ -1008,13 +1008,16 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
                 # [skip-tester] gate in run_iteration can enforce "never both" --
                 # writing guidance commits the cycle to a tester RUN, so a
                 # [skip-tester] in the same run is voided, not honored. Keyed on
-                # the skill's own tool-use this run (any tool whose file_path
-                # targets tester-guidance.md), not a stale on-disk file.
+                # Write/Edit tool-uses only (not Read), so a dev that merely reads
+                # a stale guidance file from a prior cycle does not falsely void a
+                # legitimate [skip-tester].
                 if not skill_record.get("wrote_tester_guidance"):
-                    _tu_input = block.get("input", {}) or {}
-                    _tu_path = str(_tu_input.get("file_path", "") or "")
-                    if _tu_path.endswith("tester-guidance.md"):
-                        skill_record["wrote_tester_guidance"] = True
+                    _tu_name = block.get("name", "")
+                    if _tu_name in ("Write", "Edit"):
+                        _tu_input = block.get("input", {}) or {}
+                        _tu_path = str(_tu_input.get("file_path", "") or "")
+                        if _tu_path.endswith("tester-guidance.md"):
+                            skill_record["wrote_tester_guidance"] = True
         return
 
     if t == "user":
