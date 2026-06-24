@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.11.0
+version: 1.12.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -184,6 +184,8 @@ Do NOT downgrade `[hard]` to `[easy]` to fit a quota; if the budget feels tight,
 
 Emission order at iter start, top to bottom: TodoWrite → `## In flight` line → `[batch-pick]` block → `[picked-difficulty: <tier>]` → first §2 tool call.
 
+**Known model-behavior gap.** Despite these instructions, models occasionally skip the `[batch-pick]` / `[picked-difficulty]` emission. The runner records `batch_pick_missing = True` in the iteration manifest when the block is absent; downstream review + supervisor fall back gracefully. This is a formally-accepted degradation (root-cause decision 2026-06-18): the emission contract above remains canonical and `batch_pick_missing` is the mitigation.
+
 ## 2. Write failing tests
 
 **Before writing any implementation code, write the tests that define the new functionality.**
@@ -246,6 +248,8 @@ By the time you reach this point the gate has already run (or was skipped becaus
 ## 6. Update the spec + TODO.md (all updates in a single pass, no SHA in Just-shipped)
 
 **`SPEC.md`**: flip `- [ ]` to `- [x]` for what you shipped. If this closes a sub-phase or milestone, add a section mirroring the format of the most recent completed one: 1-paragraph context, bulleted checklist of changes with file citations, test-count delta. Update any index / status summary file that the project keeps (e.g. a `CLAUDE.md` phase list). **This section asserts only what is verified by §6 time** — code and test facts known now. Do NOT state a deploy or runtime fact you only check later in §8/§9 (e.g. "deployed and healthy", "the external key is present", "the cron is live"): §6 runs before deploy and verify, so any such claim is unverified the moment you write it. Record deploy/verify outcomes after §9, and if §9 — or a `docs/HUMAN.md` blocker you file this cycle (a missing credential, an unreachable host) — contradicts a line you already wrote here, correct this section before §10. A result block that contradicts the same cycle's own verify outcome or a HUMAN.md entry you filed is a ship-blocking defect, not a cosmetic nit.
+
+**E2e-only guard.** Before flipping `- [ ]` to `- [x]` for any item whose acceptance criteria require running against a live stack (an e2e spec, an integration test that only passes against a real service, or any test the suite runs in parse-only mode such as `playwright --list`): you MUST have actually run that test against the live stack this cycle. A green test suite from a parse-only or mock-only runner does not close a live-stack requirement. If the live stack is not available this cycle, do NOT mark the item `[x]`. Instead, leave the item open and append a `[needs-live-stack] <one-line>` follow-up to `## Next up` naming the specific test and target service. Do not summarize the item as closed in Just-shipped — the item is not done.
 
 **`TODO.md`** — four updates, all applied before committing:
 
