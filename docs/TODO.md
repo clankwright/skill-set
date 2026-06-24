@@ -6,6 +6,7 @@
 
 ## Just shipped (last cycle)
 
+- enforce escalate outcome-line leading-word convention in sst-supervisor §7 (v2.4.0->v2.4.1) + 2 guard tests in test_skill_chain.py; 507->509 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-24T11:10:00Z
 - Items 1+3 from Next up: e2e blind-ship guard in sst-dev-cycle §6 (E2e-only guard prose + [needs-live-stack] path) + batch-pick non-emission formally accepted (Known model-behavior gap prose + batch_pick_missing documented); v1.11.0->v1.12.0; 6 new tests in test_dev_cycle_contracts.py; 501->507 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-24T10:00:00Z
 - gate wrote_tester_guidance in handle_event on Write/Edit only (not Read); add Read-does-not-trip + Edit-sets-flag tests; 499->501 green — by sst-dev-cycle at 2026-06-24T08:30:00Z
 - 50.1+50.2+50.3 Phase 50 close: transient 5xx overload signal capture (result-frame api_error_status, api_retry events, OVERLOAD_TEXT_RE text fallback) + exponential-backoff retry in run_skill_with_retry (independent of rate-limit path, OVERLOAD_MAX_RETRIES=10/BASE=10/CAP=300) + --max-overload-retries CLI flag + overload_retry_records manifest + Telegram overload-retry/resume events + README + sst-chain-driver SKILL.md v1.3.0->1.4.0; 25 new tests; 474->499 green; sanitize must-fix=0 -- by sst-dev-cycle at 2026-06-24T00:00:00Z
@@ -40,7 +41,5 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
-
-- [easy] Enforce the supervisor outcome-line convention in `sst-supervisor` §Output: an `escalate` verdict's `## Outcome` line MUST lead with the word `escalate`. The `_verdict_outcome` fix classifies escalate ONLY when the outcome line leads with `escalate` (anchored `re.match`), so a verdict whose outcome reads e.g. "2 findings, escalating" would silently NOT halt the loop (under-halt). Make the convention explicit + add a guard test. Reason: trade-off introduced by the digit-leading `_verdict_outcome` fix (commit d396ccf), 2026-06-18.
 
 
