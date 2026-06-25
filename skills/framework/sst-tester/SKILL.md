@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.7.0
+version: 1.8.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -105,7 +105,19 @@ The chain runner reports the run-log directory on every invocation as `[log-dir]
    - **Probe "All / none / many" cardinalities explicitly.** Single-item happy paths routinely hide failures in aggregate views, zero-row states, and large data sets. Always exercise the all-items/all-regions/all-clients aggregate, the zero-rows case, and a multi-item set alongside the single-item case the dev named.
    - **Record self-derived cases AND uncovered gaps.** For each self-derived adjacent case you run, add a per-check record to the findings (same `{area, change_ref, status, evidence, recommendation}` schema as step 6). For any high-risk adjacent surface you identified but could NOT cover this run (server unreachable, auth stale, budget exhausted), record it explicitly as `needs-change` with a one-line note naming the gap — the reviewer needs visibility into uncovered gaps even when you could not exercise them.
    - **Stay within the session budget: coverage-thinking, not unbounded testing.** Rank adjacent surfaces by risk and exercise the highest-risk ones first. Stop at the soft budget (per **Operating principles**): do not defer teardown to squeeze in one more surface. A partial-but-clean run beats being chopped mid-surface. Broadening is a PRIORITIZED extension of the existing budget, not a license to multiply sessions or skip teardown.
-7. **Collect findings + compute the verdict.** Aggregate all per-check records — from the dev's named surfaces (step 6) AND the self-derived adjacent-surface cases (step 6a) — into the overall verdict (see **Findings contract** for the green/red/degraded/skipped rule) and a one-line summary.
+6b. **Flag test-design anti-patterns (RED-FLAGS).** After exercising the surfaces (steps 6 and 6a), assess the automated tests the dev wrote for the change. Flag any of the following four anti-patterns as a `needs-change` finding — each pattern guarantees the test suite can pass while the real bug is present:
+
+   **(a) Synthetic-data masking.** A unit test that pre-populates (injects) the exact data the change is meant to FETCH or merge, bypassing the fetch seam entirely. The test passes because it feeds the component what it would normally fetch — the fetch bug is invisible. Flag it and demand a test that drives the real fetch path, or at least asserts the fetch/merge is invoked with the correct arguments, not one that pre-populates the result the fetch is supposed to produce.
+
+   **(b) jsdom-can't-test-layout.** A layout, virtualization, map rendering, or color/style behavior assertion made only in jsdom (Jest). jsdom does not perform actual layout, measure element sizes, or render to pixels — so any test relying on scroll position, virtual row presence, element measurements, color, or CSS-rendered appearance is structurally incapable of catching the real bug. **A green Jest test DOES NOT count as coverage for layout/virtualization/map/color behavior.** Flag it and require a real-browser (Playwright) check against the running app for that behavior.
+
+   **(c) Cardinality gaps.** Tests that exercise only the single-item happy path and never test All/none/many variants: the all-items/all-clients aggregate, the zero-row empty state, and a multi-item or large set alongside the single case the dev named. Single-item happy paths routinely hide failures in aggregate views, empty states, and large data sets. Flag any test whose coverage leaves these cardinalities unexercised.
+
+   **(d) Request-not-result.** A test that asserts the REQUEST/intent (e.g. the correct POST body was sent, the right endpoint was called, the right function was invoked with the right arguments) but NOT the downstream RESULT — the actual content of the generated artifact, rendered report, or returned data structure. Flag it and require a test that also asserts the result's content, not just that the right request was made.
+
+   Record each flagged anti-pattern as a `needs-change` check in the findings (same `{area, change_ref, status, evidence, recommendation}` schema), naming the specific test file/function and the anti-pattern it represents. A flagged anti-pattern is `needs-change`, never `fail` — the suite may be green, but its DESIGN guarantees it cannot fail on the real bug class it is meant to catch.
+
+7. **Collect findings + compute the verdict.** Aggregate all per-check records — from the dev's named surfaces (step 6), the self-derived adjacent-surface cases (step 6a), AND the anti-pattern flags (step 6b) — into the overall verdict (see **Findings contract** for the green/red/degraded/skipped rule) and a one-line summary.
 8. **Tear down.** See **Teardown** — stop both servers and close the browser (unless the wrapper opts into browser reuse); assert the documented ports are free and no orphan server processes remain.
 9. **Write findings + exit.** Write `tester-findings.md` and `tester-findings.json` to the run-log dir, then exit. The reviewer reads them on its next turn.
 
