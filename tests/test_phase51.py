@@ -1,5 +1,12 @@
 """Tests for Phase 51: make the tester broaden beyond the dev's named scope.
 
+51.4 (review follow-up) — sst-tester SKILL.md step 6a "Read the diff for blast
+       radius" bullet must include a mode-conditional note: in standalone mode
+       the diff source is per-file commit history (`git log -p -- <file>`) for
+       each resolved file, not `git show HEAD` alone (which misses commits
+       from earlier in the same phase).  The in-chain path using `git show HEAD`
+       remains correct and must still be named.
+
 51.1 — `skills/framework/sst-tester/SKILL.md` must carry a blast-radius /
        adjacent-surface mandate in its Run lifecycle section stating:
        - derive-from-diff: tester reads the diff and enumerates what ELSE
@@ -283,4 +290,39 @@ def test_validate_frontmatter_clean():
     assert result.returncode == 0, (
         f"validate-frontmatter.py failed on sst-tester:\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 51.4 -- standalone blast-radius diff source mode-conditional note
+# ---------------------------------------------------------------------------
+
+def test_sst_tester_blast_radius_diff_source_in_chain_git_show_head():
+    """sst-tester SKILL.md step 6a must still name git show HEAD as the in-chain diff source."""
+    text = _tester_text()
+    assert re.search(r"git show HEAD", text), (
+        "sst-tester SKILL.md step 6a must name 'git show HEAD' as the diff source "
+        "for the in-chain mode blast-radius enumeration"
+    )
+
+
+def test_sst_tester_blast_radius_diff_source_standalone_mode_conditional():
+    """sst-tester SKILL.md step 6a must include a mode-conditional note for standalone:
+    in standalone mode use git log -p per file, not git show HEAD alone."""
+    text = _tester_text()
+    assert re.search(r"(?i)standalone.*git\s+log|git\s+log.*standalone", text), (
+        "sst-tester SKILL.md step 6a must include a mode-conditional note stating "
+        "that in standalone mode the diff source is per-file commit history, not "
+        "'git show HEAD' alone"
+    )
+
+
+def test_sst_tester_blast_radius_diff_source_git_log_p():
+    """sst-tester SKILL.md must mention 'git log -p' (or git log --follow -p) as the
+    per-file diff source for standalone mode."""
+    text = _tester_text()
+    assert re.search(r"git log.*-p|git log.*--follow", text), (
+        "sst-tester SKILL.md must name 'git log -p -- <file>' (or --follow -p) as "
+        "the standalone-mode diff source so blast-radius enumeration covers all "
+        "commits for each resolved file, not only the HEAD commit"
     )

@@ -197,7 +197,7 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 - `tests/test_phase51.py`: 18 tests (7 SKILL.md mandate, 1 version, 7 CM heuristics + sync, 2 README, 1 validate-frontmatter). Test count: 509 → 527. Sanitize: must-fix=0.
 
 **Review follow-ups (open — schedule as the next `/sst-dev-cycle` cycle):**
-- [ ] 51.4 [easy] [should-fix] `skills/framework/sst-tester/SKILL.md:103` — Step 6a's "Use `git show HEAD` hunks" instruction is correct for in-chain mode but misleads the tester in standalone mode: `git show HEAD` shows only the most recent commit, so blast-radius enumeration silently misses components changed by earlier phase items (a whole phase may span many commits across days). Proposed fix: add a mode-conditional note to the "Read the diff for blast radius" bullet stating that in standalone mode the diff source is each resolved surface file's commit history (`git log -p -- <file>` for each resolved file) rather than HEAD alone.
+- [x] 51.4 [easy] [should-fix] `skills/framework/sst-tester/SKILL.md:103` — Step 6a's "Use `git show HEAD` hunks" instruction is correct for in-chain mode but misleads the tester in standalone mode: `git show HEAD` shows only the most recent commit, so blast-radius enumeration silently misses components changed by earlier phase items (a whole phase may span many commits across days). Proposed fix: add a mode-conditional note to the "Read the diff for blast radius" bullet stating that in standalone mode the diff source is each resolved surface file's commit history (`git log -p -- <file>` for each resolved file) rather than HEAD alone.
 
 ### Phase 52: test-design anti-pattern guards (post-mortem: why regressions passed green suites)
 
