@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.12.0
+version: 1.13.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -250,6 +250,8 @@ By the time you reach this point the gate has already run (or was skipped becaus
 **`SPEC.md`**: flip `- [ ]` to `- [x]` for what you shipped. If this closes a sub-phase or milestone, add a section mirroring the format of the most recent completed one: 1-paragraph context, bulleted checklist of changes with file citations, test-count delta. Update any index / status summary file that the project keeps (e.g. a `CLAUDE.md` phase list). **This section asserts only what is verified by §6 time** — code and test facts known now. Do NOT state a deploy or runtime fact you only check later in §8/§9 (e.g. "deployed and healthy", "the external key is present", "the cron is live"): §6 runs before deploy and verify, so any such claim is unverified the moment you write it. Record deploy/verify outcomes after §9, and if §9 — or a `docs/HUMAN.md` blocker you file this cycle (a missing credential, an unreachable host) — contradicts a line you already wrote here, correct this section before §10. A result block that contradicts the same cycle's own verify outcome or a HUMAN.md entry you filed is a ship-blocking defect, not a cosmetic nit.
 
 **E2e-only guard.** Before flipping `- [ ]` to `- [x]` for any item whose acceptance criteria require running against a live stack (an e2e spec, an integration test that only passes against a real service, or any test the suite runs in parse-only mode such as `playwright --list`): you MUST have actually run that test against the live stack this cycle. A green test suite from a parse-only or mock-only runner does not close a live-stack requirement. If the live stack is not available this cycle, do NOT mark the item `[x]`. Instead, leave the item open and append a `[needs-live-stack] <one-line>` follow-up to `## Next up` naming the specific test and target service. Do not summarize the item as closed in Just-shipped — the item is not done.
+
+**Synthetic-data-masking guard.** A test that injects the data a NEW fetch/merge is meant to produce does NOT satisfy that change's coverage — it pre-populates the result the fetch would normally return, so the fetch bug is invisible to the suite. If a changed fetch or merge path has no test that drives the real fetch or asserts the fetch is invoked with the correct arguments, the item's coverage is incomplete even when the suite is green.
 
 **`TODO.md`** — four updates, all applied before committing:
 
