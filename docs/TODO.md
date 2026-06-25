@@ -45,6 +45,7 @@
 
 - [easy] [should-fix] 51.4 standalone-mode blast-radius uses wrong diff source: step 6a "Use `git show HEAD` hunks" misses earlier phase commits in standalone mode (skills/framework/sst-tester/SKILL.md:103) — review of 42235b1
 - [medium] Test-design anti-pattern guards: make `sst-tester` (+ `ssp-cm-tester`) flag tests whose DESIGN cannot fail on the real bug -- synthetic-data masking (pre-populating the data the code fails to fetch), jsdom-can't-test-layout (virtualization/map/color need a real browser), All/none/many cardinality gaps, and assert-request-not-result. -- SPEC Phase 52; user question 2026-06-25 ("how are all these regressions getting through the test suites?") + post-mortem of CM SPEC 3.70-3.77 / 10.5.
+- [supervisor] [easy] Runner false-flags `batch_pick_missing` on markdown-wrapped markers: relax `PICKED_DIFFICULTY_RE` (`bin/skill-chain.py:313`) and `BATCH_PICK_SENTINEL_RE` (`bin/skill-chain.py:325`) to tolerate leading/trailing markdown (`**bold**`, backticks) around the `[picked-difficulty: <tier>]` / `[batch-pick]` markers, mirroring the `\W*` tolerance §0.5.3 already applies to the `[no-work]` sentinel; add a guard test in `tests/test_skill_chain.py` asserting a `**[batch-pick]**` + `**[picked-difficulty: medium]**` emission sets `emitted_batch_pick` and `picked_difficulty` (no `batch_pick_missing`). — supervisor verdict 2026-06-24T23-57-40Z_dev-cycle-with-review-looped (iter_01 dev emitted both markers bold-wrapped at 00_sst-dev-cycle.txt:30/35; runner falsely set batch_pick_missing)
 
 
 
