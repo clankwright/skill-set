@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.6.1
+version: 1.7.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -99,7 +99,13 @@ The chain runner reports the run-log directory on every invocation as `[log-dir]
    - do exploratory browser checks of net-new functionality not yet covered by a committed spec;
    - watch for console errors, failed network requests, and broken interactions.
    Each surface produces one or more per-check records (see **Findings contract**). A missing spec for a changed surface is itself a finding (coverage gap), recorded as `needs-change`, not silently skipped.
-7. **Collect findings + compute the verdict.** Aggregate the per-check records into the overall verdict (see **Findings contract** for the green/red/degraded/skipped rule) and a one-line summary.
+6a. **Broaden beyond the dev's named guidance: blast-radius / adjacent-surface probing.** After running the dev's named surfaces, treat `tester-guidance.md` as a **FLOOR, not a ceiling**. Derive and exercise your OWN additional test cases from the actual change before collecting findings:
+   - **Read the diff for blast radius.** Enumerate what ELSE consumes each touched component, shared context/state, CSS variable, endpoint, or data-fetch path. Use `git show HEAD` hunks and the changed files as your source; the dev's guidance may have omitted side-channel dependents. Ask: "what other page/component/feature reads the same state or calls the same endpoint I just changed?"
+   - **Exercise adjacent + integrated surfaces, prioritized by risk.** Examples: a change to a shared or virtualized list → also test scroll/virtualization behavior, select-all across every data partition, and every other consumer of that list; a change to a shared loading/context state → also test every page that reads it (including aggregate views and pages the dev did not name); a styling or legend change → verify the legend swatch matches the actually-rendered element in the browser; a data-fetch / lazy-load change → also test the empty, aggregate ("All"), and switch-back paths.
+   - **Probe "All / none / many" cardinalities explicitly.** Single-item happy paths routinely hide failures in aggregate views, zero-row states, and large data sets. Always exercise the all-items/all-regions/all-clients aggregate, the zero-rows case, and a multi-item set alongside the single-item case the dev named.
+   - **Record self-derived cases AND uncovered gaps.** For each self-derived adjacent case you run, add a per-check record to the findings (same `{area, change_ref, status, evidence, recommendation}` schema as step 6). For any high-risk adjacent surface you identified but could NOT cover this run (server unreachable, auth stale, budget exhausted), record it explicitly as `needs-change` with a one-line note naming the gap — the reviewer needs visibility into uncovered gaps even when you could not exercise them.
+   - **Stay within the session budget: coverage-thinking, not unbounded testing.** Rank adjacent surfaces by risk and exercise the highest-risk ones first. Stop at the soft budget (per **Operating principles**): do not defer teardown to squeeze in one more surface. A partial-but-clean run beats being chopped mid-surface. Broadening is a PRIORITIZED extension of the existing budget, not a license to multiply sessions or skip teardown.
+7. **Collect findings + compute the verdict.** Aggregate all per-check records — from the dev's named surfaces (step 6) AND the self-derived adjacent-surface cases (step 6a) — into the overall verdict (see **Findings contract** for the green/red/degraded/skipped rule) and a one-line summary.
 8. **Tear down.** See **Teardown** — stop both servers and close the browser (unless the wrapper opts into browser reuse); assert the documented ports are free and no orphan server processes remain.
 9. **Write findings + exit.** Write `tester-findings.md` and `tester-findings.json` to the run-log dir, then exit. The reviewer reads them on its next turn.
 
