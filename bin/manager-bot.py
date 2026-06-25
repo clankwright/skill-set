@@ -101,6 +101,19 @@ if not CHAT_ID_ALLOW:
 
 API = f"https://api.telegram.org/bot{TOKEN}"
 
+
+def _scrub(s) -> str:
+    """Strip the bot token from a string before logging.
+
+    The token is embedded in every API URL (``.../bot<TOKEN>/...``), so a raw
+    ``requests`` exception string would leak it into the log. Redact both the
+    exact token and any ``bot<id>:<token>`` URL fragment.
+    """
+    s = str(s)
+    if TOKEN:
+        s = s.replace(TOKEN, "[REDACTED]")
+    return re.sub(r"bot\d+:[A-Za-z0-9_-]+", "bot[REDACTED]", s)
+
 KNOWN_COMMANDS = {"status", "objectives", "pause", "resume", "ping", "help", "feedback",
                   "projects", "approve", "exec"}
 
@@ -304,7 +317,7 @@ def get_updates(offset: int = 0) -> list:
     except requests.Timeout:
         pass
     except Exception as e:
-        logger.error(f"Poll error: {e}")
+        logger.error("Poll error: %s", _scrub(e))
     return []
 
 
@@ -329,7 +342,7 @@ def send_reply(chat_id: int, text: str, parse_mode: str | None = "Markdown") -> 
             return
         logger.error("sendMessage failed: %s", body.get("description", body))
     except Exception as e:
-        logger.error(f"Reply failed: {e}")
+        logger.error("Reply failed: %s", _scrub(e))
 
 
 def queue_task(command: str, args: list[str], from_chat_id: int) -> Path:
