@@ -43,5 +43,8 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 51.4 standalone-mode blast-radius uses wrong diff source: step 6a "Use `git show HEAD` hunks" misses earlier phase commits in standalone mode (skills/framework/sst-tester/SKILL.md:103) — review of 42235b1
+- [medium] Test-design anti-pattern guards: make `sst-tester` (+ `ssp-cm-tester`) flag tests whose DESIGN cannot fail on the real bug -- synthetic-data masking (pre-populating the data the code fails to fetch), jsdom-can't-test-layout (virtualization/map/color need a real browser), All/none/many cardinality gaps, and assert-request-not-result. -- SPEC Phase 52; user question 2026-06-25 ("how are all these regressions getting through the test suites?") + post-mortem of CM SPEC 3.70-3.77 / 10.5.
+
 
 
