@@ -6,6 +6,7 @@
 
 ## Just shipped (last cycle)
 
+- Runner markdown-wrapped sentinel fix: relax PICKED_DIFFICULTY_SENTINEL_RE + BATCH_PICK_SENTINEL_RE with \W* tolerance; 5 new guard tests in test_skill_chain.py; 542->547 green — by sst-dev-cycle at 2026-06-25T03:30:00Z
 - 52.1+52.2: add four anti-pattern RED-FLAGS to sst-tester + ssp-cm-tester mirror; add synthetic-data-masking note to sst-dev-cycle e2e guard — by sst-dev-cycle at 2026-06-25T02:00:00Z
 - 51.4 fix sst-tester standalone blast-radius diff source (git show HEAD -> git log -p per file): SKILL.md step 6a mode-conditional note; 3 new tests; 527->530 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-25T01:00:00Z
 - 51.1+51.2+51.3 Phase 51 close: sst-tester blast-radius mandate (FLOOR-not-ceiling, derive-from-diff, adjacent/integrated surfaces, All/none/many, record-gaps, budget reconciliation) v1.6.1->v1.7.0; ssp-cm-tester base-version 1.6.1->1.7.0 + §4b CM heuristics (merged-table scroll/virtualization, select-all partitions, all-clients aggregate, legend swatch match, report/credit sanity); README in-chain broadened coverage prose; 18 new tests; 509->527 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-25T00:15:00Z
@@ -27,15 +28,6 @@
   phase blocks and `git log`.
 -->
 
-- 48.4: fix D1 dispatch discriminator in sst-tester SKILL.md (add tester-guidance.md in-chain guard at line 62; update stale line 132 to name looped-standalone as third mode); 2 new tests; 437→439 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-17T02:10:00Z
-- 48.1+48.2+48.3 Phase 48 close: tester-target queue (templates/TODO.md), looped-standalone drain + [no-test-work] bail (sst-tester v1.1.0→v1.2.0), NO_TEST_WORK_SENTINEL_RE + loop-abort in skill-chain.py, README looped tester example, CM tester mirror (base-version→1.2.0); 23 new tests; 414→437 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-17T00:50:00Z
-- 47.3: fix batch mode usage example (add --output-template 'reviewed/{stem}.md') + strengthen test_usage_batch_example assertion; 414→414 green — by sst-dev-cycle at 2026-06-16T23:55:00Z
-- 47.1+47.2 Phase 47 close: add ## Features (sst-/ssp- model, skill catalog table, chains table, CLI flags table) + ## Usage (4 copy-pasteable examples) to README.md; test_phase47.py 23 tests; 391→414 green — by sst-dev-cycle at 2026-06-16T23:15:00Z
-- 46.1+46.2 Phase 46 close: delete bin/drive-chain.py + bin/skill-batch.py, remove test_drive_chain_telegram.py, strip 5 shim tests from test_phase42.py + add test_epilog_documents_wrapper_flags, add test_phase46.py (4 tests), scrub all shim .py references from skill-chain.py (epilog + 6 comments), notify-telegram.sh, sst-chain-driver SKILL.md (v1.3.0); sanitize must-fix=0; validate-frontmatter clean; 394→391 green — by sst-dev-cycle at 2026-06-16T22:40:00Z
-- 44.1+44.2+44.3+44.4 Phase 44 close: standalone `--phase`/`--todos` mode in sst-tester (SKILL.md v1.0.0→1.1.0; two-modes dispatch D1, scope resolution D2, iterate-all D3, out-of-tree findings D4); test_phase44.py 15 tests + 2 fixtures pin D2 resolution; mirror into ssp-cm-tester (base-version→1.1.0, CM phase->spec map; check-ssp-sync clean); README+CLAUDE invocation docs; relax test_phase41 version pin to major-1 semver; 379→394 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-16T21:55:00Z
-- 42.10: move mkdir below dry-run continue in run_batch_mode(), add no-dir-creation test; 378→379 green — by sst-dev-cycle at 2026-06-16T21:10:00Z
-- 42.4+42.5+42.6+42.7: --batch mode in skill-chain.py, drive-chain.py shim, caller migration + tests; 364→378 green — by sst-dev-cycle at 2026-06-16T20:30:00Z
-- 42.9 add integration test: profile-sourced budget satisfies --overnight cap requirement (no CLI cap + profile fills → no SystemExit, loop=0); 363→364 green — by sst-dev-cycle at 2026-06-16T19:05:00Z
 ## Next up (queued for next cycle)
 
 <!--
@@ -44,9 +36,5 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
-
-- [medium] Test-design anti-pattern guards: make `sst-tester` (+ `ssp-cm-tester`) flag tests whose DESIGN cannot fail on the real bug -- synthetic-data masking (pre-populating the data the code fails to fetch), jsdom-can't-test-layout (virtualization/map/color need a real browser), All/none/many cardinality gaps, and assert-request-not-result. -- SPEC Phase 52; user question 2026-06-25 ("how are all these regressions getting through the test suites?") + post-mortem of CM SPEC 3.70-3.77 / 10.5.
-- [supervisor] [easy] Runner false-flags `batch_pick_missing` on markdown-wrapped markers: relax `PICKED_DIFFICULTY_RE` (`bin/skill-chain.py:313`) and `BATCH_PICK_SENTINEL_RE` (`bin/skill-chain.py:325`) to tolerate leading/trailing markdown (`**bold**`, backticks) around the `[picked-difficulty: <tier>]` / `[batch-pick]` markers, mirroring the `\W*` tolerance §0.5.3 already applies to the `[no-work]` sentinel; add a guard test in `tests/test_skill_chain.py` asserting a `**[batch-pick]**` + `**[picked-difficulty: medium]**` emission sets `emitted_batch_pick` and `picked_difficulty` (no `batch_pick_missing`). — supervisor verdict 2026-06-24T23-57-40Z_dev-cycle-with-review-looped (iter_01 dev emitted both markers bold-wrapped at 00_sst-dev-cycle.txt:30/35; runner falsely set batch_pick_missing)
-
 
 

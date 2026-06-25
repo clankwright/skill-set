@@ -1002,6 +1002,43 @@ def test_batch_pick_sentinel_re_no_match_when_absent():
     assert sc.BATCH_PICK_SENTINEL_RE.search("just some prose with no sentinel") is None
 
 
+def test_batch_pick_sentinel_re_matches_bold_wrapped():
+    """**[batch-pick]** (bold markdown) must not trip the false-flag gate."""
+    assert sc.BATCH_PICK_SENTINEL_RE.search(
+        "**[batch-pick]** 1 items @ easy; window-target ~100k; rationale: only item")
+
+
+def test_batch_pick_sentinel_re_matches_backtick_wrapped():
+    """`[batch-pick]` (backtick markdown) must be detected."""
+    assert sc.BATCH_PICK_SENTINEL_RE.search(
+        "`[batch-pick]` 1 items @ medium; window-target ~200k; rationale: only item")
+
+
+def test_picked_difficulty_re_matches_bold_wrapped():
+    """**[picked-difficulty: medium]** must set picked_difficulty and not trigger batch_pick_missing."""
+    assert sc.PICKED_DIFFICULTY_SENTINEL_RE.search("**[picked-difficulty: medium]**")
+
+
+def test_picked_difficulty_re_matches_backtick_wrapped():
+    """`[picked-difficulty: easy]` must be detected."""
+    assert sc.PICKED_DIFFICULTY_SENTINEL_RE.search("`[picked-difficulty: easy]`")
+
+
+def test_handle_event_detects_bold_wrapped_batch_pick_and_difficulty():
+    """A dev that emits **[batch-pick]** + **[picked-difficulty: medium]** (bold markdown)
+    must set emitted_batch_pick=True and picked_difficulty='medium' with no batch_pick_missing."""
+    rec: dict = {}
+    bold_batch = "**[batch-pick]** 1 items @ medium; window-target ~200k; rationale: only item"
+    bold_diff  = "**[picked-difficulty: medium]**"
+    sc.handle_event(sc._Sink(None), {
+        "type": "assistant",
+        "message": {"content": [
+            {"type": "text", "text": bold_batch + "\n" + bold_diff}]},
+    }, rec)
+    assert rec.get("emitted_batch_pick") is True, "bold-wrapped [batch-pick] must set emitted_batch_pick"
+    assert rec.get("picked_difficulty") == "medium", "bold-wrapped [picked-difficulty:] must set picked_difficulty"
+
+
 def test_handle_event_detects_batch_pick_block():
     rec: dict = {}
     sc.handle_event(sc._Sink(None), {
