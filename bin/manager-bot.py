@@ -45,6 +45,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -378,6 +379,34 @@ def queue_feedback(body: str, from_chat_id: int) -> Path:
     return path
 
 
+def _watch_spawn_for_deadlock(proc, queue_file: Path, label: str) -> None:
+    """Background thread: warn when a spawned skill exits 0 but did not drain its queue file.
+
+    The deadlock signature (Phase 53.2): the spawned --process-command /
+    --process-feedback skill exited 0 (no crash) but the queue file is still
+    in the main queue dir -- meaning it was neither moved to processed/ nor
+    deleted. A manager that did its job moves the queue file to processed/
+    before exiting; a manager that silently deadlocked (did work, prepared a
+    question, but never sent the Telegram decision-request) exits 0 with the
+    file still in place. Logs a WARNING so the silent no-reply is visible in
+    the bot log even though the bot cannot retroactively send the message.
+    """
+    try:
+        proc.wait()
+    except Exception as exc:
+        logger.debug("deadlock-watcher: proc.wait() raised %s", exc)
+        return
+    if proc.returncode == 0 and queue_file.exists():
+        processed = queue_file.parent / "processed" / queue_file.name
+        if not processed.exists():
+            logger.warning(
+                "deadlock-signature: spawned %s exited 0 but queue file %s "
+                "was NOT moved to processed/ — no Telegram reply was likely sent",
+                label,
+                queue_file.name,
+            )
+
+
 def spawn_manager_for_command(
     persona: str,
     project_cwd: str | None,
@@ -404,9 +433,10 @@ def spawn_manager_for_command(
         "bypassPermissions",
         f"/{skill_name} --process-command {queue_file}",
     ]
+    proc = None
     try:
         with open(log_path, "ab", buffering=0) as log_fd:
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd,
                 stdout=log_fd,
                 stderr=subprocess.STDOUT,
@@ -422,6 +452,11 @@ def spawn_manager_for_command(
         "spawned %s --process-command for %s (cwd=%s, log=%s)",
         skill_name, queue_file.name, cwd_str, log_path,
     )
+    threading.Thread(
+        target=_watch_spawn_for_deadlock,
+        args=(proc, queue_file, skill_name),
+        daemon=True,
+    ).start()
     return True
 
 
@@ -492,9 +527,10 @@ def spawn_executor(project_cwd: str | None, queue_file: Path) -> bool:
         "bypassPermissions",
         f"/{EXECUTOR_SKILL_NAME} --process-command {queue_file}",
     ]
+    proc = None
     try:
         with open(log_path, "ab", buffering=0) as log_fd:
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd,
                 stdout=log_fd,
                 stderr=subprocess.STDOUT,
@@ -510,6 +546,11 @@ def spawn_executor(project_cwd: str | None, queue_file: Path) -> bool:
         "spawned %s --process-command for %s (cwd=%s, log=%s)",
         EXECUTOR_SKILL_NAME, queue_file.name, cwd_str, log_path,
     )
+    threading.Thread(
+        target=_watch_spawn_for_deadlock,
+        args=(proc, queue_file, EXECUTOR_SKILL_NAME),
+        daemon=True,
+    ).start()
     return True
 
 

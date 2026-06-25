@@ -6,6 +6,7 @@
 
 ## Just shipped (last cycle)
 
+- Phase 53 (53.1+53.2): sst-manager always-reply hard rule (v2.2.0->v2.3.0) + manager-bot.py deadlock-watcher; 17 new tests; 547->564 green — by sst-dev-cycle at 2026-06-25T05:00:00Z
 - Runner markdown-wrapped sentinel fix: relax PICKED_DIFFICULTY_SENTINEL_RE + BATCH_PICK_SENTINEL_RE with \W* tolerance; 5 new guard tests in test_skill_chain.py; 542->547 green — by sst-dev-cycle at 2026-06-25T03:30:00Z
 - 52.1+52.2: add four anti-pattern RED-FLAGS to sst-tester + ssp-cm-tester mirror; add synthetic-data-masking note to sst-dev-cycle e2e guard — by sst-dev-cycle at 2026-06-25T02:00:00Z
 - 51.4 fix sst-tester standalone blast-radius diff source (git show HEAD -> git log -p per file): SKILL.md step 6a mode-conditional note; 3 new tests; 527->530 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-25T01:00:00Z
@@ -37,6 +38,6 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] Manager/bot must never silently deadlock a command: `sst-manager` (+ `ssp-*` mirrors) must end every `--process-feedback`/`--process-command` run with exactly one outbound Telegram message -- a result OR a decision-request sent BEFORE ending (never deferred to "once you answer"), leaving the queue file pending for the reply; mirror `sst-executor` tier-2. Plus a `manager-bot.py` warning when a run exits 0 but left its queue file undrained with no send. -- SPEC Phase 53; user report 2026-06-25 (a `/feedback ssp-cm` did the work + prepared a push/extend decision but sent NO Telegram message and parked the questions, so the user was never asked).
+- [medium] Consolidate HUMAN.md to the OVERSIGHT layer only: REVOKE read+write from `sst-dev-cycle`, `sst-dev-review`, `sst-tester` (+ CM mirrors `ssp-cm-dev`/`-dev-review`/`-tester`; tester is already HUMAN.md-free). Do NOT just delete -- RE-HOME the dev's two behaviors: the §7a phase-completion branch-setup handoff -> `sst-supervisor` (post-chain HUMAN.md writer), and the `[blocked-on-human]` pick-gating -> `sst-manager` (keeps blocked SPEC IDs off the pickable top of Next up); reviewer human-only findings -> `docs/FUTURE-WORK.md` (supervisor escalates). End state: the ONLY HUMAN.md readers+writers are `sst-supervisor` + `sst-manager`. -- SPEC Phase 54; user directive 2026-06-25.
 
 
