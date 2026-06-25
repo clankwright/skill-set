@@ -310,7 +310,7 @@ WIND_DOWN_DIRECTIVE_TEMPLATE = (
 )
 
 PICKED_DIFFICULTY_SENTINEL_RE = re.compile(
-    r"^\s*\[picked-difficulty:\s*(easy|medium|hard)\]\s*$",
+    r"^\s*\W*\[picked-difficulty:\s*(easy|medium|hard)\]\W*\s*$",
     re.MULTILINE | re.IGNORECASE,
 )
 
@@ -322,7 +322,7 @@ PICKED_DIFFICULTY_SENTINEL_RE = re.compile(
 # bracket-parsing when it is absent. run_iteration flags its ABSENCE on a
 # committed dev iter as a non-fatal contract violation so the gap is loud + in
 # the MANIFEST rather than only discoverable by a jsonl grep.
-BATCH_PICK_SENTINEL_RE = re.compile(r"^\s*\[batch-pick\]", re.MULTILINE)
+BATCH_PICK_SENTINEL_RE = re.compile(r"^\s*\W*\[batch-pick\]", re.MULTILINE)
 
 _NEXT_UP_HEADER_RE = re.compile(r"^##\s+Next up\b", re.MULTILINE)
 _HEADING_RE        = re.compile(r"^##\s+", re.MULTILINE)
