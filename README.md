@@ -14,7 +14,7 @@ Currently only the [Claude Code](https://docs.anthropic.com/claude/docs/claude-c
 |---|---|---|
 | `sst-dev-cycle` | framework | TDD dev cycle: pick next spec item, write failing tests, implement, commit |
 | `sst-dev-review` | framework | Post-cycle review: flag bugs, missing tests, spec drift |
-| `sst-tester` | framework | UI/integration tester: Playwright sweep of changed surfaces |
+| `sst-tester` | framework | UI/integration tester: Playwright sweep of changed surfaces + self-derived adjacent/blast-radius cases (dev guidance is a floor, not a ceiling) |
 | `sst-supervisor` | framework | Meta-reviewer: edits skill prose directly when a finding requires it |
 | `sst-manager` | framework | Telegram-bot dispatcher: `/status`, `/pause`, `/feedback` |
 | `sst-chain-driver` | framework | Chain orchestrator: budget cap, per-iter Telegram, rate-limit pause |
@@ -194,6 +194,8 @@ Pick the dev chain by intent:
 A proprietary `ssp-<persona>-chain-driver` skill (e.g. `ssp-chain-driver` in this repo, `ssp-sdrai-chain-driver` in a consumer) carries the chain name + cap defaults so the user types `/<persona>-chain-driver` with no flags. Override `--loop`, `--max-budget-usd`, or `--max-cycles` on the CLI for a one-off shape change.
 
 **Standalone tester sweep (`sst-tester --phase` / `--todos`).** Besides its in-chain stage, `sst-tester` (and its proprietary wrappers) runs directly from the terminal to deliberately exercise EVERY UI surface a whole phase or set of completed todos introduced, not just the last diff: `/sst-tester --phase <id>` resolves every closed `[x]` front-end item under `### Phase <id>`; `/sst-tester --todos <ref...>` resolves the named `## Just shipped` entries; pass both to union the surface sets. The standalone sweep iterates all resolved surfaces (does not stop at the first failure), writes `tester-findings.{md,json}` to the out-of-tree state dir `~/.claude/state/sst-tester/<utc>/`, and prints a one-line verdict. It stays read-only on the tree and never commits or deploys, same as the in-chain mode. A proprietary wrapper supplies the project's phase->spec map (e.g. `/ssp-cm-tester --phase 3`).
+
+**In-chain broadened coverage (v1.7.0+).** When running in-chain (between the dev and review stages), the tester treats `tester-guidance.md` as a **floor, not a ceiling**: after exercising the dev's named surfaces, it reads the diff to enumerate adjacent and integrated surfaces (what else consumes each touched component, shared state, or endpoint), probes "All / none / many" cardinalities (aggregate views, zero-row states, large sets), and records both the self-derived cases it ran AND any high-risk surfaces it could NOT cover. This blast-radius broadening is coverage-thinking prioritized within the existing session budget — highest-risk adjacent surfaces first — not unbounded testing.
 
 ### Skill self-improvement (direct edit + commit)
 
