@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.6.0
+version: 2.7.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -367,6 +367,23 @@ bash bin/notify-human-md.sh <cwd> docs/HUMAN.md
 ```
 
 The helper diffs the file against the last-notified snapshot, composes a brief delta message (`[<project>] HUMAN.md: <delta summary>`), and forwards it to `bin/notify-telegram.sh`. Missing or unconfigured Telegram env → graceful skip (exit 0); a notification failure must never abort the supervisor. The anti-fork carve-out in §Output rules permits this outbound call.
+
+### 5b.1. Phase-completion branch-setup handoff (re-homed from sst-dev-cycle §7a in Phase 54)
+
+In branch-per-phase projects the dev cycle bails when its active phase is complete, emitting on stdout exactly:
+
+```
+[no-work] phase <N> complete on <branch>; awaiting human branch setup for phase <N+1>
+```
+
+This is a **human-only** handoff (only the human can merge the completed branch and open the next phase's `feature/<name>` branch), so it passes §5b's admission test. Phase 54 moved the HUMAN.md write out of the dev skill into this oversight layer: the dev now only prints the sentinel and exits. When this skill's transcript scan finds that `[no-work] phase <N> complete` line, the supervisor files the branch-setup `## Blocking` entry in `docs/HUMAN.md` using §5b's schema (this phase-completion HUMAN.md write is what was re-homed from the dev's old §7a):
+
+- Assign `H<N>.<n>` for the completed phase `<N>` (next unused `<n>`).
+- Body: state that phase `<N>` is complete on `<branch>` and the human must merge it and open the phase `<N+1>` branch before the cycle can proceed.
+- `Blocks:` the first open SPEC ID of phase `<N+1>` (or "none" if unknown).
+- **Idempotent:** if an open `## Blocking` entry already names the same phase-completion key (same `<N>` / branch), do NOT duplicate.
+
+After the append, run the §5b write-then-notify helper (`bash bin/notify-human-md.sh <cwd> docs/HUMAN.md`). This keeps every HUMAN.md write, including the phase-completion handoff, in the oversight layer (supervisor + manager) only, per the Phase 54 invariant.
 
 ### 5c. Autonomous follow-up dispatch + human decision-requests
 

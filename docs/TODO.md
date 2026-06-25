@@ -4,8 +4,11 @@
 
 ## In flight
 
+<!-- nothing in flight -->
+
 ## Just shipped (last cycle)
 
+- Phase 54 (54.1+54.2+54.3+54.4): consolidate HUMAN.md to the oversight layer -- revoke read/write from sst-dev-cycle (v1.14.0) + sst-dev-review (v1.13.0); RE-HOME the phase-completion branch-setup handoff to sst-supervisor (§5b.1, v2.7.0) and the blocked-item pick-gating to sst-manager (§3b, v2.4.0); mirror into ssp-cm-dev (base 1.14.0) + ssp-cm-dev-review (base 1.13.0); SPEC "Handoff docs" + README carry the invariant; reconciled ssp-manager base-version 2.3.0->2.4.0; 26 new tests in test_phase54.py; 564->590 green; validate-frontmatter clean; transferables sanitize-clean -- by manual completion (live session) at 2026-06-25T12:11:54Z (orphaned cycle 2026-06-25T09-17-14Z continued from its failing test file)
 - Phase 53 (53.1+53.2): sst-manager always-reply hard rule (v2.2.0->v2.3.0) + manager-bot.py deadlock-watcher; 17 new tests; 547->564 green — by sst-dev-cycle at 2026-06-25T05:00:00Z
 - Runner markdown-wrapped sentinel fix: relax PICKED_DIFFICULTY_SENTINEL_RE + BATCH_PICK_SENTINEL_RE with \W* tolerance; 5 new guard tests in test_skill_chain.py; 542->547 green — by sst-dev-cycle at 2026-06-25T03:30:00Z
 - 52.1+52.2: add four anti-pattern RED-FLAGS to sst-tester + ssp-cm-tester mirror; add synthetic-data-masking note to sst-dev-cycle e2e guard — by sst-dev-cycle at 2026-06-25T02:00:00Z
@@ -15,8 +18,6 @@
 - Items 1+3 from Next up: e2e blind-ship guard in sst-dev-cycle §6 (E2e-only guard prose + [needs-live-stack] path) + batch-pick non-emission formally accepted (Known model-behavior gap prose + batch_pick_missing documented); v1.11.0->v1.12.0; 6 new tests in test_dev_cycle_contracts.py; 501->507 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-24T10:00:00Z
 - gate wrote_tester_guidance in handle_event on Write/Edit only (not Read); add Read-does-not-trip + Edit-sets-flag tests; 499->501 green — by sst-dev-cycle at 2026-06-24T08:30:00Z
 - 50.1+50.2+50.3 Phase 50 close: transient 5xx overload signal capture (result-frame api_error_status, api_retry events, OVERLOAD_TEXT_RE text fallback) + exponential-backoff retry in run_skill_with_retry (independent of rate-limit path, OVERLOAD_MAX_RETRIES=10/BASE=10/CAP=300) + --max-overload-retries CLI flag + overload_retry_records manifest + Telegram overload-retry/resume events + README + sst-chain-driver SKILL.md v1.3.0->1.4.0; 25 new tests; 474->499 green; sanitize must-fix=0 -- by sst-dev-cycle at 2026-06-24T00:00:00Z
-- 49.3: runner-level never-both enforcement in bin/skill-chain.py -- handle_event sets wrote_tester_guidance on a tester-guidance.md tool-use; run_iteration voids a same-run [skip-tester] (records tester_skip_voided) instead of popping the tester, so a dev that wrote guidance always gets its touched surface exercised; 4 new tests in test_skill_chain.py; 454→458 green -- integrated from a CM-agent fix by the user at 2026-06-18
-- 49.1+49.2 Phase 49 close: soften WIND_DOWN_DIRECTIVE_TEMPLATE false enforcement claim (conditional "if a hard ceiling is in force it is {hard} turns"); update sst-tester SKILL.md wind-down principle + new Per-target flush and session budget subsection (v1.4.0→1.5.0); update ssp-cm-tester base-version to 1.5.0; 8 new tests; 446→454 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-17T06:40:00Z
 
 <!--
   Append-on-close, newest first. Format:
@@ -38,6 +39,7 @@
   Order: blockers/highest-impact first.
 -->
 
-- [medium] Consolidate HUMAN.md to the OVERSIGHT layer only: REVOKE read+write from `sst-dev-cycle`, `sst-dev-review`, `sst-tester` (+ CM mirrors `ssp-cm-dev`/`-dev-review`/`-tester`; tester is already HUMAN.md-free). Do NOT just delete -- RE-HOME the dev's two behaviors: the §7a phase-completion branch-setup handoff -> `sst-supervisor` (post-chain HUMAN.md writer), and the `[blocked-on-human]` pick-gating -> `sst-manager` (keeps blocked SPEC IDs off the pickable top of Next up); reviewer human-only findings -> `docs/FUTURE-WORK.md` (supervisor escalates). End state: the ONLY HUMAN.md readers+writers are `sst-supervisor` + `sst-manager`. -- SPEC Phase 54; user directive 2026-06-25.
+<!-- queue empty: Phase 54 shipped 2026-06-25; no item queued for the next cycle -->
 
+- [unconfirmed:tests-passing-fix-20260625] [easy] Fix the tests-passing objective check to call `~/.local/bin/pytest` instead of `python3 -m pytest` in ssp-manager's objectives.md — planner: targets objective skill-set-tests-passing; gap: 1 != 0, age 35d; reason: system `python3` is 3.10 but pytest is installed for Python 3.11 at `~/.local/bin/pytest`, causing a false fail even when all 590 tests pass. <!-- planner: 2026-06-25T23:16:32Z --> <!-- planner-id: tests-passing-fix-20260625 -->
 

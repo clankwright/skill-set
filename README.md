@@ -107,7 +107,7 @@ The pairing is the unit of reuse. The transferable holds the *method* (TDD cycle
 - `bin/skill-chain.py` — the chain runner. Spawns one harness subprocess per skill, streams pretty output, captures per-job logs. Accepts either an inline skill list or `--chain <name>` (looks up `<cwd>/.claude/chains/<name>.yaml` first, then `<repo>/chains/<name>.yaml`).
 - `bin/install-skills.sh` — deploys transferable skills into the harness's user-skills directory (default `~/.claude/skills/<name>/`, flat — categories are dropped on install). Update-only by default: only skills already installed are refreshed; new ones are skipped. Use `--install <name>` to add a skill for the first time, or `--list-new` to see what's available. Claude Code only scans direct children of its skills dir, so the layout must stay flat.
 - `bin/manager-bot.py` — long-poll Telegram bot for the manager skill.
-- `templates/SPEC.md`, `templates/TODO.md` — the canonical handoff docs every project must keep.
+- `templates/SPEC.md`, `templates/TODO.md` — the canonical handoff docs every project must keep. An optional third handoff doc, `docs/HUMAN.md`, is the human-only-blocker channel: only `sst-supervisor` and `sst-manager` (the oversight layer) may read or write it; the dev cycle, reviewer, and tester never touch it (Phase 54).
 - `templates/sanitization-guidance.md` — the rubric the `sst-sanitize-transferable` skill applies as a hard gate before any direct edit to a transferable skill.
 - `schema/` — JSON Schema specs the validator (and CI) lint against.
 

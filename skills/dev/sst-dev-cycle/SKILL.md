@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.13.0
+version: 1.14.0
 model-floor: sonnet
 effort-floor: high
 ---
@@ -47,8 +47,6 @@ Contract for every cycle:
 
    If `docs/FUTURE-WORK.md` exists, also read it end-to-end. **Do not pick from it** — it is the project's parking lot for deferred work and acceptance tests requiring human verification; the pick order is unchanged.
 
-   If `docs/HUMAN.md` exists, also read it end-to-end. **Do not pick from it** — it is the project's active list of human-only blockers. The pick order is unchanged; use the file only to detect `[blocked-on-human]` conditions in step 6b below.
-
 6. **Empty-queue bail.** If ALL three conditions hold, exit 0 immediately without picking any item, writing any test, or making any commit:
    - `TODO.md`'s `## Next up (queued for next cycle)` section contains no `- ` entries (only the `<!-- ... -->` template comment, or empty); AND
    - `docs/SPEC.md` (or the project's primary spec) contains no remaining `- [ ]` checkboxes (every checkable item is `[x]`); AND
@@ -70,7 +68,7 @@ Contract for every cycle:
 
    - Read the SPEC's `## Operational scope` branch map and match `git branch --show-current` to its phase entry. **If the project has no `## Operational scope` section** (skill-set itself, and any project not using branch-per-phase), this bail cannot fire — skip it entirely and continue to §1, picking normally.
    - When a match resolves an active phase `<N>`: that phase is **complete** iff every `- [ ]` item under phase `<N>`'s SPEC section is `- [x]` AND no `## Next up (queued for next cycle)` entry is scoped to phase `<N>` (an entry is "scoped to phase `<N>`" when its leading `<phase>.<n>` ID has `<phase> == N`, or its prose explicitly names that phase). In a branch-per-phase project only active-phase work is actionable on the current branch, so `## Next up` / SPEC items scoped to a *different* phase do NOT count and do NOT suppress this bail.
-   - **On a complete active phase:** first perform the §0-7a HUMAN.md handoff below (38.4), then print exactly one line on stdout and exit 0:
+   - **On a complete active phase:** print exactly one line on stdout and exit 0:
 
      ```
      [no-work] phase <N> complete on <branch>; awaiting human branch setup for phase <N+1>
@@ -78,26 +76,7 @@ Contract for every cycle:
 
    This is a **phase-scoped variant** of the §0-6 empty-queue bail, not a replacement. The global bail fires only when the WHOLE spec is `[x]`; this one fires when the *active* phase is done even though later phases still carry open `- [ ]` items. The chain runner recognizes any `[no-work] <reason>` line as a loop-aborting sentinel (same `terminated_by: "no_work_bail"` manifest path — confirmed by the `NO_WORK_SENTINEL_RE` regression tests in `tests/test_skill_chain.py`), so no runner change is needed. **Do NOT scope-creep onto a later phase's open items just because they exist:** the human owns the decision to merge the completed branch and open the next phase's branch. A later phase having open `- [ ]` items (in SPEC or `## Next up`) does NOT suppress this bail.
 
-   **7a. HUMAN.md handoff (fired ONLY as the first action of the §0-7 phase-completion bail, before the sentinel print).** Append a `## Blocking` entry to `docs/HUMAN.md` (create the file from `~/Dev/skill-set/templates/HUMAN.md` if absent) instructing the human to set up the next phase's branch. Assign the next unused `H<N>.<n>` ID for completed phase `<N>`:
-
-   ```
-   - [ ] H<N>.<n> [medium] **Phase <N> complete on <branch> — set up phase <N+1>**
-     Phase <N> is fully `[x]` on `<branch>` and no `## Next up` item is scoped to
-     it. The autonomous cycle cannot create branches or open PRs. Please: (1)
-     merge/PR `<branch>` into the integration branch; (2) create the phase <N+1>
-     branch `feature/<name>` from the project's integration branch (e.g.
-     `origin/main`); (3) add its `## Operational
-     scope` mapping line to `docs/SPEC.md` so the next cycle resolves the new
-     active phase.
-     Blocks: <first open SPEC ID of phase N+1, or "none" if unknown>
-     Verify: test "$(git branch --show-current)" != "<branch>"
-     Filed by: sst-dev-cycle at <utc-iso>.
-     Source: phase-completion bail on <branch>.
-   ```
-
-   **Idempotent.** Before appending, scan `docs/HUMAN.md` for any OPEN (`- [ ]`) `## Blocking` entry whose title already names "Phase `<N>` complete on `<branch>`" (same completed phase + same branch). If one exists, do NOT append a duplicate — skip straight to the sentinel print + exit. Re-running the bail on the same completed phase must leave `docs/HUMAN.md` byte-identical.
-
-   **Write-then-notify.** Immediately after a *fresh* append (not when the idempotency check skipped), invoke `bash bin/notify-human-md.sh <cwd> docs/HUMAN.md`. A missing/unconfigured Telegram env is a graceful skip (exit 0); a notification failure must never block the bail or the exit.
+   **Note:** the post-completion branch-setup handoff (recording the human-blocker entry and notifying the human) is handled by `sst-supervisor` (post-chain), not by this skill. The dev prints the sentinel and exits; the supervisor detects the `[no-work] phase <N> complete` line in its transcript scan and files the idempotent handoff entry. Phase-completion handoff writes live in the oversight layer only.
 
 ## 1. Decide what to work on
 
@@ -124,25 +103,6 @@ Don't ship just the primary if related siblings fit. Walk the rest of `Next up` 
 If only the primary is actionable across both surfaces, ship it alone (the primary IS the entire batch). If zero items are actionable across both surfaces, exit via the `[no-work]` bail in §0 step 6 — do NOT pad the batch with speculative work or invent a `Next up` entry to consume.
 
 Bundling *unrelated* items remains forbidden. The batch must be cohesive (sharing files / phase / concept / mechanical pattern), not just adjacent in the queue.
-
-### 6b. Blocked-on-human check (after picking the primary, before §2)
-
-After identifying the primary item's SPEC ID (the leading `<phase>.<n>` token on the item line), scan `docs/HUMAN.md` (if present) for open `## Blocking` entries whose `Blocks:` line lists that SPEC ID. Matching rules:
-
-- Read all `Blocks:` lines within open `[ ]` items in the `## Blocking` section.
-- Split the `Blocks:` value on commas and strip whitespace. Compare each token against the picked SPEC ID (exact match).
-- `Blocks: none` never matches.
-- If `docs/HUMAN.md` is absent, treat as "no blockers" and continue normally.
-
-**If a match is found:** print exactly one line on stdout and exit 0:
-
-```
-[blocked-on-human] <H-ID> <title>
-```
-
-The chain runner recognizes this sentinel, records `terminated_by: "blocked_on_human"` in `MANIFEST.json`, and aborts the loop so the chain driver can surface the block to the user. Do NOT write any test, code, or commit. Do NOT update `## In flight` or `## Just shipped` — the cycle did no work.
-
-**If no match is found:** continue to the batch-pick declaration below.
 
 ### Declare the batch BEFORE §2
 
@@ -247,7 +207,7 @@ By the time you reach this point the gate has already run (or was skipped becaus
 
 ## 6. Update the spec + TODO.md (all updates in a single pass, no SHA in Just-shipped)
 
-**`SPEC.md`**: flip `- [ ]` to `- [x]` for what you shipped. If this closes a sub-phase or milestone, add a section mirroring the format of the most recent completed one: 1-paragraph context, bulleted checklist of changes with file citations, test-count delta. Update any index / status summary file that the project keeps (e.g. a `CLAUDE.md` phase list). **This section asserts only what is verified by §6 time** — code and test facts known now. Do NOT state a deploy or runtime fact you only check later in §8/§9 (e.g. "deployed and healthy", "the external key is present", "the cron is live"): §6 runs before deploy and verify, so any such claim is unverified the moment you write it. Record deploy/verify outcomes after §9, and if §9 — or a `docs/HUMAN.md` blocker you file this cycle (a missing credential, an unreachable host) — contradicts a line you already wrote here, correct this section before §10. A result block that contradicts the same cycle's own verify outcome or a HUMAN.md entry you filed is a ship-blocking defect, not a cosmetic nit.
+**`SPEC.md`**: flip `- [ ]` to `- [x]` for what you shipped. If this closes a sub-phase or milestone, add a section mirroring the format of the most recent completed one: 1-paragraph context, bulleted checklist of changes with file citations, test-count delta. Update any index / status summary file that the project keeps (e.g. a `CLAUDE.md` phase list). **This section asserts only what is verified by §6 time** — code and test facts known now. Do NOT state a deploy or runtime fact you only check later in §8/§9 (e.g. "deployed and healthy", "the external key is present", "the cron is live"): §6 runs before deploy and verify, so any such claim is unverified the moment you write it. Record deploy/verify outcomes after §9, and if §9 contradicts a line you already wrote here, correct this section before §10. A result block that contradicts the same cycle's own verify outcome is a ship-blocking defect, not a cosmetic nit.
 
 **E2e-only guard.** Before flipping `- [ ]` to `- [x]` for any item whose acceptance criteria require running against a live stack (an e2e spec, an integration test that only passes against a real service, or any test the suite runs in parse-only mode such as `playwright --list`): you MUST have actually run that test against the live stack this cycle. A green test suite from a parse-only or mock-only runner does not close a live-stack requirement. If the live stack is not available this cycle, do NOT mark the item `[x]`. Instead, leave the item open and append a `[needs-live-stack] <one-line>` follow-up to `## Next up` naming the specific test and target service. Do not summarize the item as closed in Just-shipped — the item is not done.
 
