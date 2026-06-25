@@ -37,4 +37,6 @@
   Order: blockers/highest-impact first.
 -->
 
+- [medium] Manager/bot must never silently deadlock a command: `sst-manager` (+ `ssp-*` mirrors) must end every `--process-feedback`/`--process-command` run with exactly one outbound Telegram message -- a result OR a decision-request sent BEFORE ending (never deferred to "once you answer"), leaving the queue file pending for the reply; mirror `sst-executor` tier-2. Plus a `manager-bot.py` warning when a run exits 0 but left its queue file undrained with no send. -- SPEC Phase 53; user report 2026-06-25 (a `/feedback ssp-cm` did the work + prepared a push/extend decision but sent NO Telegram message and parked the questions, so the user was never asked).
+
 
