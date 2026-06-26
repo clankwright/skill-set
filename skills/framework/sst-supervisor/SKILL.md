@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.7.0
+version: 2.8.0
 model-floor: opus
 effort-floor: xhigh
 ---
@@ -123,6 +123,23 @@ For each skill record, ask three questions:
 Mistakes uncovered are findings against the *skill*, not the *cycle*. If the skill's prose is ambiguous, that's a `should-fix` proposal targeting the prose. If the skill missed a step, that's a `blocker`.
 
 **Runner-recorded contract flags.** Beyond the per-skill records, the iter MANIFEST may carry runner-set non-fatal contract-violation flags at the top level (e.g. `batch_pick_missing`, which the chain runner sets when the dev shipped a commit without the mandatory `[batch-pick]` block). Read these directly from the MANIFEST rather than re-deriving them from a transcript grep; they are deterministic. Dispose of them per §7's non-fatal-flag carve-out: a tracked note in `## Notes for the manager`, not an escalation.
+
+### 1a. Skill-failure graceful resolution (Phase 55)
+
+The chain runner no longer hard-aborts the run when a mid-chain skill exits non-zero (a turn-ceiling chop or a crash). Instead it FLAGS the failure on the iter MANIFEST as a top-level `skill_failure` object, SKIPS the remaining intermediate skills, and HANDS THE ITERATION TO YOU for graceful resolution before the loop continues. When `MANIFEST.skill_failure` is present, this is the iteration's primary finding and your job shifts from "review the cycle's commit" to "resolve the failure so the next iteration does not repeat it."
+
+`skill_failure` shape: `{ "skill", "exit_code", "failure_kind", "num_turns" }`. `failure_kind` is `turn_limit_exhausted` (the harness chopped the agent at the hard turn ceiling -- the common case) or `error` (a crash / other non-zero exit). A `turn_limit_exhausted` on the dev means the picked item (or batch) was too large to complete within one agent's turn budget.
+
+Resolve it within your existing authority (you edit docs + skills; you do NOT commit or mutate the watched project's code tree):
+
+1. **Diagnose from the transcript.** Read the failed skill's `<i>_<skill>.txt` to identify the picked item / batch and how far it got. Confirm whether the failure was an oversized pick (genuinely too big), a batch that should have been one item, or a transient crash.
+2. **Re-home the offending item so the next iteration does not re-fail on the identical pick.** Edit `docs/TODO.md` / `docs/SPEC.md`:
+   - If it was a too-large `turn_limit_exhausted`: SPLIT the item into smaller sub-items in `## Next up`, OR (when it cannot be cleanly split) re-label it `[hard]` so it routes to the largest turn/effort budget and annotate it `[oversized: hit the turn ceiling on <utc>; needs splitting or a fresh full-budget attempt]`, and move it BELOW any independent ready work so the loop makes progress on something else first.
+   - If it was a transient `error`: leave the item in place with a one-line `[retry-after-failure: <utc>]` note; a single clean retry next iter is expected.
+3. **Surface, do NOT silently discard, any partial work.** A turn-ceiling chop usually leaves UNCOMMITTED partial edits in the working tree (the dev never reached its commit step). You must not commit or revert the watched project's tree (anti-fork). Note the dirty state in the verdict and in `## Notes for the manager` so the operator / next dev pre-flight handles it; if the partial edits would block the next dev's clean-tree pre-flight, file a `docs/HUMAN.md` decision-request per §5b rather than touching the tree yourself.
+4. **Record + escalate.** The verdict `## Outcome` line leads with `escalate` when the failure is unresolved-by-you or recurring (the runner's consecutive-failure backstop will abort the loop on the 2nd consecutive flagged failure; a single resolved failure need not escalate but is always recorded). Add a `## Skill failure` block to the verdict naming the skill, `failure_kind`, the picked item, and the re-homing edit you made. The runner already sends a per-iteration Telegram `SKILL FAILURE` line; your escalation rides the normal verdict-driven path.
+
+This section is the "graceful resolution" the runner hands off to; without it the flag would be recorded but unactioned and the next iteration would re-pick the same too-big item and re-fail.
 
 ### 2. Severity bar
 
