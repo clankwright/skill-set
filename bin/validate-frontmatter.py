@@ -479,7 +479,16 @@ def main() -> int:
     if len(sys.argv) > 1:
         for a in sys.argv[1:]:
             p = Path(a)
-            if p.suffix == ".yaml":
+            if p.is_dir():
+                # A directory arg: walk it for skill + chain files, mirroring the
+                # no-arg auto-discovery. Without this a dir arg fell through to
+                # the `else` branch below and was opened as a FILE, crashing the
+                # whole run with IsADirectoryError -- the exact failure that let
+                # `validate-frontmatter.py skills/ chains/` exit non-clean while
+                # any `grep`-based caller silently read it as zero findings.
+                skill_targets.extend(sorted(p.glob("**/SKILL.md")))
+                chain_targets.extend(sorted(p.glob("**/*.yaml")))
+            elif p.suffix in (".yaml", ".yml"):
                 chain_targets.append(p)
             else:
                 skill_targets.append(p)

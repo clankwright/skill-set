@@ -2,14 +2,16 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.14.0
-model-floor: sonnet
+version: 1.15.0
+model-floor: opus
 effort-floor: high
 ---
 
 # Autonomous TDD Cycle
 
 One invocation = one shipped change. Read the spec, decide, write failing tests, implement, deploy, verify, commit + push. **No approval prompts between steps.** This skill is the user's standing authorization for the whole cycle.
+
+**Model floor (Phase 55): this skill runs on `opus` regardless of the picked item's difficulty.** The dev cycle is the lead agent doing the full pick -> failing-test -> implement -> verify -> commit pass within one agent's turn budget; sonnet repeatedly exhausted the hard turn ceiling mid-implementation on non-trivial items (a `[medium]` item that turned out large would chop at turn 250 with a half-done tree). The `opus` floor buys the headroom to finish in-budget. The difficulty bracket still drives EFFORT and the DOWNSTREAM skills' routing (see §1) -- only this agent's own model is floored. A turn-ceiling chop is no longer fatal to the run: the runner flags it and hands off to the supervisor for graceful resolution (see `bin/skill-chain.py` Phase 55 + the supervisor's skill-failure section), but the floor is what makes the chop rare in the first place.
 
 ## Operating principles
 

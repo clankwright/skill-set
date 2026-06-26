@@ -287,6 +287,18 @@ DEFAULT_DIFFICULTY   = "medium"
 DEFAULT_MAX_TURNS        = 250   # hard per-agent ceiling (harness backstop)
 WIND_DOWN_TURN_HEADROOM  = 50    # turns reserved below the hard cap for wrap-up
 
+# Phase 55: a mid-chain skill failure (turn-limit exhaustion or a crash) no
+# longer hard-aborts the whole run. The failure is FLAGGED on the iter manifest,
+# the remaining intermediate skills are skipped, and the auto-supervisor is
+# handed the failure for graceful resolution (diagnose, re-home / defer / split
+# the offending item, escalate) before the loop continues. This backstop bounds
+# the retry: after this many CONSECUTIVE iterations each carrying a flagged
+# failure, the loop hard-aborts (terminated_by="skill_failure_backstop") so a
+# structurally-too-big item cannot burn quota in an endless retry loop. A clean
+# iteration resets the counter. Quota-exhaustion aborts (rate-limit / overload)
+# are NOT routed through this path -- they remain deliberate hard stops.
+SKILL_FAILURE_BACKSTOP   = 2
+
 # Cold-start prompt addendum that encourages graceful self-pacing wind-down.
 # Injected ONLY for `*-tester` skills: the tester is the agent that routinely
 # approaches the turn ceiling on long Playwright / tool-call sweeps, so it is
@@ -2190,6 +2202,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _classify_skill_failure(record: dict) -> str:
+    """Label a non-zero skill exit for the `skill_failure` flag the supervisor
+    reads. Phase 55. `error_max_turns` is the harness's turn-ceiling chop (the
+    common case); anything else is a generic crash/error."""
+    if record.get("result_subtype") == "error_max_turns":
+        return "turn_limit_exhausted"
+    return "error"
+
+
 def run_iteration(
     harness: Harness,
     skills_to_run: list[str],
@@ -2336,8 +2357,41 @@ def run_iteration(
                 print(c(f"\n[supervisor] {skill} exited with {skill_rc}; "
                         f"continuing (chain remains successful)", ORANGE), flush=True)
                 continue
-            print(f"\n{c(f'/{skill} exited with {skill_rc}; aborting chain', RED)}", flush=True)
-            rc = skill_rc
+            # Quota-exhaustion aborts (rate-limit / overload) stay HARD stops:
+            # they are deliberate quota protections, not recoverable failures.
+            if record.get("rate_limit_aborted") or record.get("overload_aborted"):
+                print(f"\n{c(f'/{skill} exited with {skill_rc}; aborting chain', RED)}", flush=True)
+                rc = skill_rc
+                break
+            # Phase 55: any OTHER non-zero exit (turn-limit exhaustion, a crash)
+            # is a recoverable skill failure. Do NOT kill the run. FLAG it on the
+            # iter manifest, skip the remaining intermediate skills (they would
+            # run against the failed skill's half-done state), and hand off to the
+            # auto-supervisor for graceful resolution. main()'s consecutive-
+            # failure backstop guards against an endless retry loop. rc stays 0
+            # so main() continues the loop instead of treating this as a fatal
+            # chain exit.
+            iter_manifest["skill_failure"] = {
+                "skill": skill,
+                "exit_code": skill_rc,
+                "failure_kind": _classify_skill_failure(record),
+                "num_turns": record.get("num_turns"),
+            }
+            print(c(f"\n[skill-failure] /{skill} exited with {skill_rc} "
+                    f"({iter_manifest['skill_failure']['failure_kind']}); flagging + "
+                    f"handing off to supervisor for graceful resolution "
+                    f"(chain NOT aborted)", ORANGE), flush=True)
+            _snapshot_manifest()
+            # Hand off to the auto-supervisor when one is queued later in the
+            # chain: drop the intermediate skills between here and it so the loop
+            # advances directly to the supervisor (mirrors the skip_tester list
+            # mutation below). If no supervisor remains, end the iteration with
+            # the failure flagged; the loop continues and the backstop applies.
+            if auto_supervisor and auto_supervisor in skills_to_run[i + 1:]:
+                sup_idx = skills_to_run.index(auto_supervisor, i + 1)
+                if sup_idx > i + 1:
+                    del skills_to_run[i + 1:sup_idx]
+                continue
             break
         # Phase 17 empty-queue bail: a skill that prints `[no-work] <reason>`
         # and exits clean signals steady state. Skip the remaining skills in
@@ -3002,6 +3056,7 @@ def main() -> int:
 
     final_rc = 0
     iteration = 0
+    consecutive_skill_failures = 0   # Phase 55: backstop counter
     iterations_collected: list[dict] = []
     try:
         while True:
@@ -3072,6 +3127,48 @@ def main() -> int:
             if rc != 0:
                 final_rc = rc
                 break
+
+            # Phase 55: skill-failure backstop. A mid-chain skill that failed
+            # (turn-limit exhaustion / crash) was flagged by run_iteration, the
+            # supervisor was handed it for graceful resolution, and rc stayed 0
+            # so we land here. Track CONSECUTIVE flagged failures; a clean
+            # iteration resets the counter. Abort the loop once the backstop is
+            # reached so a structurally-too-big item can't burn quota retrying
+            # forever. (Quota-exhaustion aborts never reach here -- they set
+            # rc != 0 and broke above.)
+            if iter_manifest.get("skill_failure"):
+                consecutive_skill_failures += 1
+                sf = iter_manifest["skill_failure"]
+                print(c(f"[skill-failure] iter {iteration}: /{sf['skill']} "
+                        f"{sf['failure_kind']} (#{consecutive_skill_failures} "
+                        f"consecutive); supervisor handled resolution, loop "
+                        f"continues", ORANGE), flush=True)
+                if telegram_enabled:
+                    telegram.send(
+                        f"chain [{label}]: iter {iteration} SKILL FAILURE\n"
+                        f"/{sf['skill']}: {sf['failure_kind']} "
+                        f"(exit {sf['exit_code']}, {sf.get('num_turns')} turns)\n"
+                        f"handed to supervisor; "
+                        f"#{consecutive_skill_failures} consecutive\n"
+                        f"at: {_utc_iso()}",
+                        label="skill-failure",
+                    )
+                if consecutive_skill_failures >= SKILL_FAILURE_BACKSTOP:
+                    if "loop" in manifest:
+                        manifest["loop"]["terminated_by"] = "skill_failure_backstop"
+                    print(c(f"[halt] {consecutive_skill_failures} consecutive "
+                            f"skill failures; aborting loop to avoid a quota-"
+                            f"burning retry loop", RED), flush=True)
+                    if telegram_enabled:
+                        telegram.send(
+                            f"chain [{label}]: HALT -- skill_failure_backstop\n"
+                            f"{consecutive_skill_failures} consecutive skill "
+                            f"failures after {iteration} iteration(s)",
+                            label="halt",
+                        )
+                    break
+            else:
+                consecutive_skill_failures = 0
 
             # Phase 42: between-iteration halt on budget / cycle cap / escalation.
             halt_reason = _wrapper_halt_reason(

@@ -1212,3 +1212,143 @@ def test_verdict_outcome_non_leading_escalate_word_not_escalate(tmp_path):
     'escalat*' is not the first word) must NOT classify as escalate."""
     body = "## Outcome\n\ntriggered escalation\n\ndetail\n"
     assert sc._verdict_outcome(_verdict_file(tmp_path, body)) != "escalate"
+
+
+# ---- Phase 55: skill-failure graceful-resolution handoff -----------------------
+#
+# A mid-chain skill that exits non-zero (turn-limit exhaustion or a crash) must
+# NO LONGER hard-abort the whole run. run_iteration flags the failure on the iter
+# manifest, skips the remaining INTERMEDIATE skills, and hands off to the auto-
+# supervisor for graceful resolution; rc stays 0 so main()'s loop continues
+# (bounded by the SKILL_FAILURE_BACKSTOP consecutive-failure cap). Quota-
+# exhaustion aborts (rate_limit/overload) remain HARD stops.
+
+
+def test_classify_skill_failure_turn_limit():
+    """error_max_turns result subtype classifies as turn_limit_exhausted."""
+    assert sc._classify_skill_failure(
+        {"result_subtype": "error_max_turns", "num_turns": 251}
+    ) == "turn_limit_exhausted"
+
+
+def test_classify_skill_failure_generic():
+    """Any other non-zero exit classifies as a generic error."""
+    assert sc._classify_skill_failure({"result_subtype": "error_during_execution"}) == "error"
+    assert sc._classify_skill_failure({}) == "error"
+
+
+def test_run_iteration_skill_failure_hands_off_to_supervisor():
+    """A dev turn-limit failure flags + skips intermediates + runs the supervisor.
+
+    dev (i=0) returns rc=1 with result_subtype=error_max_turns; the intermediate
+    tester + review are skipped; the auto-supervisor IS invoked for graceful
+    resolution; rc stays 0 (run NOT aborted); skill_failure is recorded.
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        if skill_name == "sst-dev-cycle":
+            return (1, {"result_subtype": "error_max_turns", "num_turns": 251})
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("opus", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-tester", "sst-dev-review", "sst-supervisor"],
+            None,
+            "sst-supervisor",
+            1,
+            1,
+            "/tmp",
+        )
+
+    assert rc == 0, "a flagged skill failure must NOT abort the chain (rc=0)"
+    assert "skill_failure" in iter_manifest, "skill_failure must be recorded"
+    assert iter_manifest["skill_failure"]["skill"] == "sst-dev-cycle"
+    assert iter_manifest["skill_failure"]["failure_kind"] == "turn_limit_exhausted"
+    assert iter_manifest["skill_failure"]["exit_code"] == 1
+    assert calls == ["sst-dev-cycle", "sst-supervisor"], \
+        "intermediate tester+review skipped; supervisor handles resolution"
+
+
+def test_run_iteration_skill_failure_no_supervisor_flags_without_abort():
+    """A dev failure with no auto-supervisor flags + ends the iter, rc still 0.
+
+    Without a supervisor to hand off to, run_iteration still flags the failure
+    and does NOT propagate a non-zero rc (the loop continues; the backstop in
+    main() bounds repeats). The following review skill is NOT run against the
+    failed skill's half-done state.
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        if skill_name == "sst-dev-cycle":
+            return (1, {"result_subtype": "error_max_turns", "num_turns": 251})
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("opus", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-dev-review"],
+            None,
+            None,   # no auto_supervisor
+            1,
+            1,
+            "/tmp",
+        )
+
+    assert rc == 0, "flagged failure with no supervisor still keeps rc=0"
+    assert iter_manifest["skill_failure"]["skill"] == "sst-dev-cycle"
+    assert calls == ["sst-dev-cycle"], \
+        "review must NOT run against the failed skill's half-done state"
+
+
+def test_run_iteration_rate_limit_abort_still_hard_aborts():
+    """Quota-exhaustion (rate_limit_aborted) remains a HARD abort, not a flag.
+
+    A non-zero exit carrying rate_limit_aborted must take the old hard-abort
+    path: rc != 0, NO skill_failure flag, no supervisor handoff.
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        if skill_name == "sst-dev-cycle":
+            return (1, {"rate_limit_aborted": "max_pauses_reached"})
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("opus", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-tester", "sst-supervisor"],
+            None,
+            "sst-supervisor",
+            1,
+            1,
+            "/tmp",
+        )
+
+    assert rc == 1, "rate-limit exhaustion must hard-abort (rc != 0)"
+    assert "skill_failure" not in iter_manifest, \
+        "quota-exhaustion abort must NOT be flagged as a recoverable skill_failure"
+    assert calls == ["sst-dev-cycle"], "no handoff after a quota-exhaustion abort"

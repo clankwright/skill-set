@@ -247,3 +247,42 @@ def test_real_spec_and_todo_pass_quality_check():
         f"Current SPEC.md/TODO.md has open-ended items without concrete targets:\n"
         + "\n".join(errors)
     )
+
+
+# ---- directory-argument handling (objectives-check bug, Phase 55) -------------
+#
+# `bin/validate-frontmatter.py skills/ chains/` (the form ssp-manager's
+# objectives.md uses for skill-set-validator-clean) used to pass each bare
+# directory through as a FILE target, then crash mid-run with IsADirectoryError
+# when it tried to open the directory. A `grep`-based caller swallowed the
+# traceback (it matches no findings) so the objective read "clean" even though
+# the validator never actually ran. The fix walks a directory arg for
+# SKILL.md/*.yaml instead. These guard that the dir arg is expanded, not opened.
+
+_REPO = Path(__file__).parent.parent
+
+
+def test_directory_arg_does_not_crash(monkeypatch):
+    """A directory arg must be WALKED, not opened as a file. Pre-fix this raised
+    IsADirectoryError; now `main()` returns an int exit code without raising."""
+    import sys as _sys
+    monkeypatch.setattr(
+        _sys, "argv",
+        ["validate-frontmatter.py", str(_REPO / "skills"), str(_REPO / "chains")],
+    )
+    rc = vf.main()   # must NOT raise IsADirectoryError
+    assert isinstance(rc, int)
+    # The repo is kept frontmatter-clean (the full suite asserts this elsewhere),
+    # so the canonical objectives invocation must report clean via dir args.
+    assert rc == 0, f"clean repo must validate clean through dir args, got rc={rc}"
+
+
+def test_empty_directory_arg_finds_no_targets(monkeypatch, tmp_path):
+    """A directory arg containing no SKILL.md/*.yaml expands to zero targets
+    (and returns cleanly) rather than treating the directory path as a file."""
+    import sys as _sys
+    empty = tmp_path / "empty_skills"
+    empty.mkdir()
+    monkeypatch.setattr(_sys, "argv", ["validate-frontmatter.py", str(empty)])
+    rc = vf.main()   # no targets -> clean early return, no IsADirectoryError
+    assert rc == 0
