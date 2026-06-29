@@ -962,6 +962,51 @@ def test_run_iteration_skip_tester_honored_when_no_guidance():
     assert "tester_skip_voided" not in iter_manifest
 
 
+def test_run_iteration_skip_does_not_leak_into_caller_skills_list():
+    """A one-iteration [skip-tester] pop must NOT mutate the caller's list.
+
+    skills_to_run is built ONCE in main() and passed by reference on every
+    iteration. Before the per-call copy, a legitimate tests-only [skip-tester]
+    in an early iter popped the tester from that shared list, so it was
+    PERMANENTLY gone for every later iter (which then shipped UI work with no
+    in-loop verification, and a real regression reached the deployed app). This
+    guards the fix: the caller's list stays intact and a later no-skip iter
+    still runs the tester.
+    """
+    h = ClaudeCodeHarness()
+    shared = ["sst-dev-cycle", "sst-tester", "sst-dev-review"]
+
+    def fake_skip(_harness, skill_name, _idx, _log_dir, **kwargs):
+        if skill_name == "sst-dev-cycle":
+            return (0, {"skip_tester": "tests-only: web/server/tests (no UI surface)"})
+        return (0, {})
+
+    calls2: list = []
+
+    def fake_no_skip(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls2.append(skill_name)
+        return (0, {})
+
+    with mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"):
+        # iter 1: legitimate skip pops the tester from run_iteration's LOCAL copy
+        with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_skip):
+            rc1, m1 = run_iteration(h, shared, None, None, 1, 2, "/tmp")
+        # iter 2: caller passes the SAME list object again; dev does NOT skip
+        with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_no_skip):
+            rc2, m2 = run_iteration(h, shared, None, None, 2, 2, "/tmp")
+
+    assert rc1 == 0 and rc2 == 0
+    assert shared == ["sst-dev-cycle", "sst-tester", "sst-dev-review"], \
+        "run_iteration must not mutate the caller's shared skills_to_run list"
+    assert m1.get("tester_skipped", {}).get("skill") == "sst-tester"
+    assert "sst-tester" in calls2, \
+        "a later no-skip iter must still run the tester (no cross-iter skip leak)"
+
+
 # ---- [batch-pick] emission gate (Phase 50) ----------------------------------
 #
 # sst-dev-cycle §1 mandates a `[batch-pick] N items @ <difficulty>; ...` block
