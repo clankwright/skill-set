@@ -2241,6 +2241,17 @@ def run_iteration(
     in main() AFTER the iteration loop completes, which is AFTER the
     supervisor itself has finished).
     """
+    # skills_to_run is built ONCE in main() and passed by reference on EVERY
+    # iteration. The per-iteration mutations below (the [skip-tester] `pop` and
+    # the Phase 55 skill-failure handoff `del`) are meant to affect only THIS
+    # iteration, but on the shared list they leak forward and PERMANENTLY drop a
+    # skill from the rest of the run. Observed in the field: a single legitimate
+    # tests-only [skip-tester] in an early iter deleted the tester from the
+    # shared list, so every later UI iter ran with no in-loop verification and
+    # shipped unverified work (a real regression reached the deployed app because
+    # the tester that would have caught it was gone). Shadow the parameter with a
+    # fresh per-call copy so each iteration starts from the full requested chain.
+    skills_to_run = list(skills_to_run)
     if total_iterations != 1:
         if total_iterations is None:
             label = f"iteration {iteration} (looping until failure)"
