@@ -444,6 +444,78 @@ def test_run_iteration_phase_completion_no_work_bail_skips_remaining_skills():
         "sst-dev-review must NOT be called after a phase-completion no-work bail"
 
 
+# ---- markdown-decorated control-sentinel tolerance --------------------------
+#
+# A skill routinely wraps its sentinel line in inline-code backticks or
+# bold/italic markers. A bare `^\s*\[` anchor missed the decorated form, so the
+# sentinel silently never fired and the loop ran the whole iteration + halted only
+# on the much-later supervisor escalation instead of aborting immediately. The
+# four loop-control sentinels now skip any leading non-alphanumeric wrapper
+# (`[\W_]*`) and strip a trailing wrapper from the captured reason. These guard
+# that fix (the batch-pick / picked-difficulty sentinels were already covered).
+
+# The exact lines a dev emitted in the field that the old regex missed.
+_FIELD_BACKTICKED_NO_WORK = (
+    "`[no-work] phase complete on the feature branch; no value-bearing pickable "
+    "item (lone remaining entry parked to deferred work as confirmed dead code).`"
+)
+_FIELD_BACKTICKED_SKIP_TESTER = "`[skip-tester] no pick, no source change.`"
+
+
+def test_no_work_sentinel_re_matches_backtick_wrapped_field_line():
+    """The exact backtick-wrapped [no-work] line from the field now fires."""
+    m = sc.NO_WORK_SENTINEL_RE.search(_FIELD_BACKTICKED_NO_WORK)
+    assert m is not None
+    # reason captured without the wrapping backticks
+    assert m.group(1).startswith("phase complete on the feature branch")
+    assert not m.group(1).endswith("`")
+
+
+def test_skip_tester_sentinel_re_matches_backtick_wrapped_field_line():
+    m = sc.SKIP_TESTER_SENTINEL_RE.search(_FIELD_BACKTICKED_SKIP_TESTER)
+    assert m is not None
+    assert m.group(1) == "no pick, no source change."
+
+
+_CONTROL_SENTINELS = {
+    "no-work": sc.NO_WORK_SENTINEL_RE,
+    "blocked-on-human": sc.BLOCKED_ON_HUMAN_SENTINEL_RE,
+    "skip-tester": sc.SKIP_TESTER_SENTINEL_RE,
+    "no-test-work": sc.NO_TEST_WORK_SENTINEL_RE,
+}
+
+
+def test_control_sentinels_match_decorated_forms():
+    """All four loop-control sentinels fire through common markdown wrappers and
+    capture a clean reason (no wrapping chars). The underscore case is why the
+    leading class is `[\\W_]*` and not `\\W*` (`\\W` excludes `_`)."""
+    wraps = [
+        "`[{t}] reason`",    # inline code (the form missed in the field)
+        "**[{t}] reason**",  # bold
+        "_[{t}] reason_",    # italic via underscore
+        "> [{t}] reason",    # blockquote
+        "- [{t}] reason",    # list bullet
+        "[{t}] reason",      # bare
+    ]
+    for token, rx in _CONTROL_SENTINELS.items():
+        for w in wraps:
+            text = w.format(t=token)
+            m = rx.search(text)
+            assert m is not None, f"[{token}] failed to match {text!r}"
+            assert m.group(1) == "reason", \
+                f"[{token}] captured {m.group(1)!r} from {text!r}"
+
+
+def test_control_sentinels_no_match_mid_prose():
+    """Words before the bracket (a mid-prose mention) must NOT trip the sentinel —
+    only leading decoration may precede it."""
+    for token in ("no-work", "skip-tester"):
+        rx = _CONTROL_SENTINELS[token]
+        assert rx.search(f"see the [{token}] flag here") is None
+        assert rx.search(
+            f"note: `[{token}]` is the sentinel and then more prose") is None
+
+
 # ---- _incomplete_cycle_detected unit tests (Phase 36) -----------------------
 
 _incomplete_cycle_detected = sc._incomplete_cycle_detected

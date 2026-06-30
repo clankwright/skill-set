@@ -219,7 +219,22 @@ OVERLOAD_BACKOFF_CAP_SECONDS = 300
 # not a defect; sentinel format is documented in templates/SPEC.md so any
 # consuming project's dev skill can opt into the contract by emitting it.
 
-NO_WORK_SENTINEL_RE = re.compile(r"^\s*\[no-work\](?:\s+(.*\S))?\s*$", re.MULTILINE)
+# Markdown-decoration tolerance (leading `[\W_]*`, trailing `[ \t`*_~]*`): a skill
+# routinely wraps its sentinel line in inline-code backticks or bold/italic/strike
+# markers (e.g. `` `[no-work] ...` ``, `**[no-work] ...**`, `_[no-work] ..._`). A
+# bare `^\s*\[` anchor misses the decorated form, so the sentinel silently never
+# fires — observed in the field as a `[no-work]` bail that was missed, leaving the
+# loop to run the whole iteration (tester + review + supervisor) and halt only on
+# the much-later supervisor escalation instead of aborting immediately. `[\W_]*`
+# skips any leading non-alphanumeric wrapper (a superset of the `\W*` idiom used by
+# PICKED_DIFFICULTY/BATCH_PICK below — `\W` excludes `_`, so plain `_italic_` would
+# slip through it). The match still requires the bracket to lead the line (only
+# decoration may precede it), so a mid-prose mention never trips it; the trailing
+# class strips a closing wrapper from the captured reason without eating real
+# punctuation.
+NO_WORK_SENTINEL_RE = re.compile(
+    r"^[\W_]*\[no-work\](?:\s+(.*?\S))?[ \t`*_~]*$", re.MULTILINE
+)
 
 # ---- Blocked-on-human sentinel (Phase 31.8) ---------------------------------
 # When a dev-cycle skill scans docs/HUMAN.md and finds that its picked SPEC
@@ -229,7 +244,7 @@ NO_WORK_SENTINEL_RE = re.compile(r"^\s*\[no-work\](?:\s+(.*\S))?\s*$", re.MULTIL
 # `terminated_by: "blocked_on_human"` in the top-level loop manifest so the
 # chain driver's session-end report can surface the reason clearly.
 BLOCKED_ON_HUMAN_SENTINEL_RE = re.compile(
-    r"^\s*\[blocked-on-human\](?:\s+(.*\S))?\s*$", re.MULTILINE
+    r"^[\W_]*\[blocked-on-human\](?:\s+(.*?\S))?[ \t`*_~]*$", re.MULTILINE
 )
 
 # ---- Skip-tester sentinel (Phase 41.10) -------------------------------------
@@ -241,7 +256,7 @@ BLOCKED_ON_HUMAN_SENTINEL_RE = re.compile(
 # iter manifest under `tester_skipped`. A non-tester immediate follower is
 # never skipped, even if the sentinel was emitted.
 SKIP_TESTER_SENTINEL_RE = re.compile(
-    r"^\s*\[skip-tester\](?:\s+(.*\S))?\s*$", re.MULTILINE
+    r"^[\W_]*\[skip-tester\](?:\s+(.*?\S))?[ \t`*_~]*$", re.MULTILINE
 )
 
 # ---- No-test-work sentinel (Phase 48.2) ------------------------------------
@@ -254,7 +269,7 @@ SKIP_TESTER_SENTINEL_RE = re.compile(
 # `bin/skill-chain.py <tester> --loop N` run self-terminates when the queue is
 # exhausted rather than spinning N empty iterations.
 NO_TEST_WORK_SENTINEL_RE = re.compile(
-    r"^\s*\[no-test-work\](?:\s+(.*\S))?\s*$", re.MULTILINE
+    r"^[\W_]*\[no-test-work\](?:\s+(.*?\S))?[ \t`*_~]*$", re.MULTILINE
 )
 
 # ---- Per-skill model + effort routing (Phase 19) ---------------------------
