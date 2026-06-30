@@ -218,10 +218,14 @@ if [[ $? -ne 0 ]] || [[ -z "$MESSAGE" ]]; then
 fi
 
 # --- send via notify-telegram.sh ---
+# The delta summary embeds HUMAN.md entry titles verbatim, which routinely contain backticks,
+# [ ]/[x] brackets, and ** that are literal content, NOT Telegram markdown. Send with
+# parse_mode disabled (TELEGRAM_PARSE_MODE="") so the API never rejects it as "can't parse
+# entities". (notify-telegram.sh also retries plain-text on that error as a backstop.)
 if [[ -n "$TELEGRAM_ENV_OVERRIDE" ]]; then
-    printf '%s' "$MESSAGE" | TELEGRAM_ENV_FILE="$TELEGRAM_ENV_OVERRIDE" bash "$NOTIFY_TG_BIN"
+    printf '%s' "$MESSAGE" | TELEGRAM_PARSE_MODE="" TELEGRAM_ENV_FILE="$TELEGRAM_ENV_OVERRIDE" bash "$NOTIFY_TG_BIN"
 else
-    printf '%s' "$MESSAGE" | bash "$NOTIFY_TG_BIN"
+    printf '%s' "$MESSAGE" | TELEGRAM_PARSE_MODE="" bash "$NOTIFY_TG_BIN"
 fi
 # notify-telegram.sh exits 0 on graceful skip, 0 on success; propagate non-zero
 TG_RC=$?

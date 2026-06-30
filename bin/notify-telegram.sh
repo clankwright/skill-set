@@ -73,11 +73,10 @@ if [ -n "${TELEGRAM_LABEL:-}" ]; then
     text="[${TELEGRAM_LABEL}]"$'\n\n'"${text}"
 fi
 
-# POST one chunk via curl; build the JSON payload using python's json.dumps for safe escaping.
-_send_chunk() {
-    local body="$1"
-    local payload
-    payload=$(TEXT="$body" CID="$TELEGRAM_CHAT_ID" MODE="$PARSE_MODE" python3 - <<'PY'
+# Build the sendMessage JSON payload for one chunk; json.dumps handles all escaping.
+# $1 = body text, $2 = parse mode ("" disables parse_mode entirely → plain text).
+_build_payload() {
+    TEXT="$1" CID="$TELEGRAM_CHAT_ID" MODE="$2" python3 - <<'PY'
 import json, os
 data = {
     "chat_id": int(os.environ["CID"]),
@@ -89,21 +88,48 @@ if mode:
     data["parse_mode"] = mode
 print(json.dumps(data))
 PY
-)
-    local response ok
-    response=$(
-        curl -sS -X POST \
-            -H 'Content-Type: application/json' \
-            --max-time 15 \
-            --data "$payload" \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
-    )
-    ok=$(printf '%s' "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("yes" if d.get("ok") else "no")' 2>/dev/null || echo no)
-    if [ "$ok" != "yes" ]; then
-        echo "notify-telegram: API returned non-ok response:" >&2
-        printf '%s\n' "$response" >&2
-        return 1
+}
+
+# POST one payload to sendMessage; echo the raw response body.
+_post_payload() {
+    curl -sS -X POST \
+        -H 'Content-Type: application/json' \
+        --max-time 15 \
+        --data "$1" \
+        "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+}
+
+# Echo "yes" when the response JSON has ok=true, else "no".
+_response_ok() {
+    printf '%s' "$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("yes" if d.get("ok") else "no")' 2>/dev/null || echo no
+}
+
+# POST one chunk. When a parse mode is in effect and the API rejects the chunk because the
+# body's literal text contains formatting specials it can't parse as entities ("can't parse
+# entities"), retry the SAME chunk once with parse_mode disabled. Senders pass real content
+# (HUMAN.md deltas, file paths, brackets) that is not meant to be markup, so a parse failure
+# must not drop the message — delivery as plain text beats silent loss of the notification.
+_send_chunk() {
+    local body="$1"
+    local payload response ok
+    payload=$(_build_payload "$body" "$PARSE_MODE")
+    response=$(_post_payload "$payload")
+    ok=$(_response_ok "$response")
+    if [ "$ok" = "yes" ]; then
+        return 0
     fi
+    if [ -n "$PARSE_MODE" ] && printf '%s' "$response" | grep -q "can't parse entities"; then
+        echo "notify-telegram: parse_mode=$PARSE_MODE rejected by API (can't parse entities); retrying as plain text" >&2
+        payload=$(_build_payload "$body" "")
+        response=$(_post_payload "$payload")
+        ok=$(_response_ok "$response")
+        if [ "$ok" = "yes" ]; then
+            return 0
+        fi
+    fi
+    echo "notify-telegram: API returned non-ok response:" >&2
+    printf '%s\n' "$response" >&2
+    return 1
 }
 
 if [ "${#text}" -le 4000 ]; then

@@ -307,3 +307,91 @@ def test_code_fence_rebalanced_at_split():
         assert text.count("```") % 2 == 0, (
             f"chunk {i} has an odd (unbalanced) number of ``` markers: {text[:200]!r}"
         )
+
+
+# ===== parse-entities fallback: a body whose literal text breaks the parser is
+# retried once as plain text rather than dropped. =====
+
+
+def _run_notify_parse_failing(
+    message: str, env_extra: dict | None = None
+) -> tuple[int, list[dict], str]:
+    """Run notify-telegram.sh against a mock curl that emulates Telegram rejecting any
+    payload carrying a parse_mode with "can't parse entities", but accepting a payload
+    with no parse_mode. Returns (rc, payloads_in_call_order, stderr)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        captured_dir = Path(tmpdir) / "captured"
+        captured_dir.mkdir()
+        fake_curl = Path(tmpdir) / "curl"
+        fake_curl.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys, json, pathlib\n"
+            "args = sys.argv[1:]\n"
+            "data = None\n"
+            "for i, a in enumerate(args):\n"
+            "    if a == '--data' and i + 1 < len(args):\n"
+            "        data = args[i + 1]\n"
+            "        break\n"
+            f"p = pathlib.Path(r'{captured_dir}')\n"
+            "n = len(sorted(p.glob('chunk_*.json')))\n"
+            "if data is not None:\n"
+            "    (p / f'chunk_{n:03d}.json').write_text(data)\n"
+            "payload = json.loads(data) if data else {}\n"
+            "if payload.get('parse_mode'):\n"
+            "    print(json.dumps({'ok': False, 'error_code': 400,\n"
+            "        'description': \"Bad Request: can't parse entities: \"\n"
+            "        'character at byte offset 83'}))\n"
+            "else:\n"
+            "    print(json.dumps({'ok': True, 'result': {'message_id': 1}}))\n"
+        )
+        fake_curl.chmod(0o755)
+
+        env = {
+            "TELEGRAM_BOT_TOKEN": "fake_token",
+            "TELEGRAM_CHAT_ID": "12345",
+            "PATH": f"{tmpdir}:{os.environ['PATH']}",
+            "HOME": os.environ.get("HOME", "/root"),
+        }
+        if env_extra:
+            env.update(env_extra)
+
+        proc = subprocess.run(
+            ["bash", str(NOTIFY_TELEGRAM)],
+            input=message,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        payloads = []
+        for f in sorted(captured_dir.glob("chunk_*.json")):
+            try:
+                payloads.append(json.loads(f.read_text()))
+            except json.JSONDecodeError:
+                pass
+        return proc.returncode, payloads, proc.stderr
+
+
+def test_parse_entities_failure_retries_as_plain_text():
+    """A Markdown send rejected with "can't parse entities" is retried once with no
+    parse_mode, and the retry succeeds (exit 0). This is the HUMAN.md-delta bug:
+    literal backticks/brackets in the body broke legacy Markdown parsing."""
+    body = '[cm] HUMAN.md: +H3.16 ##Blocking [ ] "done on `feature/x`"'
+    rc, payloads, stderr = _run_notify_parse_failing(body)
+    assert rc == 0, f"expected success after plain-text fallback; stderr: {stderr!r}"
+    assert len(payloads) == 2, f"expected 2 POSTs (markdown + plain retry), got {len(payloads)}"
+    assert payloads[0].get("parse_mode") == "Markdown", "first POST should use the default Markdown mode"
+    assert "parse_mode" not in payloads[1], "retry POST must omit parse_mode (plain text)"
+    assert payloads[1]["text"] == body, "retry must resend the identical body"
+    assert "retrying as plain text" in stderr
+
+
+def test_plain_text_mode_no_retry_needed():
+    """With parse_mode disabled up front (TELEGRAM_PARSE_MODE=""), the same body sends in
+    a single POST with no parse_mode — no parse failure, no fallback. This is the path
+    notify-human-md.sh now uses for its literal delta summaries."""
+    body = '[cm] HUMAN.md: +H3.16 ##Blocking [ ] "done on `feature/x`"'
+    rc, payloads, stderr = _run_notify_parse_failing(body, env_extra={"TELEGRAM_PARSE_MODE": ""})
+    assert rc == 0, f"expected success; stderr: {stderr!r}"
+    assert len(payloads) == 1, f"expected exactly 1 POST, got {len(payloads)}"
+    assert "parse_mode" not in payloads[0], "plain-text mode must omit parse_mode"
+    assert payloads[0]["text"] == body
