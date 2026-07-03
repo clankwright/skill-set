@@ -275,7 +275,7 @@ NO_TEST_WORK_SENTINEL_RE = re.compile(
 # ---- Per-skill model + effort routing (Phase 19) ---------------------------
 # Each iter pre-parses the picked item's difficulty bracket from
 # docs/TODO.md > Next up (or docs/SPEC.md first open `[ ]` if Next up is empty),
-# mapping `[easy]` -> (haiku, low), `[medium]` -> (sonnet, medium),
+# mapping `[easy]` -> (sonnet, low), `[medium]` -> (opus, medium),
 # `[hard]` -> (fable, high). Each skill's frontmatter declares a model-floor
 # and effort-floor; effective tier = max(item_tier, skill_floor) over the
 # orderings below. After the FIRST skill of an iter (typically the dev) exits,
@@ -284,15 +284,18 @@ NO_TEST_WORK_SENTINEL_RE = re.compile(
 # iter, so review/supervisor route on what the dev actually picked rather
 # than the queue head.
 # The SMARTEST bracket is "fable" (Fable 5; a first-class `--model` alias in
-# the Claude Code CLI): [hard] items route there, ABOVE the "opus" floors that
-# skills declare in frontmatter (an opus floor still wins over easy/medium
-# items; a hard item now exceeds it). DEFAULT_MODEL_FLOOR deliberately stays
-# "opus" so unlabeled/ad-hoc work is not silently promoted to the top tier.
+# the Claude Code CLI): [hard] items route there, above every frontmatter
+# floor; [medium] items match the "opus" floors; [easy] items run sonnet
+# unless a skill's floor lifts them (an "opus" floor lifts easy to opus; a
+# "fable" floor pins that skill to Fable at every difficulty). "haiku" remains
+# a valid tier/floor value but no bracket maps to it. DEFAULT_MODEL_FLOOR
+# deliberately stays "opus" so unlabeled/ad-hoc work is not silently promoted
+# to the top tier.
 
 MODEL_TIERS  = ["haiku", "sonnet", "opus", "fable"]
 EFFORT_TIERS = ["low", "medium", "high", "xhigh", "max"]
 
-DIFFICULTY_TO_MODEL  = {"easy": "haiku",  "medium": "sonnet", "hard": "fable"}
+DIFFICULTY_TO_MODEL  = {"easy": "sonnet", "medium": "opus",   "hard": "fable"}
 DIFFICULTY_TO_EFFORT = {"easy": "low",    "medium": "medium", "hard": "high"}
 
 DEFAULT_MODEL_FLOOR  = "opus"
