@@ -276,18 +276,23 @@ NO_TEST_WORK_SENTINEL_RE = re.compile(
 # Each iter pre-parses the picked item's difficulty bracket from
 # docs/TODO.md > Next up (or docs/SPEC.md first open `[ ]` if Next up is empty),
 # mapping `[easy]` -> (haiku, low), `[medium]` -> (sonnet, medium),
-# `[hard]` -> (opus, high). Each skill's frontmatter declares a model-floor
+# `[hard]` -> (fable, high). Each skill's frontmatter declares a model-floor
 # and effort-floor; effective tier = max(item_tier, skill_floor) over the
 # orderings below. After the FIRST skill of an iter (typically the dev) exits,
 # the runner scans its assistant text for `[picked-difficulty: <tier>]`; a
 # match overrides the iter difficulty for any subsequent skill in the same
 # iter, so review/supervisor route on what the dev actually picked rather
 # than the queue head.
+# The SMARTEST bracket is "fable" (Fable 5; a first-class `--model` alias in
+# the Claude Code CLI): [hard] items route there, ABOVE the "opus" floors that
+# skills declare in frontmatter (an opus floor still wins over easy/medium
+# items; a hard item now exceeds it). DEFAULT_MODEL_FLOOR deliberately stays
+# "opus" so unlabeled/ad-hoc work is not silently promoted to the top tier.
 
-MODEL_TIERS  = ["haiku", "sonnet", "opus"]
+MODEL_TIERS  = ["haiku", "sonnet", "opus", "fable"]
 EFFORT_TIERS = ["low", "medium", "high", "xhigh", "max"]
 
-DIFFICULTY_TO_MODEL  = {"easy": "haiku",  "medium": "sonnet", "hard": "opus"}
+DIFFICULTY_TO_MODEL  = {"easy": "haiku",  "medium": "sonnet", "hard": "fable"}
 DIFFICULTY_TO_EFFORT = {"easy": "low",    "medium": "medium", "hard": "high"}
 
 DEFAULT_MODEL_FLOOR  = "opus"
