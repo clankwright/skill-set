@@ -2,8 +2,8 @@
 name: sst-literary-critic
 description: Provide constructive feedback on a draft of written content. Analyzes content, style, structure, themes, voice, and overall quality. Returns detailed, actionable feedback for the next revision pass — does NOT modify the draft. Designed to be called by sst-iterative-writer, sst-editorial-pass, or directly by the user on a single draft.
 user-invocable: true
-version: 1.0.1
-model-floor: sonnet
+version: 1.0.2
+model-floor: opus
 effort-floor: high
 argument-hint: [draft text or path to draft file]
 ---

@@ -1469,3 +1469,161 @@ def test_run_iteration_rate_limit_abort_still_hard_aborts():
     assert "skill_failure" not in iter_manifest, \
         "quota-exhaustion abort must NOT be flagged as a recoverable skill_failure"
     assert calls == ["sst-dev-cycle"], "no handoff after a quota-exhaustion abort"
+
+
+# ---- Phase 56: model-unavailable graceful fallback --------------------------
+
+_next_lower_tier = sc._next_lower_tier
+MODEL_UNAVAILABLE_TEXT_RE = sc.MODEL_UNAVAILABLE_TEXT_RE
+
+
+def test_next_lower_tier_steps_down_one_rung():
+    assert _next_lower_tier("fable", sc.MODEL_TIERS) == "opus"
+    assert _next_lower_tier("opus", sc.MODEL_TIERS) == "sonnet"
+    assert _next_lower_tier("sonnet", sc.MODEL_TIERS) == "haiku"
+
+
+def test_next_lower_tier_none_at_bottom_or_unknown():
+    assert _next_lower_tier("haiku", sc.MODEL_TIERS) is None
+    assert _next_lower_tier("bogus", sc.MODEL_TIERS) is None
+
+
+def test_model_unavailable_regex_matches_real_error_phrasings():
+    positives = [
+        'API Error: 404 {"type":"not_found_error","message":"model: claude-fable-5 not found"}',
+        "invalid model: claude-fable-5",
+        "the requested model is not available for this account",
+        "unknown model claude-fable-5",
+        "your organization does not have access to model claude-fable-5",
+        "model claude-fable-5 does not exist",
+    ]
+    for line in positives:
+        assert MODEL_UNAVAILABLE_TEXT_RE.search(line), f"should match: {line!r}"
+
+
+def test_model_unavailable_regex_ignores_transient_and_normal_lines():
+    negatives = [
+        "API Error: 529 overloaded",
+        "API Error: 503 Service Unavailable",   # 'unavailable' but no 'model' token
+        "rate limit reached; resets at 2026-07-04T00:00:00Z",
+        "Model usage: 12000 input tokens",      # 'model' but no unavailability phrase
+        "[TEST] model rendered fine",
+    ]
+    for line in negatives:
+        assert not MODEL_UNAVAILABLE_TEXT_RE.search(line), f"should NOT match: {line!r}"
+
+
+def _fake_run_skill_by_model(call_kwargs_list, outcomes, default=(0, {})):
+    """Fake run_skill that returns a canned (rc, record) keyed on the model kwarg."""
+    def fake(_harness, _skill_name, _index, _log_dir, **kwargs):
+        call_kwargs_list.append(kwargs.copy())
+        return outcomes.get(kwargs.get("model"), default)
+    return fake
+
+
+def test_model_fallback_steps_down_to_available_tier():
+    """fable unavailable -> retry on opus (fresh session), succeed, record the fallback."""
+    h = ClaudeCodeHarness()
+    call_kwargs: list = []
+    outcomes = {
+        "fable": (1, {"model_unavailable_signal": {"source": "text_fallback"},
+                      "session_id": "sess_fable"}),
+        "opus":  (0, {}),
+    }
+    fake = _fake_run_skill_by_model(call_kwargs, outcomes)
+
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch("time.sleep"):
+        rc, record = run_skill_with_retry(
+            h, "ssp-cm-supervisor", 0, None,
+            on_rate_limit="pause", max_pause_seconds=3600, max_pauses=3,
+            pause_records=[], model="fable", effort="xhigh",
+        )
+
+    assert rc == 0
+    assert len(call_kwargs) == 2
+    assert call_kwargs[0]["model"] == "fable"
+    assert call_kwargs[1]["model"] == "opus", "must step DOWN one tier on unavailability"
+    assert call_kwargs[1]["resume_session_id"] is None, "model swap must start a fresh session"
+    assert record.get("model_fallbacks"), "the successful record must carry the fallback trail"
+    assert record["model_fallbacks"][0]["from"] == "fable"
+    assert record["model_fallbacks"][0]["to"] == "opus"
+    assert record.get("effective_model_after_fallback") == "opus"
+
+
+def test_model_fallback_cascades_multiple_tiers():
+    """fable + opus both unavailable -> lands on sonnet."""
+    h = ClaudeCodeHarness()
+    call_kwargs: list = []
+    outcomes = {
+        "fable":  (1, {"model_unavailable_signal": {"source": "result_frame"}}),
+        "opus":   (1, {"model_unavailable_signal": {"source": "result_frame"}}),
+        "sonnet": (0, {}),
+    }
+    fake = _fake_run_skill_by_model(call_kwargs, outcomes)
+
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch("time.sleep"):
+        rc, record = run_skill_with_retry(
+            h, "ssp-cm-manager", 0, None,
+            on_rate_limit="pause", max_pause_seconds=3600, max_pauses=3,
+            pause_records=[], model="fable",
+        )
+
+    assert rc == 0
+    assert [k["model"] for k in call_kwargs] == ["fable", "opus", "sonnet"]
+    assert [f["to"] for f in record["model_fallbacks"]] == ["opus", "sonnet"]
+
+
+def test_model_fallback_aborts_at_lowest_tier():
+    """Unavailable at the lowest tier -> give up, flag model_fallback_aborted."""
+    h = ClaudeCodeHarness()
+    call_kwargs: list = []
+    outcomes = {"haiku": (1, {"model_unavailable_signal": {"source": "text_fallback"}})}
+    fake = _fake_run_skill_by_model(call_kwargs, outcomes)
+
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch("time.sleep"):
+        rc, record = run_skill_with_retry(
+            h, "sst-translator", 0, None,
+            on_rate_limit="pause", max_pause_seconds=3600, max_pauses=3,
+            pause_records=[], model="haiku",
+        )
+
+    assert rc == 1
+    assert len(call_kwargs) == 1, "no lower tier to try, so exactly one attempt"
+    assert record.get("model_fallback_aborted") == "no_lower_tier"
+
+
+def test_model_fallback_not_triggered_when_overload_signal_present():
+    """A transient overload alongside a model signal retries the SAME model, no downgrade."""
+    h = ClaudeCodeHarness()
+    call_kwargs: list = []
+    outcomes = {
+        # First fable attempt: overload wins (transient) -> retry fable, then succeed.
+        "fable": (1, {"overload_signal": {"status": 529, "source": "result_frame"},
+                      "model_unavailable_signal": {"source": "text_fallback"},
+                      "session_id": "sess_x"}),
+    }
+    # After the overload retry, return success for fable on the 2nd call.
+    calls = {"n": 0}
+
+    def fake(_h, _s, _i, _l, **kwargs):
+        call_kwargs.append(kwargs.copy())
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return outcomes["fable"]
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch("time.sleep"):
+        rc, record = run_skill_with_retry(
+            h, "ssp-cm-supervisor", 0, None,
+            on_rate_limit="pause", max_pause_seconds=3600, max_pauses=3,
+            pause_records=[], overload_retry_records=[], model="fable",
+        )
+
+    assert rc == 0
+    assert [k["model"] for k in call_kwargs] == ["fable", "fable"], \
+        "overload retries the same model; it must NOT downgrade the tier"
+    assert not record.get("model_fallbacks")

@@ -2,8 +2,8 @@
 name: sst-sanitize-transferable
 description: Scan a transferable SKILL.md (or a draft transferable rewrite) for proprietary leakage using LLM judgment, not regex. Reads the sanitization-guidance reference, any per-project banned-terms list maintained by the proprietary supervisor, and the target SKILL.md body. Produces a categorized findings list (must-fix / should-fix / nit) with concrete suggested rewrites for each, and optionally writes a fully-sanitized sibling file for human review. Never silently edits the target. Used as a hard pre-write gate by whoever edits a transferable directly — the supervisor on its automated edits, or a human/manager on a manual edit.
 user-invocable: true
-version: 1.1.0
-model-floor: opus
+version: 1.1.1
+model-floor: fable
 effort-floor: xhigh
 ---
 

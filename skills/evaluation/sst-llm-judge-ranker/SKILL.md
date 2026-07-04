@@ -2,8 +2,8 @@
 name: sst-llm-judge-ranker
 description: Maintain a ranked list of N artifacts (drafts, designs, code variants, research reports, ...) by comparing each new candidate against the current top and bottom of the list, using LLM judgment as the comparator. Supports both batch ranking (compare every artifact against every other) and incremental insertion (place a new artifact into an existing ranked list with O(log N) comparisons via binary search). Persists the ranklist as JSON; safe to call repeatedly as new candidates land.
 user-invocable: true
-version: 1.0.1
-model-floor: haiku
+version: 1.0.2
+model-floor: sonnet
 effort-floor: medium
 argument-hint: [path to candidates dir | two file paths to compare directly]
 ---

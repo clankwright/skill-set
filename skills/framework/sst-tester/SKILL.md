@@ -17,8 +17,8 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.10.0
-model-floor: sonnet
+version: 1.10.1
+model-floor: opus
 effort-floor: high
 ---
 

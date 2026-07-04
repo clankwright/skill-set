@@ -208,6 +208,34 @@ OVERLOAD_BACKOFF_BASE_SECONDS = 10
 OVERLOAD_BACKOFF_CAP_SECONDS = 300
 
 
+# ---- Model-unavailable fallback (Phase 56) ---------------------------------
+# When the resolved model for a skill is not available to this account (e.g.
+# the top "fable" tier is gated, or a model id was retired), the harness fails
+# fast with a 404 / not_found_error naming the model rather than a transient
+# 5xx. That is NOT a retry-the-same-model situation: the runner instead steps
+# DOWN one MODEL_TIERS rung (fable -> opus -> sonnet -> haiku) and re-invokes
+# with a fresh session, repeating until a tier is accepted or the lowest tier
+# is exhausted. This is orthogonal to the overload/rate-limit paths (which
+# retry the SAME model) and consumes neither of their budgets. The step-down is
+# recorded on the skill/iter manifest (`model_fallbacks`) and notified so the
+# supervisor can see the account ran below its intended tier.
+#
+# Detection requires BOTH a model reference AND an unavailability phrase so a
+# generic 400/404 on some other resource is never misread as a model problem.
+MODEL_UNAVAILABLE_TEXT_RE = re.compile(
+    r"(?:"
+    r"(?:invalid|unknown|unsupported|unrecognized|deprecated|retired)\s+model"
+    r"|model[^\n]{0,80}?(?:not[\s_-]?found|not[\s_-]?available|does\s+not\s+exist"
+    r"|is\s+not\s+available|is\s+unavailable|no\s+longer\s+available)"
+    r"|not_found_error[^\n]{0,100}?model"
+    r"|(?:do(?:es)?\s+not\s+have\s+access|not\s+(?:allowed|permitted|authorized)"
+    r"\s+to\s+(?:use|access))[^\n]{0,80}?model"
+    r")",
+    re.IGNORECASE,
+)
+MODEL_UNAVAILABLE_HTTP_STATUSES = frozenset({400, 404})
+
+
 # ---- No-work sentinel (Phase 17) -------------------------------------------
 # When a skill (typically a dev cycle in steady state) finds nothing to do and
 # prints `[no-work] <one-line reason>` as its own assistant-text line before
@@ -377,6 +405,19 @@ def _max_tier(item_tier: str, floor_tier: str, ordering: list[str]) -> str:
     if a < 0 and b < 0:
         return ordering[-1]  # safest: highest tier
     return ordering[max(a, b)]
+
+
+def _next_lower_tier(tier: str, ordering: list[str]) -> str | None:
+    """Return the tier one step below `tier` in `ordering`, or None if `tier`
+    is already the lowest (or unknown). Used by the model-fallback path: when a
+    resolved model is unavailable (e.g. the account has no access to the top
+    tier), the runner steps DOWN one model tier and retries rather than aborting
+    the iteration. Ordering is low->high (MODEL_TIERS), so "one lower" is index-1.
+    """
+    if tier not in ordering:
+        return None
+    i = ordering.index(tier)
+    return ordering[i - 1] if i > 0 else None
 
 
 def _find_skill_md(skill_name: str, cwd: str) -> Path | None:
@@ -1114,6 +1155,18 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
                     "status": api_status,
                     "source": "result_frame",
                 }
+            # Phase 56: model-unavailable detection from the result frame. Requires
+            # the unavailability phrasing (matched against the serialized frame) so
+            # a transient 5xx or an unrelated 4xx is never treated as a bad model.
+            if "model_unavailable_signal" not in skill_record and (
+                MODEL_UNAVAILABLE_TEXT_RE.search(json.dumps(event))
+                or (api_status in MODEL_UNAVAILABLE_HTTP_STATUSES
+                    and MODEL_UNAVAILABLE_TEXT_RE.search(str(event.get("result", ""))))
+            ):
+                skill_record["model_unavailable_signal"] = {
+                    "status": api_status or None,
+                    "source": "result_frame",
+                }
         return
 
 
@@ -1221,6 +1274,14 @@ def run_skill(
                                 "status": status_code,
                                 "source": "text_fallback",
                             }
+                # Phase 56: model-unavailable text fallback (for when the CLI dies
+                # before a clean result frame). Structured signal takes precedence.
+                if "model_unavailable_signal" not in skill_record \
+                        and MODEL_UNAVAILABLE_TEXT_RE.search(line):
+                    skill_record["model_unavailable_signal"] = {
+                        "status": None,
+                        "source": "text_fallback",
+                    }
                 sink.write(c(line, GRAY))
                 continue
             try:
@@ -1299,14 +1360,19 @@ def run_skill_with_retry(
     _ol_retry_count = 0
     _archive_idx = 0          # shared monotone index for archive file naming
     resume_session_id: str | None = None
+    current_model = model     # Phase 56: mutated on model-unavailable step-down
+    model_fallbacks: list[dict] = []
     while True:
         rc, record = run_skill(
-            harness, skill_name, index, log_dir, model=model, effort=effort,
+            harness, skill_name, index, log_dir, model=current_model, effort=effort,
             extra_prompt=extra_prompt, log_stem_override=log_stem_override,
             resume_session_id=resume_session_id,
         )
         if retry_count > 0:
             record["retry_count"] = retry_count
+        if model_fallbacks:
+            record["model_fallbacks"] = list(model_fallbacks)
+            record["effective_model_after_fallback"] = current_model
 
         if rc == 0:
             return rc, record
@@ -1356,6 +1422,49 @@ def run_skill_with_retry(
             _archive_attempt(log_dir, index, skill_name, _archive_idx)
             _archive_idx += 1
             _ol_retry_count += 1
+            continue
+
+        # Phase 56: model-unavailable fallback — the resolved model is not
+        # available to this account. Step DOWN one MODEL_TIERS rung and retry
+        # with a fresh session (a model swap invalidates the prior session).
+        # Checked only when no transient (rate-limit / overload) signal is
+        # present, so a flaky 5xx never triggers a permanent tier downgrade.
+        mu_signal = record.get("model_unavailable_signal")
+        if mu_signal and not rl_signal and not rl_text and not ol_signal:
+            lower = _next_lower_tier(current_model or DEFAULT_MODEL_FLOOR, MODEL_TIERS)
+            fb_record = {
+                "at": _utc_iso(),
+                "from": current_model,
+                "to": lower,
+                "source": mu_signal.get("source"),
+                "status": mu_signal.get("status"),
+                "skill": skill_name,
+            }
+            if lower is None:
+                print(c(
+                    f"[model-fallback] {skill_name}: {current_model} unavailable "
+                    f"and no lower tier remains; giving up",
+                    RED,
+                ), flush=True)
+                fb_record["aborted"] = "no_lower_tier"
+                model_fallbacks.append(fb_record)
+                record["model_fallbacks"] = list(model_fallbacks)
+                record["model_fallback_aborted"] = "no_lower_tier"
+                if notify is not None:
+                    notify("model-fallback-abort", fb_record)
+                return rc, record
+            print(c(
+                f"[model-fallback] {skill_name}: model '{current_model}' unavailable; "
+                f"retrying on '{lower}' (fresh session)",
+                ORANGE,
+            ), flush=True)
+            model_fallbacks.append(fb_record)
+            if notify is not None:
+                notify("model-fallback", fb_record)
+            current_model = lower
+            resume_session_id = None   # a model swap starts a fresh session
+            _archive_attempt(log_dir, index, skill_name, _archive_idx)
+            _archive_idx += 1
             continue
 
         if on_rate_limit == "fail":

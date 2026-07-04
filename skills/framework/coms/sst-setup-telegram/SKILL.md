@@ -2,8 +2,8 @@
 name: sst-setup-telegram
 description: End-to-end Telegram bot provisioning, guided-plus-automated. Walks the user through the BotFather steps that only they can do (those touch the user's Telegram app), and automates everything else — chat-id discovery via getUpdates, credentials written to a protected .env file, outbound + inbound round-trip test, optional service-unit install for a long-poll worker, and optional /setcommands push so command suggestions show up in the client. Works for any project that wants a Telegram channel for alerts, chatops, or bot-driven human-in-loop steering.
 user-invocable: true
-version: 1.1.0
-model-floor: haiku
+version: 1.1.1
+model-floor: sonnet
 effort-floor: medium
 argument-hint: "[bot display name]  [--host systemd|rc.d|tmux|none]  [--env-path <path>]"
 ---
