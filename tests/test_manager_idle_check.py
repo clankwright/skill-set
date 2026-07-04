@@ -255,30 +255,31 @@ def test_sst_setup_telegram_skill_documents_base_dir_symlink():
     )
 
 
-def test_sst_manager_model_floor_is_sonnet():
-    """sst-manager SKILL.md frontmatter must declare model-floor: sonnet (not opus).
+def test_sst_manager_model_floor_is_fable():
+    """sst-manager SKILL.md frontmatter must declare model-floor: fable.
 
-    Managers compose digests and walk state rather than generating code, so
-    opus/high is overkill; three concurrent Opus/high ticks exhaust the shared
-    5-hour Anthropic limit so only the first persona's tick gets through.
+    Phase 56 pinned the oversight/orchestration skills (dev, supervisor,
+    manager, executor, sanitize gate) to the top Fable 5 tier: the manager's
+    digest/escalation judgment steers every persona, so it runs on the
+    smartest model regardless of item difficulty.
     """
     text = _SST_MANAGER_SKILL.read_text()
     # Frontmatter section (between first --- delimiters).
     frontmatter_end = text.find("\n---", 3)
     frontmatter = text[:frontmatter_end] if frontmatter_end != -1 else text[:500]
-    assert "model-floor: sonnet" in frontmatter, (
-        "sst-manager SKILL.md frontmatter must set model-floor: sonnet; "
-        "opus exhausts the 5-hour limit when multiple personas tick concurrently"
+    assert "model-floor: fable" in frontmatter, (
+        "sst-manager SKILL.md frontmatter must set model-floor: fable "
+        "(Phase 56 tier shift pins the manager to the top tier)"
     )
 
 
 def test_readme_documents_manager_model_floor():
-    """README canonical floor table must include sst-manager at sonnet tier (same line)."""
+    """README canonical floor table must include sst-manager at fable tier (same line)."""
     for line in _README.read_text().splitlines():
-        if "sst-manager" in line and "sonnet" in line:
+        if "sst-manager" in line and "fable" in line:
             return  # Found a table row with both tokens.
     raise AssertionError(
-        "README floor table must have a row with both 'sst-manager' and 'sonnet'"
+        "README floor table must have a row with both 'sst-manager' and 'fable'"
     )
 
 

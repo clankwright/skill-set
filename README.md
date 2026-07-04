@@ -225,31 +225,33 @@ The runner picks `--model` and `--effort` per skill, per iteration, by combining
 **Per-skill floors** sit in SKILL.md frontmatter as two optional fields:
 
 ```yaml
-model-floor: opus      # opus | sonnet | haiku  (default opus)
+model-floor: fable     # fable | opus | sonnet | haiku  (default opus)
 effort-floor: xhigh    # low | medium | high | xhigh | max  (default high)
 ```
 
-The framework's canonical floor table:
+The framework's canonical floor table (Phase 56 tier shift — every class moved up one model tier; `fable` = Fable 5, the smartest tier):
 
 | Skill class                                                                 | `model-floor` | `effort-floor` |
 | :---                                                                        | :---          | :---           |
-| `sst-supervisor`, `sst-sanitize-transferable`                               | `opus`        | `xhigh`        |
-| `sst-dev-cycle`, `sst-tester`, `sst-dev-review`, `sst-skill-router`, `sst-editorial-pass`, `sst-iterative-writer`, `sst-literary-critic` | `sonnet` | `high` |
-| `sst-manager`                                                               | `sonnet`      | `high`         |
-| `sst-translator`, `sst-fact-checker`, `sst-output-selector`, `sst-llm-judge-ranker`, `sst-email-control-loop`, `sst-setup-telegram` | `haiku` | `medium` |
+| `sst-supervisor`, `sst-sanitize-transferable`                               | `fable`       | `xhigh`        |
+| `sst-dev-cycle`, `sst-executor`, `sst-manager`                              | `fable`       | `high`         |
+| `sst-tester`, `sst-dev-review`, `sst-skill-router`, `sst-editorial-pass`, `sst-iterative-writer`, `sst-literary-critic` | `opus` | `high` |
+| `sst-translator`, `sst-fact-checker`, `sst-output-selector`, `sst-llm-judge-ranker`, `sst-email-control-loop`, `sst-setup-telegram` | `sonnet` | `medium` |
+
+`haiku` remains a valid floor value but no skill or difficulty bracket maps to it after the shift.
 
 **Per-item difficulty labels** sit on every open SPEC item and TODO Next-up entry:
 
-- `[easy]` → Haiku tier + `low` effort (mechanical, well-bounded, no judgment-bleeding-edge).
-- `[medium]` → Sonnet tier + `medium` effort (substantial reasoning, multi-step, structured).
-- `[hard]` → Opus tier + `high` effort (novel design, cross-file reasoning, architectural decisions).
+- `[easy]` → Sonnet tier + `low` effort (mechanical, well-bounded, no judgment-bleeding-edge).
+- `[medium]` → Opus tier + `medium` effort (substantial reasoning, multi-step, structured).
+- `[hard]` → Fable tier + `high` effort (novel design, cross-file reasoning, architectural decisions).
 
 Format: SPEC items use `- [ ] [<difficulty>] <description>`; TODO Next-up uses `- [<difficulty>] <description>. Reason: ...`. Closed `[x]` items and `## Just shipped` entries don't carry labels (historical).
 
 **Resolution rule (per skill, per iter):**
 
 ```
-effective_model  = max(item.model_tier,  skill.model_floor)   over {haiku < sonnet < opus}
+effective_model  = max(item.model_tier,  skill.model_floor)   over {haiku < sonnet < opus < fable}
 effective_effort = max(item.effort_tier, skill.effort_floor)  over {low < medium < high < xhigh < max}
 ```
 
@@ -259,14 +261,14 @@ Routing flow: the runner pre-parses the next item's difficulty BEFORE invoking t
 
 | Skill                    | item tier         | skill floor       | resolved          |
 | :---                     | :---              | :---              | :---              |
-| `sst-dev-cycle`          | sonnet, medium    | sonnet, high      | **sonnet, high**  |
-| `sst-tester`             | sonnet, medium    | sonnet, high      | **sonnet, high**  |
-| `sst-dev-review`         | sonnet, medium    | sonnet, high      | **sonnet, high**  |
-| `sst-supervisor`         | sonnet, medium    | opus, xhigh       | **opus, xhigh**   |
+| `sst-dev-cycle`          | opus, medium      | fable, high       | **fable, high**   |
+| `sst-tester`             | opus, medium      | opus, high        | **opus, high**    |
+| `sst-dev-review`         | opus, medium      | opus, high        | **opus, high**    |
+| `sst-supervisor`         | opus, medium      | fable, xhigh      | **fable, xhigh**  |
 
-The dev, tester, and review run on Sonnet+high (effort floor wins on the effort axis; model floor matches the item tier on the model axis); the supervisor still runs on Opus+xhigh because its floors win on both axes regardless of item difficulty. A `[hard]` item by the same chain would lift dev, tester, and review to Opus+high (item tier wins on both axes); an `[easy]` item by `sst-translator` would run on Haiku+low (floors match the item tier).
+The tester and review run on Opus+high (effort floor wins on the effort axis; model floor matches the item tier on the model axis); the dev and supervisor run on Fable regardless of item difficulty because their `fable` floors win on the model axis. A `[hard]` item by the same chain would lift tester and review to Fable+high (item tier wins on both axes); an `[easy]` item by `sst-translator` would run on Sonnet+medium (model floors match the item tier; the `medium` effort floor lifts the item's `low`).
 
-**Throughput impact.** Combined with the dev/tester/review tier dropping from Opus+xhigh to Sonnet+high on most items, routing review-class work to Sonnet+medium and mechanical work to Haiku+low cuts quota burn per iter to ~25-35% of an all-Opus+xhigh baseline (~3-4× more iters per Max window). Supervisor + sanitize stay on Opus+xhigh on every cycle since their floors are absolute; transferable skill edits committed by the supervisor are still authored at the supervisor's Opus+xhigh route.
+**Quota trade-off.** The Phase 56 shift deliberately spends more quota per iter for capability: the dev, supervisor, manager, executor, and sanitize gate always run Fable 5, review-class work runs at least Opus, and mechanical work at least Sonnet. When an account lacks access to a resolved tier (e.g. `fable` is gated), the runner's model-unavailable fallback steps the invocation down one tier at a time (fable → opus → sonnet → haiku) with a fresh session, records the step-down on the manifest (`model_fallbacks`), and notifies — so chains still complete below their intended tier rather than aborting.
 
 **Anti-fork rule.** Floors are declared in SKILL.md frontmatter; the runner reads them, never invents them. The `max()` resolution rule binds at both axes — there is no path that lets an item difficulty drop a skill below its floor, and no fifth resolution input that bypasses both axes. If a new skill class needs a different floor pair, add the frontmatter values; don't branch the resolver.
 
