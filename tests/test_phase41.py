@@ -50,7 +50,7 @@ def test_sst_tester_frontmatter():
     # bumping past the 1.0.0 initial author); assert a valid major-1 semver, not a pin.
     _v = fm.get("version", "")
     assert re.match(r"^1\.\d+\.\d+$", _v), f"version: must be a major-1 semver, got {_v!r}"
-    assert fm.get("model-floor") == "sonnet", "model-floor: must be sonnet"
+    assert fm.get("model-floor") == "opus", "model-floor: must be opus (Phase 56 tier shift)"
     assert fm.get("effort-floor") == "high", "effort-floor: must be high"
     assert fm.get("user-invocable") == "true", "user-invocable: must be true"
     # Transferable skills never declare a transferable: back-link.

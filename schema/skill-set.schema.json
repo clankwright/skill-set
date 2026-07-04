@@ -33,8 +33,8 @@
     },
     "model-floor": {
       "type": "string",
-      "enum": ["opus", "sonnet", "haiku"],
-      "description": "Phase 19 model-tier routing: lowest model tier this skill is ever allowed to run on, regardless of item difficulty. Resolved at iter-start as `effective_model = max(item.model_tier, skill.model_floor)` over the order {haiku < sonnet < opus}. Optional; defaults to 'opus' when absent. Framework-level skills (sst-supervisor, sst-sanitize-transferable) pin 'opus'; review-class skills typically 'sonnet'; mechanical / well-bounded skills 'haiku'."
+      "enum": ["fable", "opus", "sonnet", "haiku"],
+      "description": "Phase 19 model-tier routing: lowest model tier this skill is ever allowed to run on, regardless of item difficulty. Resolved at iter-start as `effective_model = max(item.model_tier, skill.model_floor)` over the order {haiku < sonnet < opus < fable}. Optional; defaults to 'opus' when absent. Phase 56 tier shift: orchestration/lead skills (sst-dev-cycle, sst-supervisor, sst-manager, sst-executor, sst-sanitize-transferable) pin 'fable'; review-class skills typically 'opus'; mechanical / well-bounded skills 'sonnet'. 'haiku' remains valid but no difficulty bracket maps to it."
     },
     "effort-floor": {
       "type": "string",
