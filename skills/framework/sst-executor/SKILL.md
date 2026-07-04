@@ -3,8 +3,8 @@ name: sst-executor
 description: |
   The framework's "hands": the one skill authorized to CARRY OUT framework-maintenance actions (sync runtime skill copies, reconcile a drifted ssp-* wrapper, run a version-sync check, edit + push a base-repo skill) rather than only observe or route them. It exists so the supervisor can delegate routine follow-ups that do not need human attention, minimizing human involvement, while every action stays legibly auditable. Two entry modes. Supervisor-request execution (--process-supervisor-request <queue-file>) runs an autonomous batch the supervisor handed off. Command execution (--process-command <queue-file>) completes a human approval (/approve <token> <id>) of a previously-asked action, or runs a fresh human instruction (/exec <token> <action>). Every candidate action is classified into one of three authority tiers: tier-1 reversible/local actions run unattended; tier-2 outward/irreversible actions (any git push, any deploy) are prepared then gated behind a one-line Telegram approval; tier-3 actions (production deploy, watched-project git, push to main, sanitize bypass, secret exposure) are always refused. Every action — done, asked, or refused — is reported to the human immediately over Telegram in a fixed succinct audit format; an unaudited action is a contract violation. Never edits watched-project code, never deploys, never spawns another harness. The supervisor (sst-supervisor) dispatches to it; the bot (manager-bot.py) spawns it for /approve and /exec; the manager (sst-manager) stays read-only and is unaffected.
 user-invocable: true
-version: 1.0.0
-model-floor: opus
+version: 1.0.1
+model-floor: fable
 effort-floor: high
 ---
 

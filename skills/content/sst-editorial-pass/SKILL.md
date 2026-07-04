@@ -3,8 +3,8 @@ name: sst-editorial-pass
 description: |
   Run a draft through a structured multi-pass editorial review — high-level scope check, citation verification (via sst-fact-checker sub-skill), claim segmentation, fact-correction application, then a final clarity/conciseness pass. Produces a polished, publish-ready draft plus a summary of edits made and any remaining open questions. Designed to consume the output of sst-iterative-writer or any human draft.
 user-invocable: true
-version: 1.0.1
-model-floor: sonnet
+version: 1.0.2
+model-floor: opus
 effort-floor: high
 argument-hint: [path to draft file or raw draft text]
 ---
