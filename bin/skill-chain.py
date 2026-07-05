@@ -153,7 +153,20 @@ RATE_LIMIT_TEXT_RE = re.compile(
     r"\b(?:rate[\s-]*limit(?:ed|s|ing)?\b.{0,40}\b(?:exceeded|reached|reset)\b"
     r"|you'?ve hit your\s+\w+\s+rate limit"
     r"|hit your.{0,20}usage limit"
+    r"|hit your.{0,20}spend limit"
     r"|you'?re out of (?:extra )?usage)",
+    re.IGNORECASE,
+)
+
+# Phase 57: rate-limit TYPES (or text) where dropping to a lower model tier
+# bypasses the limit -- the top tier's long-window allocation (weekly / monthly
+# / overage / spend) is spent while cheaper tiers still draw from a separate
+# pool ("/model to switch models"). The shared five_hour rolling window is NOT
+# here: it caps every tier, so only waiting clears it. When one of these fires
+# and a lower tier exists, run_skill_with_retry drops a tier and retries
+# immediately instead of sleeping until the (multi-day) reset.
+MODEL_SWITCHABLE_RATE_LIMIT_RE = re.compile(
+    r"seven[_\s-]?day|overage|weekly|week|month|spend[_\s-]?limit|spend limit",
     re.IGNORECASE,
 )
 
@@ -420,6 +433,44 @@ def _next_lower_tier(tier: str, ordering: list[str]) -> str | None:
     return ordering[i - 1] if i > 0 else None
 
 
+# Phase 57: model-tier ceiling. Fable is DISABLED BY DEFAULT (its weekly
+# allocation is small and easily exhausted); re-enable per-run with the
+# `--enable-fable` CLI flag or SKILL_CHAIN_ENABLE_FABLE=1. `_RUNTIME_MODEL_CEILING`
+# caps every resolved model at or below this tier (None = no ceiling); it is
+# initialised from the env below and may be overridden by the CLI flag in main().
+# `_RATE_LIMITED_TIERS` accumulates tiers that hit a MODEL-SWITCHABLE rate limit
+# during THIS run so later iterations skip re-probing (and burning quota on) a
+# tier already known-exhausted this session; transient five_hour limits never
+# land here because they don't trigger a downgrade.
+_TRUTHY = {"1", "true", "yes", "on"}
+_RATE_LIMITED_TIERS: set[str] = set()
+
+
+def _env_fable_enabled() -> bool:
+    return os.environ.get("SKILL_CHAIN_ENABLE_FABLE", "").strip().lower() in _TRUTHY
+
+
+_RUNTIME_MODEL_CEILING: str | None = None if _env_fable_enabled() else "opus"
+
+
+def _apply_model_ceiling(model: str) -> str:
+    """Cap `model` at the runtime ceiling AND below any tier rate-limited this run.
+
+    Unknown models pass through untouched. Returns the highest allowed tier at or
+    below `model`. Used by _resolve_skill_route so both the Fable-off default and
+    the session-sticky rate-limit downgrade apply everywhere a model is resolved.
+    """
+    if model not in MODEL_TIERS:
+        return model
+    idx = MODEL_TIERS.index(model)
+    if _RUNTIME_MODEL_CEILING in MODEL_TIERS:
+        idx = min(idx, MODEL_TIERS.index(_RUNTIME_MODEL_CEILING))
+    for rl in _RATE_LIMITED_TIERS:
+        if rl in MODEL_TIERS:
+            idx = min(idx, MODEL_TIERS.index(rl) - 1)
+    return MODEL_TIERS[max(idx, 0)]
+
+
 def _find_skill_md(skill_name: str, cwd: str) -> Path | None:
     """Locate the SKILL.md the harness will load for this skill.
 
@@ -530,7 +581,10 @@ def _resolve_skill_route(
     effort_floor = fm.get("effort-floor") or DEFAULT_EFFORT_FLOOR
     item_model   = DIFFICULTY_TO_MODEL.get(iter_difficulty,  DIFFICULTY_TO_MODEL[DEFAULT_DIFFICULTY])
     item_effort  = DIFFICULTY_TO_EFFORT.get(iter_difficulty, DIFFICULTY_TO_EFFORT[DEFAULT_DIFFICULTY])
-    eff_model    = _max_tier(item_model,  model_floor,  MODEL_TIERS)
+    uncapped     = _max_tier(item_model,  model_floor,  MODEL_TIERS)
+    # Phase 57: cap at the runtime ceiling (Fable off by default) and below any
+    # tier rate-limited earlier this run, so an exhausted top tier is not re-probed.
+    eff_model    = _apply_model_ceiling(uncapped)
     eff_effort   = _max_tier(item_effort, effort_floor, EFFORT_TIERS)
     record = {
         "difficulty":     iter_difficulty,
@@ -541,6 +595,9 @@ def _resolve_skill_route(
         "effective_model":  eff_model,
         "effective_effort": eff_effort,
     }
+    if eff_model != uncapped:
+        record["model_capped_from"] = uncapped
+        record["model_ceiling"] = _RUNTIME_MODEL_CEILING
     return eff_model, eff_effort, record
 
 
@@ -1467,6 +1524,46 @@ def run_skill_with_retry(
             _archive_idx += 1
             continue
 
+        # Phase 57: model-switchable rate limit (the current tier's long-window
+        # allocation is spent -- weekly / monthly / overage / spend). Drop ONE
+        # model tier and retry immediately instead of sleeping until the
+        # multi-day reset; cheaper tiers draw from a separate pool. The exhausted
+        # tier is recorded in _RATE_LIMITED_TIERS so subsequent iterations skip
+        # re-probing it. Runs BEFORE the on_rate_limit/fail gate and the sleep so
+        # it takes priority over both. Shared five_hour limits do NOT match here
+        # and fall through to the normal pause. Only when a lower tier exists.
+        rl_type = (rl_signal or {}).get("type", "") or ""
+        if (rl_signal or rl_text) and (
+            MODEL_SWITCHABLE_RATE_LIMIT_RE.search(rl_type)
+            or (rl_text and MODEL_SWITCHABLE_RATE_LIMIT_RE.search(rl_text))
+        ):
+            lower = _next_lower_tier(current_model or DEFAULT_MODEL_FLOOR, MODEL_TIERS)
+            if lower is not None:
+                if current_model in MODEL_TIERS:
+                    _RATE_LIMITED_TIERS.add(current_model)
+                fb_record = {
+                    "at": _utc_iso(),
+                    "from": current_model,
+                    "to": lower,
+                    "reason": f"rate_limit:{rl_type or 'text'}",
+                    "skill": skill_name,
+                }
+                print(c(
+                    f"[model-fallback] {skill_name}: '{current_model}' rate-limited "
+                    f"({rl_type or 'spend-limit'}); dropping to '{lower}' and retrying "
+                    f"instead of sleeping until reset",
+                    ORANGE,
+                ), flush=True)
+                model_fallbacks.append(fb_record)
+                if notify is not None:
+                    notify("model-fallback", fb_record)
+                current_model = lower
+                resume_session_id = None
+                _archive_attempt(log_dir, index, skill_name, _archive_idx)
+                _archive_idx += 1
+                continue
+            # No lower tier: fall through to the normal pause-until-reset path.
+
         if on_rate_limit == "fail":
             return rc, record
 
@@ -2326,6 +2423,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              "'continue' processes remaining inputs.",
     )
     p.add_argument(
+        "--enable-fable",
+        action="store_true",
+        help="Allow the top 'fable' model tier. Fable is DISABLED BY DEFAULT "
+             "(its weekly allocation is small); without this flag every resolved "
+             "model is capped at 'opus'. Equivalent to SKILL_CHAIN_ENABLE_FABLE=1.",
+    )
+    p.add_argument(
         "skills",
         nargs="*",
         help="One or more skill names to run in sequence. Omit when --chain is set. "
@@ -2887,6 +2991,15 @@ def main() -> int:
     args = parse_args(sys.argv[1:])
     harness = get_harness(args.harness)
     harness.max_turns = args.max_turns
+
+    # Phase 57: Fable is off by default (see _RUNTIME_MODEL_CEILING). --enable-fable
+    # (or SKILL_CHAIN_ENABLE_FABLE=1, already honored at import) lifts the ceiling.
+    global _RUNTIME_MODEL_CEILING
+    if args.enable_fable:
+        _RUNTIME_MODEL_CEILING = None
+    if _RUNTIME_MODEL_CEILING is not None:
+        print(c(f"[model] fable disabled; models capped at '{_RUNTIME_MODEL_CEILING}' "
+                f"(--enable-fable to allow fable)", GRAY), flush=True)
 
     cwd = os.getcwd()
 
