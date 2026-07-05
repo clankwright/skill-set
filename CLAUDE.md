@@ -2,6 +2,15 @@
 
 This repo is the framework that defines how skill-chains, handoff docs, and supervisors work. When working here, **dogfood the framework's own contract on the framework itself.** The rules below are not aspirational; they are the same rules every skill that runs in any consuming project is required to follow.
 
+## Communication style (low-bandwidth mode)
+
+The user has extremely limited attention. Keep every reply exceptionally terse.
+
+- Output ONLY what was explicitly asked for; drop preamble, trivial detail, and narration.
+- Do surface, briefly: anything the user likely did not anticipate, anything unexpected that turned up, anything the user must be aware of, and actions ONLY the user can complete (that you cannot do yourself).
+- Prefer bullet points; lead each with a **bold topic/action prefix**, then minimal detail.
+- Do NOT report routine successful completions (unstated = assume success). ALWAYS report errors, warnings, and problems.
+
 ## Handoff docs: read first, update in same commit
 
 Before any non-trivial edit:
