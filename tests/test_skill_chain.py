@@ -1627,3 +1627,102 @@ def test_model_fallback_not_triggered_when_overload_signal_present():
     assert [k["model"] for k in call_kwargs] == ["fable", "fable"], \
         "overload retries the same model; it must NOT downgrade the tier"
     assert not record.get("model_fallbacks")
+
+
+# ---- Phase 57: Fable-off-by-default ceiling + rate-limit model downgrade -----
+
+_apply_model_ceiling = sc._apply_model_ceiling
+MODEL_SWITCHABLE_RATE_LIMIT_RE = sc.MODEL_SWITCHABLE_RATE_LIMIT_RE
+
+
+def _reset_tier_globals(ceiling):
+    sc._RUNTIME_MODEL_CEILING = ceiling
+    sc._RATE_LIMITED_TIERS.clear()
+
+
+def test_model_ceiling_disables_fable_by_default():
+    _reset_tier_globals("opus")   # the module default
+    assert _apply_model_ceiling("fable") == "opus"
+    assert _apply_model_ceiling("opus") == "opus"
+    assert _apply_model_ceiling("sonnet") == "sonnet"
+
+
+def test_model_ceiling_none_allows_fable():
+    _reset_tier_globals(None)
+    assert _apply_model_ceiling("fable") == "fable"
+
+
+def test_rate_limited_tier_is_capped_below():
+    _reset_tier_globals(None)
+    sc._RATE_LIMITED_TIERS.add("fable")
+    assert _apply_model_ceiling("fable") == "opus"      # capped below the RL'd tier
+    sc._RATE_LIMITED_TIERS.add("opus")
+    assert _apply_model_ceiling("fable") == "sonnet"
+    _reset_tier_globals("opus")
+
+
+def test_switchable_rate_limit_regex():
+    for t in ["seven_day_overage_included", "seven_day", "weekly_limit",
+              "monthly spend limit", "You've hit your monthly spend limit"]:
+        assert MODEL_SWITCHABLE_RATE_LIMIT_RE.search(t), t
+    for t in ["five_hour", "5h rolling window", "opus_five_hour"]:
+        assert not MODEL_SWITCHABLE_RATE_LIMIT_RE.search(t), t
+
+
+def test_switchable_rate_limit_downgrades_instead_of_sleeping():
+    """A seven_day_overage rejection drops one tier and retries -- no sleep."""
+    _reset_tier_globals(None)
+    h = ClaudeCodeHarness()
+    call_kwargs: list = []
+    outcomes = {
+        "fable": (1, {"rate_limit_signal": {"type": "seven_day_overage_included",
+                                            "status": "rejected"}}),
+        "opus":  (0, {}),
+    }
+    fake = _fake_run_skill_by_model(call_kwargs, outcomes)
+    sleep_calls: list = []
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch.object(sc.time, "sleep", side_effect=sleep_calls.append):
+        rc, record = run_skill_with_retry(
+            h, "ssp-cm-dev", 0, None,
+            on_rate_limit="pause", max_pause_seconds=28800, max_pauses=3,
+            pause_records=[], model="fable",
+        )
+    assert rc == 0
+    assert [k["model"] for k in call_kwargs] == ["fable", "opus"]
+    assert not sleep_calls, "switchable rate limit must NOT sleep; it downgrades"
+    assert record["model_fallbacks"][0]["to"] == "opus"
+    assert record["model_fallbacks"][0]["reason"].startswith("rate_limit:")
+    assert "fable" in sc._RATE_LIMITED_TIERS, "exhausted tier is stuck for the run"
+    _reset_tier_globals("opus")
+
+
+def test_five_hour_rate_limit_still_sleeps_no_downgrade():
+    """A shared five_hour limit is NOT model-switchable: sleep + retry same model."""
+    _reset_tier_globals(None)
+    h = ClaudeCodeHarness()
+    call_kwargs: list = []
+    calls = {"n": 0}
+
+    def fake(_h, _s, _i, _l, **kwargs):
+        call_kwargs.append(kwargs.copy())
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return (1, {"rate_limit_signal": {"type": "five_hour", "status": "exceeded"}})
+        return (0, {})
+
+    sleep_calls: list = []
+    with mock.patch.object(sc, "run_skill", side_effect=fake), \
+         mock.patch.object(sc.time, "sleep", side_effect=sleep_calls.append):
+        rc, record = run_skill_with_retry(
+            h, "ssp-cm-dev", 0, None,
+            on_rate_limit="pause", max_pause_seconds=28800, max_pauses=3,
+            pause_records=[], model="fable",
+        )
+    assert rc == 0
+    assert [k["model"] for k in call_kwargs] == ["fable", "fable"], \
+        "five_hour must retry the SAME model, not downgrade"
+    assert sleep_calls, "five_hour must sleep until reset"
+    assert not record.get("model_fallbacks")
+    assert "fable" not in sc._RATE_LIMITED_TIERS
+    _reset_tier_globals("opus")
