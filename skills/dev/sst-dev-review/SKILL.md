@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.14.1
+version: 1.14.2
 model-floor: opus
 effort-floor: high
 ---
@@ -339,15 +339,17 @@ Two forms — pick one, no follow-up question, no offer to fix.
 
 **Clean:**
 
-> Reviewed commit `<sha>` (`<scope>: <summary>`). Checked all review axes (parity, correctness, coverage, docs, prod-verify, security, style, performance). No substantive findings at the blocker or should-fix bar. Spec unchanged. Tester: <green|skipped|degraded|red> (<n> checks).
+> Reviewed commit `<sha>` (`<scope>: <summary>`). Checked all review axes (parity, correctness, coverage, docs, prod-verify, security, style, performance). No substantive findings at the blocker or should-fix bar. Spec unchanged. Tester: <green|skipped|degraded|red> (<n> checks). Batch-sizing: <actual=<n>k vs band <lo>-<hi>k -> in-band, no line | line emitted: direction=<dir> actual=<n>k band=<lo>-<hi>k | axis skipped: iter MANIFEST absent>.
 
 **With findings:**
 
-> Reviewed commit `<sha>` (`<scope>: <summary>`). Found <N> items: <B> blocker, <S> should-fix. Appended a "Review follow-ups" block under `<section>` in the spec and committed as `<review-sha>`. Highest-impact: <one-line description of the worst item>. Tester: <green|skipped|degraded|red> (<n> checks).
+> Reviewed commit `<sha>` (`<scope>: <summary>`). Found <N> items: <B> blocker, <S> should-fix. Appended a "Review follow-ups" block under `<section>` in the spec and committed as `<review-sha>`. Highest-impact: <one-line description of the worst item>. Tester: <green|skipped|degraded|red> (<n> checks). Batch-sizing: <actual=<n>k vs band <lo>-<hi>k -> in-band, no line | line emitted: direction=<dir> actual=<n>k band=<lo>-<hi>k | axis skipped: iter MANIFEST absent>.
 
 The `Found <N> items: <B> blocker, <S> should-fix.` clause is machine-parsed, not prose: the supervisor's fast-path (`sst-supervisor` §0.5 condition #3) anchors on the exact string `Found <N> items:` to detect a findings-filing review. Emit it verbatim: plural `items:` even when N=1, digits not words, and no markdown emphasis inside the clause (bold like `Found **1 item: ...**` breaks the anchor). When another clause of the template does not apply (e.g. the spec docs are untracked, so there is no `<review-sha>` to cite), adapt THAT clause ("filed on disk; no commit needed") and keep this one intact. A findings-filing review that paraphrases the clause (`Found 1 blocker.`, `Verdict: 3 should-fix filed`) can be mislabeled `clean (fast-path)` by the supervisor, silently dropping its findings from oversight.
 
 `Tester:` line rules: use `skipped` when findings are absent or `verdict: skipped`; `green` when `verdict: green`; `degraded` when `verdict: degraded`; `red` when `verdict: red`. Include the check count from `checks[]` when the file is present (`0` when skipped/absent). When tester files are absent, emit `Tester: skipped (0 checks)` so the supervisor can track tester coverage across iterations.
+
+`Batch-sizing:` clause rules: this clause is the §2.10 axis's mandatory receipt and appears in EVERY report, both forms. Exactly one of: the computed in-band statement (`actual=<n>k vs band <lo>-<hi>k -> in-band, no line`), a repeat of the machine line's values when a finding fired this run (`line emitted: direction=<dir> actual=<n>k band=<lo>-<hi>k`), or `axis skipped: iter MANIFEST absent` (legal only after the §2.10 MANIFEST lookup actually ran and found no file). A report with no `Batch-sizing:` clause means the axis was silently skipped — the exact false-negative §2.10 warns about: the missing `undersized`/`oversized` machine line breaks the supervisor's §3.5 trailing-window aggregation, and without this receipt slot the omission is invisible because the rest of the report reads complete.
 
 ## Pitfalls to avoid
 
