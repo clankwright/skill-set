@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.10.1
+version: 1.10.2
 model-floor: opus
 effort-floor: high
 ---
@@ -295,6 +295,8 @@ Field rules:
   - `pass` — the surface behaved correctly.
   - `fail` — the surface is broken (console error, failed assertion, broken interaction); becomes a review `[blocker]`.
   - `needs-change` — the surface works but something should change (a missing committed spec for a changed surface, a UX rough edge, a coverage gap); becomes (or strengthens) a review `[should-fix]`.
+
+  The enum above is CLOSED, and the array key is `checks`, never `findings`. Do not invent per-check statuses: `skipped`, `partial`, `info`, `not-exercisable`, and `known-preexisting` have all been observed in real runs, and every off-enum status (or a renamed array key) silently drops its record from the reviewer's escalation path, because the reviewer machine-parses `checks[]` and acts only on `fail` / `needs-change`. Map the tempting cases back into the enum: a mapped spec you could NOT run this session (an environment or data restriction, a missing fixture, stale auth) is `needs-change` with the can't-run reason and the unlock named in `recommendation` (step 6a's uncovered-gaps rule: the reviewer needs visibility precisely because you could not exercise it); a known, already-filed issue reproduced in passing is a `pass` whose `recommendation` cites the existing backlog item ("already filed as <id>; do not re-file"); a pure FYI belongs in `summary`. Only the top-level `verdict` may be `skipped`; a per-check `skipped` is not a legal value.
 - **`checks[].evidence`** — a path under the out-of-tree state dir, never a repo path. Empty is allowed only for a `pass` with nothing worth capturing.
 - **`checks[].change_ref`** — ties the check back to a changed file or the SPEC id the dev cycle flipped, so the reviewer can correlate runtime behavior with the diff.
 
