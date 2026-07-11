@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.14.5
+version: 1.14.6
 model-floor: opus
 effort-floor: high
 ---
@@ -221,6 +221,8 @@ Do **not** file for a single-item batch (trivially coherent) or when the multi-f
 ### 2.10 Batch sizing
 
 **Locating the iter MANIFEST is a mandatory first action of this axis — not a precondition you may judge as unmet before looking.** List `.skill-runs/` and locate the MANIFEST at `.skill-runs/<latest-run-dir>/MANIFEST.json` (flat) or `.skill-runs/<latest-run-dir>/iter_NN/MANIFEST.json` (looped run). Only if no MANIFEST file exists *after you have actually run the lookup* may you note "iter MANIFEST absent" in §6 and skip this axis; that §6 note is mandatory whenever the axis is skipped. Never report this axis as "nothing to flag" without having read a MANIFEST — an axis you did not attempt to run is not a clean axis.
+
+**`"in_progress": true` on the iter MANIFEST is the normal mid-chain state, not a receipt gap.** The chain runner snapshot-writes each skill's record as that skill finishes, so by the time this review runs the dev's `skills[]` entry, including the `model_usage` token receipt this axis needs, is already present while the chain-level `in_progress` flag is still true (it stays true until after the auto-supervisor returns). Never skip the band check, or report the dev's receipt as unavailable, because the MANIFEST is `in_progress`: the only legal skip remains a MANIFEST file that does not exist on disk after the lookup actually ran. (Observed: a review that had already read an `in_progress` MANIFEST containing the dev's full `model_usage` reported the axis skipped for "no dev input_tokens receipt available", a fifth receipt form the §6 clause rules do not permit; the correct action was to sum `inputTokens + cacheCreationInputTokens` from the dev record it had already read.)
 
 **Do not infer MANIFEST absence from the run-directory name.** A `.skill-runs/<run-dir>` name carries the chain's *start* timestamp, not the commit time. In a `--loop N` run the iteration that produced HEAD commits minutes-to-hours after the chain started, so a run dir whose name predates the commit by hours is normal — it is **not** evidence that "the commit came from a wiped or manual run with no `.skill-runs/` entry." Never reason from run-dir-name-vs-commit-time at all. Identify the run positively instead: list the most recent `<run-dir>/` for `iter_NN/` subdirectories, then read the highest-numbered `iter_NN/MANIFEST.json` — its `git_sha_before` equals the commit's parent (`git rev-parse HEAD~1`) when you have the right iteration. Declare the MANIFEST absent only when that file genuinely does not exist on disk.
 
