@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.15.2
+version: 1.16.0
 model-floor: fable
 effort-floor: high
 ---
@@ -157,6 +157,7 @@ Emission order at iter start, top to bottom: TodoWrite â†’ `## In flight` line â
    - For user-facing changes: an end-to-end test that exercises the actual user journey (Playwright / browser automation for web; CLI invocation + output check for command-line tools; API call + response-shape assertion for backends).
    - For library/internal changes: unit tests on the public interface.
    - Always include at least one adversarial case (bad input, unauthenticated caller, boundary condition) and any invariant the change must preserve.
+   - **Derive every mock/fixture shape from the producer, not from the change under test.** When the change consumes data produced by another component or layer (rows emitted by a widget callback, an event payload, a queue message), read the producer's source, or capture a real payload, and build the mock from what it actually emits; never from the shape your implementation expects to receive. A mock that hands the consumer exactly the fields the fix assumes goes green over a runtime no-op: the test proves only that the code reads the mock, not that the producer ever supplies it. This holds even when the picked item's own text asserts the producer's shape (a fix direction or code trace inherited from a review-authored item can be wrong): re-verify the premise at the producer's source before building the fix and its fixtures on it.
 3. Run just the new tests to confirm they fail for the expected reason (missing feature, not broken test setup):
    ```bash
    <test-runner> <new-test-file> -v
