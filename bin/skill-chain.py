@@ -48,17 +48,17 @@ When --log-dir is set (or omitted, in which case the script auto-creates
 
 Harness abstraction
 -------------------
-The MVP ships with a single harness implementation ("claude-code"), but the
-chain is structured so dropping in another harness (Codex CLI, Gemini CLI,
-Cursor headless, etc.) is a matter of adding a class and registering it in
-HARNESSES. Select with --harness or the AGENT_HARNESS env var.
+Two harnesses ship: "claude-code" (default) and "cursor" (the cursor-agent
+CLI, for running skills on a Cursor subscription / Grok). Dropping in another
+(Codex CLI, Gemini CLI, ...) is a matter of adding a Harness subclass and
+registering it in HARNESSES. Select with --harness or the AGENT_HARNESS env var.
 
-The event renderer below currently assumes the harness emits
-Anthropic-stream-json-shaped events (one JSON object per line, with type
-fields like "system", "assistant", "user", "result"). When adding a new
-harness with a different event shape, give it a `parse_event` method that
-maps its native format to the same internal event dict, or replace the
-renderer with a harness-specific one.
+The event renderer (handle_event) reads Anthropic-stream-json-shaped events
+(one JSON object per line, with type fields like "system", "assistant",
+"user", "result"). A harness whose CLI emits a different envelope overrides
+`Harness.normalize_event` to translate each native event into that shape
+before the shared renderer sees it (see CursorHarness). The raw native line is
+still logged to the per-skill .jsonl regardless.
 """
 
 import argparse
@@ -813,6 +813,15 @@ class Harness:
     ) -> list[str]:
         raise NotImplementedError
 
+    def normalize_event(self, event: dict) -> dict:
+        """Map a harness-native stream-json event onto the Anthropic-shaped dict
+        that handle_event() renders and scans for sentinels. Default identity:
+        the Claude Code harness already emits that shape, so it passes through
+        untouched. Harnesses whose CLI emits a different envelope (e.g. Cursor)
+        override this to translate before the shared renderer sees the event.
+        """
+        return event
+
 
 class ClaudeCodeHarness(Harness):
     """Anthropic Claude Code CLI as the agent harness."""
@@ -888,8 +897,157 @@ class ClaudeCodeHarness(Harness):
         return cmd
 
 
+# Default model for the Cursor harness. Cursor has no fable/opus/sonnet/haiku
+# tier ladder and no --effort knob, so the Phase 19 per-tier (model, effort)
+# routing collapses to a single model here. Override with the CURSOR_MODEL env
+# var to pin a specific id (e.g. a Grok build). "grok" is accepted by
+# `cursor-agent -m` as an alias for the current Grok model.
+DEFAULT_CURSOR_MODEL = os.environ.get("CURSOR_MODEL", "grok")
+
+
+def _read_skill_body(path: Path | None) -> str | None:
+    """Return a SKILL.md's body with its leading YAML frontmatter stripped, or
+    None when the file is missing/unreadable. Used by the Cursor harness to
+    inline a skill into the prompt (Cursor has no Skill tool to load it by name).
+    """
+    if path is None:
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.match(r"^---\n.*?\n---\n", text, re.DOTALL)
+    return text[m.end():].lstrip("\n") if m else text
+
+
+def _cursor_tool_call_fields(tc: dict) -> tuple[str, dict]:
+    """Best-effort map a Cursor `tool_call.tool_call` payload to a Claude-shaped
+    (name, input) pair. Cursor wraps the call in one of readToolCall /
+    writeToolCall / function; the inner arg shapes are only partly documented,
+    so this reads the common path fields (so the wrote_tester_guidance detection
+    keeps working) and otherwise passes the raw args through. Verify the exact
+    arg keys against a live run before relying on tool-level detection.
+    """
+    def _path(args: dict) -> str:
+        return (args.get("path") or args.get("file_path")
+                or args.get("filePath") or "")
+    if "writeToolCall" in tc:
+        args = (tc.get("writeToolCall") or {}).get("args", {}) or {}
+        return "Write", {"file_path": _path(args), **args}
+    if "readToolCall" in tc:
+        args = (tc.get("readToolCall") or {}).get("args", {}) or {}
+        return "Read", {"file_path": _path(args), **args}
+    if "function" in tc:
+        fn = tc.get("function") or {}
+        return fn.get("name", "function"), fn.get("arguments", fn)
+    if tc:
+        k = next(iter(tc))
+        v = tc[k]
+        return k, v if isinstance(v, dict) else {"value": v}
+    return "?", {}
+
+
+class CursorHarness(Harness):
+    """Cursor Agent CLI (`cursor-agent`) as the agent harness.
+
+    Runs on a Cursor subscription or a CURSOR_API_KEY, on whatever model Cursor
+    exposes (defaults to Grok via CURSOR_MODEL). Three things differ from the
+    Claude Code harness, all bridged here:
+
+      1. No Skill tool. Cursor cannot lazy-load a SKILL.md by name, so
+         build_command INLINES the skill body into the prompt instead of asking
+         the agent to "use the Skill tool". The file is resolved with the same
+         project-then-global order Claude Code uses (_find_skill_md).
+      2. No --effort and no model-tier ladder. The Phase 19 (model, effort)
+         routing is accepted but ignored; every skill runs on DEFAULT_CURSOR_MODEL.
+      3. No --max-turns backstop. Cursor's CLI has no turn-ceiling flag, so the
+         hard cap is not enforced; the soft wind-down directive is still sent to
+         *-tester skills (advisory only, no hard chop behind it).
+
+    Cursor's stream-json envelope is Anthropic-compatible for system/init and
+    assistant/text frames, so session-id capture, --resume, and the chain's text
+    sentinels ([no-work], [picked-difficulty], [batch-pick], ...) all work
+    unchanged. normalize_event() reshapes the differing tool_call frames. Cursor's
+    result frame carries NO cost/turn/usage telemetry, so those manifest fields
+    stay zero and cost-based budget gates (sst-chain-driver --max-budget-usd)
+    cannot meter a Cursor run -- verify against a live run before relying on them.
+    """
+
+    name = "cursor"
+
+    def build_command(
+        self,
+        skill_name: str,
+        *,
+        model: str | None = None,
+        effort: str | None = None,
+        extra_prompt: str = "",
+        resume_session_id: str | None = None,
+    ) -> list[str]:
+        cmd = [
+            "cursor-agent",
+            "-p",
+            # Headless allow-all for shell/tools; the Cursor equivalent of the
+            # Claude Code --permission-mode bypassPermissions. A headless run
+            # REQUIRES an explicit allow/deny policy or it stalls on approval.
+            "--force",
+            "--output-format", "stream-json",
+            # No tier ladder / no --effort under Cursor: collapse to one model.
+            "-m", DEFAULT_CURSOR_MODEL,
+        ]
+        if resume_session_id:
+            # Cursor resumes a chat by id; a bare "continue" restores context
+            # without re-steering (mirrors the Claude Code resume path).
+            cmd += ["--resume", resume_session_id, "continue"]
+            return cmd
+        # No Skill tool -> inline the SKILL.md body into the prompt.
+        body = _read_skill_body(_find_skill_md(skill_name, os.getcwd()))
+        if body:
+            prompt = (
+                f"Execute the following skill to completion. Follow its "
+                f"instructions exactly and run every step autonomously without "
+                f"pausing for confirmation. Do not respond with anything else "
+                f"first.\n\n===== SKILL: {skill_name} =====\n\n{body}"
+            )
+        else:
+            # File not found: emit a Skill-tool-style prompt so the failure
+            # surfaces clearly on the invocation rather than silently here.
+            prompt = (
+                f"Invoke and run the '{skill_name}' skill to completion. Do not "
+                f"respond with anything else first."
+            )
+        if extra_prompt:
+            prompt = prompt + "\n\n" + extra_prompt
+        if skill_name.endswith("-tester"):
+            soft = max(1, self.max_turns - WIND_DOWN_TURN_HEADROOM)
+            prompt = prompt + "\n\n" + WIND_DOWN_DIRECTIVE_TEMPLATE.format(
+                hard=self.max_turns, soft=soft
+            )
+        cmd.append(prompt)
+        return cmd
+
+    def normalize_event(self, event: dict) -> dict:
+        """Translate a Cursor stream-json event into the Anthropic-shaped dict
+        handle_event() understands. system/init, user, assistant and result
+        frames already match closely enough to pass through; only tool_call
+        frames need reshaping. A `started` frame becomes an assistant `tool_use`
+        block (so tool rendering + the wrote_tester_guidance gate keep working);
+        a `completed` frame has no Anthropic slot and passes through untouched
+        (handle_event has no tool_call branch, so it is ignored).
+        """
+        if event.get("type") != "tool_call" or event.get("subtype") != "started":
+            return event
+        name, inp = _cursor_tool_call_fields(event.get("tool_call", {}) or {})
+        return {
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]},
+            "session_id": event.get("session_id", ""),
+        }
+
+
 HARNESSES: dict[str, type[Harness]] = {
     "claude-code": ClaudeCodeHarness,
+    "cursor": CursorHarness,
 }
 
 
@@ -1342,6 +1500,7 @@ def run_skill(
                 sink.write(c(line, GRAY))
                 continue
             try:
+                event = harness.normalize_event(event)
                 handle_event(sink, event, skill_record)
             except Exception as exc:
                 sink.write(f"{c(f'[render error: {exc}]', RED)}  {_truncate(line, 300)}")
