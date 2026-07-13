@@ -902,7 +902,15 @@ class ClaudeCodeHarness(Harness):
 # routing collapses to a single model here. Override with the CURSOR_MODEL env
 # var to pin a specific id (e.g. a Grok build). "grok" is accepted by
 # `cursor-agent -m` as an alias for the current Grok model.
-DEFAULT_CURSOR_MODEL = os.environ.get("CURSOR_MODEL", "grok")
+DEFAULT_CURSOR_MODEL = "grok"
+
+
+def _cursor_model() -> str:
+    """Resolve the Cursor model at call time so a CURSOR_MODEL supplied via a
+    .env file (loaded in main(), after import) still takes effect. Falls back to
+    DEFAULT_CURSOR_MODEL when the env var is unset/empty.
+    """
+    return os.environ.get("CURSOR_MODEL") or DEFAULT_CURSOR_MODEL
 
 
 def _read_skill_body(path: Path | None) -> str | None:
@@ -993,7 +1001,7 @@ class CursorHarness(Harness):
             "--force",
             "--output-format", "stream-json",
             # No tier ladder / no --effort under Cursor: collapse to one model.
-            "-m", DEFAULT_CURSOR_MODEL,
+            "-m", _cursor_model(),
         ]
         if resume_session_id:
             # Cursor resumes a chat by id; a bare "continue" restores context
@@ -2018,14 +2026,13 @@ def _git_subject(cwd: str, sha: str) -> str:
     return "(unknown)"
 
 
-def _read_telegram_env(path: Path) -> dict[str, str]:
-    """Parse a shell-style env file (KEY=VALUE per line, # comments, optional
-    `export `). One matching pair of surrounding quotes is stripped from values.
+def _parse_env_text(text: str) -> dict[str, str]:
+    """Parse shell-style env text: KEY=VALUE per line, # comments, optional
+    `export ` prefix. One matching pair of surrounding quotes is stripped from
+    values. No interpolation. Malformed lines (no `=`) are skipped.
     """
     out: dict[str, str] = {}
-    if not path.exists():
-        raise SystemExit(f"--telegram-env: file does not exist: {path}")
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         s = line.strip()
         if not s or s.startswith("#"):
             continue
@@ -2040,6 +2047,38 @@ def _read_telegram_env(path: Path) -> dict[str, str]:
             value = value[1:-1]
         out[key] = value
     return out
+
+
+def _read_telegram_env(path: Path) -> dict[str, str]:
+    """Parse a shell-style env file. Raises SystemExit if the file is missing."""
+    if not path.exists():
+        raise SystemExit(f"--telegram-env: file does not exist: {path}")
+    return _parse_env_text(path.read_text(encoding="utf-8"))
+
+
+def _load_dotenv_into_environ(paths: "list[Path]") -> list[str]:
+    """Populate os.environ from .env-style files WITHOUT overriding variables
+    already set in the real environment (an exported var always wins). Returns
+    the KEY NAMES loaded (never the values, which may be secrets like
+    CURSOR_API_KEY). Best-effort: a missing or unreadable file is skipped so a
+    stray .env never aborts a run. Earlier paths win over later ones per key.
+    Lets the Cursor harness pick up CURSOR_API_KEY / CURSOR_MODEL (and any other
+    credential the spawned CLI reads from its environment) from a project or
+    repo-root .env instead of requiring the caller to export them.
+    """
+    loaded: list[str] = []
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            pairs = _parse_env_text(path.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        for k, v in pairs.items():
+            if k not in os.environ:
+                os.environ[k] = v
+                loaded.append(k)
+    return loaded
 
 
 def _resolve_tg_env(
@@ -3148,6 +3187,16 @@ def run_batch_mode(args: "argparse.Namespace", harness: Harness, cwd: str) -> in
 
 def main() -> int:
     args = parse_args(sys.argv[1:])
+
+    # Load credentials/config from a .env before spawning any harness so the
+    # Cursor CLI (and anything else) can read CURSOR_API_KEY / CURSOR_MODEL from
+    # a project or repo-root .env instead of an exported var. Exported vars still
+    # win; only key NAMES are logged, never the (possibly secret) values.
+    _env_keys = _load_dotenv_into_environ([Path(os.getcwd()) / ".env", REPO_ROOT / ".env"])
+    if _env_keys:
+        print(c(f"[env] loaded {len(_env_keys)} var(s) from .env: "
+                f"{', '.join(sorted(set(_env_keys)))}", GRAY), flush=True)
+
     harness = get_harness(args.harness)
     harness.max_turns = args.max_turns
 
