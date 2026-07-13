@@ -39,7 +39,13 @@
   Order: blockers/highest-impact first.
 -->
 
-<!-- queue empty: Phase 54 shipped 2026-06-25; no item queued for the next cycle -->
+<!-- Cursor harness finalization (source: user request 2026-07-14; initial CursorHarness landed on branch worktree-cursor-harness). Highest-impact/blocking first. -->
+- [medium] Verify the Cursor live stream-json event shape against a real `cursor-agent -p --output-format stream-json` run (needs CURSOR_API_KEY) and confirm `CursorHarness.normalize_event` maps system/init, assistant/text, tool_call, and result correctly; save a sample run as a tests/fixtures/*.jsonl — source: harness shipped without a live capture (headless auth blocked)
+- [medium] Confirm `_cursor_tool_call_fields` arg-key mapping (writeToolCall/readToolCall/function inner shapes, esp. the file-path key) against captured events; fix the `wrote_tester_guidance` "never both" detection if Cursor's path key differs from path/file_path/filePath — source: mapping is best-effort against partly-documented schema
+- [medium] Close the Cursor telemetry gap: its result frame carries no cost/num_turns/usage, so manifest fields stay zero and `sst-chain-driver --max-budget-usd` can't meter a Cursor run — either derive from a usage frame if Cursor exposes one, or make the budget gate detect harness=="cursor" and skip/estimate with a loud note — source: known gap in initial harness
+- [easy] Confirm the exact Grok model id `cursor-agent -m` accepts and set the CURSOR_MODEL default accordingly (currently "grok"); document the supported ids — source: default picked without live confirmation
+- [easy] Add CursorHarness unit tests (build_command cold/resume/tester-winddown + normalize_event tool_call→tool_use + claude-code identity) to tests/ — source: only a manual smoke test ran at ship time
+- [easy] Update README lines ~5/385 to reflect that the cursor harness is implemented (they still say only claude-code ships) — source: left untouched to avoid clobbering an in-flight uncommitted README edit
 
 <!-- planner candidate tests-passing-fix (2026-06-25) resolved: the objectives.md pytest-path fix was applied directly in a live session; candidate removed, no dev-cycle pick needed. -->
 
