@@ -900,9 +900,11 @@ class ClaudeCodeHarness(Harness):
 # Default model for the Cursor harness. Cursor has no fable/opus/sonnet/haiku
 # tier ladder and no --effort knob, so the Phase 19 per-tier (model, effort)
 # routing collapses to a single model here. Override with the CURSOR_MODEL env
-# var to pin a specific id (e.g. a Grok build). "grok" is accepted by
-# `cursor-agent -m` as an alias for the current Grok model.
-DEFAULT_CURSOR_MODEL = "grok"
+# var to pin a specific id. Valid Grok ids (from `cursor-agent -m <bad>` error
+# listing): cursor-grok-4.5-{low,medium,high}[-fast]. Other providers' ids are
+# also accepted (claude-4.5-sonnet, gpt-5.1, gemini-3-flash, ...). "grok" alone
+# is NOT valid.
+DEFAULT_CURSOR_MODEL = "cursor-grok-4.5-high"
 
 
 def _cursor_model() -> str:
