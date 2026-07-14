@@ -177,6 +177,7 @@ def test_normalize_event_tool_call_started_becomes_tool_use():
     }
     out = h.normalize_event(event)
     assert out["type"] == "assistant"
+    assert out.get("_synthetic_from_tool_call") is True
     block = out["message"]["content"][0]
     assert block["type"] == "tool_use"
     assert block["name"] == "Edit"
@@ -236,6 +237,92 @@ def test_wrote_tester_guidance_detects_cursor_edit(tmp_path):
     })
     sc.handle_event(sink, event, rec)
     assert rec.get("wrote_tester_guidance") is True
+    # Synthetic tool_call frames must not inflate the turn proxy (64.3).
+    assert rec.get("_turn_proxy", 0) == 0
+
+
+def test_turn_proxy_counts_native_assistant_not_synthetic_tool_calls():
+    """Phase 64.3: mixed text + tool_call stream — only native assistant frames count."""
+    h = CursorHarness()
+    sink = sc._Sink(None)
+    rec: dict = {}
+    # 2 native assistant text frames + 5 synthetic tool_call frames → proxy=2.
+    stream = [
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "thinking"}]},
+            "session_id": "s",
+        },
+        {
+            "type": "tool_call",
+            "subtype": "started",
+            "session_id": "s",
+            "tool_call": {
+                "readToolCall": {"args": {"path": "/tmp/a.txt"}},
+                "toolCallId": "tc1",
+            },
+        },
+        {
+            "type": "tool_call",
+            "subtype": "started",
+            "session_id": "s",
+            "tool_call": {
+                "shellToolCall": {"args": {"command": "ls"}},
+                "toolCallId": "tc2",
+            },
+        },
+        {
+            "type": "tool_call",
+            "subtype": "started",
+            "session_id": "s",
+            "tool_call": {
+                "readToolCall": {"args": {"path": "/tmp/b.txt"}},
+                "toolCallId": "tc3",
+            },
+        },
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "done"}]},
+            "session_id": "s",
+        },
+        {
+            "type": "tool_call",
+            "subtype": "started",
+            "session_id": "s",
+            "tool_call": {
+                "editToolCall": {
+                    "args": {"path": "/tmp/c.txt", "streamContent": "x"},
+                },
+                "toolCallId": "tc4",
+            },
+        },
+        {
+            "type": "tool_call",
+            "subtype": "started",
+            "session_id": "s",
+            "tool_call": {
+                "shellToolCall": {"args": {"command": "echo hi"}},
+                "toolCallId": "tc5",
+            },
+        },
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "duration_ms": 10,
+            "usage": {
+                "inputTokens": 10,
+                "outputTokens": 5,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0,
+            },
+            "model": "cursor-grok-4.5-high",
+        },
+    ]
+    for e in stream:
+        sc.handle_event(sink, h.normalize_event(e), rec)
+    assert rec["num_turns"] == 2
+    assert "_turn_proxy" not in rec
 
 
 def test_default_cursor_model_is_valid_grok_id():
@@ -373,7 +460,7 @@ def test_handle_event_cursor_result_fills_model_usage_and_turn_proxy():
         "cursor-grok-4.5-high",
     )
     assert abs(rec["total_cost_usd"] - expected) < 1e-9
-    assert rec["num_turns"] >= 1  # assistant text + tool_use frames
+    assert rec["num_turns"] >= 1  # native assistant text only (tool_call frames excluded, 64.3)
     assert rec["model_usage"]
     model_key = next(iter(rec["model_usage"]))
     assert rec["model_usage"][model_key]["inputTokens"] == 21442

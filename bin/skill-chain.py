@@ -1501,8 +1501,9 @@ class CursorHarness(Harness):
         handle_event() understands.
 
         - tool_call/started → assistant/tool_use (tool rendering + Phase 49
-          wrote_tester_guidance gate). tool_call/completed has no Anthropic
-          slot and passes through untouched.
+          wrote_tester_guidance gate), tagged `_synthetic_from_tool_call` so
+          handle_event does not increment `_turn_proxy` / max-turns (64.3).
+          tool_call/completed has no Anthropic slot and passes through untouched.
         - result with flat `usage` → Claude-shaped `modelUsage` (token fields
           renamed; costUSD estimated from published rates) + total_cost_usd.
         - system/init, user, assistant pass through unchanged.
@@ -1510,8 +1511,14 @@ class CursorHarness(Harness):
         t = event.get("type")
         if t == "tool_call" and event.get("subtype") == "started":
             name, inp = _cursor_tool_call_fields(event.get("tool_call", {}) or {})
+            # Tag synthetic frames so handle_event skips them for _turn_proxy /
+            # max-turns (Phase 64.3). Claude bundles tool_use inside one
+            # assistant turn; Cursor emits a separate tool_call per call —
+            # counting those as turns inflates the proxy ~10× on tool-heavy runs.
+            # Reshape still feeds Phase-49 wrote_tester_guidance + tool rendering.
             return {
                 "type": "assistant",
+                "_synthetic_from_tool_call": True,
                 "message": {
                     "content": [{"type": "tool_use", "name": name, "input": inp}]
                 },
@@ -1722,9 +1729,11 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
         return
 
     if t == "assistant":
-        # Cursor result frames omit num_turns; count each assistant frame as a
-        # turn proxy so the result summary / manifest still have a useful value.
-        skill_record["_turn_proxy"] = skill_record.get("_turn_proxy", 0) + 1
+        # Cursor result frames omit num_turns; count each *native* assistant
+        # frame as a turn proxy. Skip normalize-synthesized tool_call frames
+        # (Phase 64.3) — those still render tools / Phase-49 gates below.
+        if not event.get("_synthetic_from_tool_call"):
+            skill_record["_turn_proxy"] = skill_record.get("_turn_proxy", 0) + 1
         for block in event.get("message", {}).get("content", []):
             bt = block.get("type")
             if bt == "text":
