@@ -178,10 +178,10 @@ RATE_LIMIT_RESET_RE = re.compile(
 DEFAULT_ON_RATE_LIMIT = "pause"
 DEFAULT_MAX_RATE_LIMIT_PAUSE_SECONDS = 28800   # 8h, covers 5h rolling + headroom
 DEFAULT_MAX_PAUSES_PER_SESSION = 3
-# Inter-iteration human-like delay applied when neither CLI nor chain YAML
-# specifies loop-delay or loop-delay-random. 5-30min jitter keeps commit
-# cadence indistinguishable from a human workflow. Opt out per-run with
-# `--loop-delay 0` or per-chain with `loop-delay: 0` in YAML.
+# Opt-in human-like inter-iteration jitter (also the `--overnight` preset
+# default). The runner itself defaults to NO delay when neither CLI nor chain
+# YAML sets loop-delay / loop-delay-random; pass `--loop-delay-random MIN,MAX`
+# or set `loop-delay-random:` in YAML to enable jitter.
 DEFAULT_LOOP_DELAY_RANDOM = (300.0, 1800.0)
 RATE_LIMIT_JITTER_RANGE = (15, 60)              # extra seconds after parsed reset
 RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_time
@@ -2545,9 +2545,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              f"--loop-delay; setting both is an error. Makes a multi-iter run's "
              f"cadence look human-driven instead of clockwork-automated. When "
              f"neither this nor --loop-delay nor any YAML delay field is set, "
-             f"the runner defaults to "
+             f"the runner defaults to no inter-iter delay. "
+             f"`--overnight` uses "
              f"[{int(DEFAULT_LOOP_DELAY_RANDOM[0])},{int(DEFAULT_LOOP_DELAY_RANDOM[1])}] "
-             f"(5-30min). Opt out with --loop-delay 0.",
+             f"(5-30min) as its preset.",
     )
     p.add_argument(
         "--on-rate-limit",
@@ -3427,11 +3428,12 @@ def main() -> int:
     elif chain_def is not None and "loop-delay" in chain_def:
         loop_delay = float(chain_def["loop-delay"])
     else:
-        # No CLI override, no YAML setting — fall back to the human-like
-        # default jitter so multi-iter runs never accidentally fire iterations
-        # back-to-back. Opt out with `--loop-delay 0` or YAML `loop-delay: 0`.
+        # No CLI override, no YAML setting — no inter-iter delay. Opt in with
+        # `--loop-delay-random MIN,MAX`, YAML `loop-delay-random:`, a flat
+        # `--loop-delay N`, or the `--overnight` preset (which applies
+        # DEFAULT_LOOP_DELAY_RANDOM).
         loop_delay = 0.0
-        loop_delay_random = DEFAULT_LOOP_DELAY_RANDOM
+        loop_delay_random = None
     if loop_delay < 0:
         raise SystemExit("--loop-delay must be >= 0")
 
