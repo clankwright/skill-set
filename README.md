@@ -388,7 +388,7 @@ AGENT_HARNESS=claude-code ./bin/skill-chain.py my-cycle
 AGENT_HARNESS=cursor ./bin/skill-chain.py my-cycle
 ```
 
-**Cursor harness notes.** Cursor has no Skill tool, so the runner inlines each skill's `SKILL.md` into the prompt. There is no `--effort` / model-tier ladder and no `--max-turns` hard cap (the soft wind-down directive is still appended for `*-tester` skills). Result frames carry token `usage` (mapped into Claude-shaped `modelUsage` for the manifest / review band check) but no `total_cost_usd`, so `--max-budget-usd` is loud-skipped under `--harness cursor` — use `--max-cycles` to bound a Cursor run. Live stream-json fixture: `tests/fixtures/cursor-stream-sample.jsonl`.
+**Cursor harness notes.** Cursor has no Skill tool, so the runner inlines each skill's `SKILL.md` into the prompt. There is no `--effort` / model-tier ladder and no `--max-turns` hard cap (the soft wind-down directive is still appended for `*-tester` skills). Result frames carry token `usage` (mapped into Claude-shaped `modelUsage`); `total_cost_usd` / `costUSD` are estimated from published model API rates (Cursor table when known, else Grok 4.5 public API `$2/$0.50 cached/$6` per 1M) so `--max-budget-usd` meters under `--harness cursor` (API-equivalent — subscription pool burn may differ). Live stream-json fixture: `tests/fixtures/cursor-stream-sample.jsonl`.
 
 To add another harness, subclass `Harness` in `bin/skill-chain.py`, register it in `HARNESSES`, and (if it emits a different stream format) implement `normalize_event`.
 

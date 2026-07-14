@@ -829,9 +829,9 @@ class Harness:
     ) -> None:
         """Harness-specific budget / cap adjustments (in-place on args).
 
-        Default no-op. Subclasses that lack a telemetry signal the runner's
-        budget gate depends on (e.g. Cursor has no total_cost_usd) override
-        this to clear or remap the relevant flags before the loop starts.
+        Default no-op. Subclasses may emit harness-specific notes or remap
+        flags before the loop starts (e.g. Cursor notes that USD costs are
+        estimated from token×rate rather than stream-metered).
         """
         return
 
@@ -919,6 +919,27 @@ class ClaudeCodeHarness(Harness):
 # is NOT valid.
 DEFAULT_CURSOR_MODEL = "cursor-grok-4.5-high"
 
+# USD per 1M tokens: (input, cache_write, cache_read, output).
+# Prefer Cursor-published model API rates (cursor.com/docs/models-and-pricing)
+# when known; otherwise fall back to Grok 4.5 public API list price
+# (docs.x.ai: $2 / $0.50 cached / $6 — Cursor first-party Grok is charged at
+# API price and is exempt from the Cursor Token Rate). Cache-write for Grok
+# is not separately published by xAI; use the input rate.
+_GROK_45_RATES = (2.0, 2.0, 0.50, 6.0)
+_CURSOR_MODEL_RATES: dict[str, tuple[float, float, float, float]] = {
+    # Grok 4.5 family (default CURSOR_MODEL + aliases)
+    "cursor-grok-4.5": _GROK_45_RATES,
+    "grok-4.5": _GROK_45_RATES,
+    "grok-4.5-latest": _GROK_45_RATES,
+    # Cursor docs API-pool rates (2026-07) for common non-Grok ids
+    "claude-4.5-haiku": (1.0, 1.25, 0.1, 5.0),
+    "claude-4.5-sonnet": (3.0, 3.75, 0.3, 15.0),
+    "claude-4.5-opus": (5.0, 6.25, 0.5, 25.0),
+    "claude-4.6-sonnet": (3.0, 3.75, 0.3, 15.0),
+    "claude-4.6-opus": (5.0, 6.25, 0.5, 25.0),
+    "claude-4.7-opus": (5.0, 6.25, 0.5, 25.0),
+}
+
 
 def _cursor_model() -> str:
     """Resolve the Cursor model at call time so a CURSOR_MODEL supplied via a
@@ -926,6 +947,59 @@ def _cursor_model() -> str:
     DEFAULT_CURSOR_MODEL when the env var is unset/empty.
     """
     return os.environ.get("CURSOR_MODEL") or DEFAULT_CURSOR_MODEL
+
+
+def _resolve_cursor_rates(model: str | None) -> tuple[float, float, float, float]:
+    """Return (input, cache_write, cache_read, output) USD/1M for a Cursor model.
+
+    Match longest known prefix against the model id (case-insensitive). Unknown
+    models fall back to Grok 4.5 public API rates so the default harness still
+    meters `--max-budget-usd`.
+    """
+    m = (model or _cursor_model()).lower()
+    best_key = ""
+    best_rates = _GROK_45_RATES
+    for key, rates in _CURSOR_MODEL_RATES.items():
+        if m.startswith(key) and len(key) > len(best_key):
+            best_key = key
+            best_rates = rates
+    return best_rates
+
+
+def _estimate_cursor_cost_usd(usage: dict, model: str | None = None) -> float:
+    """Estimate USD cost from Cursor result-frame token usage.
+
+    Cursor stream-json emits token counts but not total_cost_usd (subscription
+    pool). Estimating from published API rates makes manifests + --max-budget-usd
+    honest for relative metering; actual subscription burn may differ.
+    """
+    if not usage:
+        return 0.0
+    # Honor a real costUSD if Cursor ever emits one.
+    if usage.get("costUSD"):
+        try:
+            return float(usage["costUSD"])
+        except (TypeError, ValueError):
+            pass
+    inp_r, cw_r, cr_r, out_r = _resolve_cursor_rates(model)
+    input_t = int(usage.get("inputTokens") or 0)
+    output_t = int(usage.get("outputTokens") or 0)
+    cache_read = int(
+        usage.get("cacheReadInputTokens")
+        or usage.get("cacheReadTokens")
+        or 0
+    )
+    cache_write = int(
+        usage.get("cacheCreationInputTokens")
+        or usage.get("cacheWriteTokens")
+        or 0
+    )
+    return (
+        input_t * inp_r
+        + output_t * out_r
+        + cache_read * cr_r
+        + cache_write * cw_r
+    ) / 1_000_000.0
 
 
 def _cursor_usage_to_model_usage(usage: dict, model: str | None = None) -> dict:
@@ -936,11 +1010,13 @@ def _cursor_usage_to_model_usage(usage: dict, model: str | None = None) -> dict:
     consumers (manifest, print_result_summary, sst-dev-review §2.11 band check)
     expect Claude's nested `modelUsage[model] = {inputTokens,
     cacheReadInputTokens, cacheCreationInputTokens, outputTokens, costUSD}`.
-    Cost stays 0 — Cursor subscriptions are not USD-metered in the stream.
+    costUSD is estimated from published API rates when the stream omits it
+    (Phase 60).
     """
     if not usage:
         return {}
     key = model or _cursor_model()
+    cost = _estimate_cursor_cost_usd(usage, key)
     return {
         key: {
             "inputTokens": int(usage.get("inputTokens") or 0),
@@ -955,7 +1031,7 @@ def _cursor_usage_to_model_usage(usage: dict, model: str | None = None) -> dict:
                 or usage.get("cacheWriteTokens")
                 or 0
             ),
-            "costUSD": float(usage.get("costUSD") or 0),
+            "costUSD": cost,
         }
     }
 
@@ -1038,10 +1114,9 @@ class CursorHarness(Harness):
     sentinels ([no-work], [picked-difficulty], [batch-pick], ...) all work
     unchanged. normalize_event() reshapes the differing tool_call frames
     (`editToolCall`/`readToolCall`/`shellToolCall` → assistant/tool_use) and
-    maps result-frame `usage` → Claude-shaped `modelUsage` (token telemetry in
-    the manifest). Cursor still emits NO `total_cost_usd` (subscription, not
-    USD-metered), so `--max-budget-usd` is loud-skipped via
-    `apply_budget_constraints`; prefer `--max-cycles` to cap a Cursor run.
+    maps result-frame `usage` → Claude-shaped `modelUsage` and estimates
+    `total_cost_usd` / `costUSD` from published API rates (Phase 60) so
+    `--max-budget-usd` meters honestly under `--harness cursor`.
     """
 
     name = "cursor"
@@ -1051,32 +1126,22 @@ class CursorHarness(Harness):
         args: argparse.Namespace,
         loop_count: int,
     ) -> None:
-        """Loud-skip --max-budget-usd (in-place on args).
+        """Keep --max-budget-usd; note that Cursor costs are estimated.
 
-        Cursor result frames carry token `usage` but no `total_cost_usd`
-        (subscription, not USD-metered). Leaving the cap set would keep
-        cumulative cost at $0 forever and look like "the budget worked."
-        Clear it with an orange note; prefer `--max-cycles`. If the run was
-        overnight / infinite and clearing the budget leaves no cycle cap,
-        raise SystemExit.
+        Phase 60 fills `total_cost_usd` from token×rate estimates, so the
+        budget gate works. Emit a one-shot note that the figure is
+        API-equivalent (subscription pool burn may differ), then leave the
+        cap in place. Overnight + budget alone is valid again (no forced
+        `--max-cycles`).
         """
         if args.max_budget_usd is None:
             return
-        cleared = args.max_budget_usd
         print(c(
-            f"[note] --max-budget-usd ${cleared:.2f} is inert under "
-            f"--harness cursor: Cursor result frames have no total_cost_usd "
-            f"(subscription, not USD-metered). Cap cleared; use --max-cycles "
-            f"to bound a Cursor run.", ORANGE,
+            f"[note] --harness cursor: --max-budget-usd "
+            f"${args.max_budget_usd:.2f} uses estimated API-equivalent cost "
+            f"(token usage × published model rates; subscription pool burn "
+            f"may differ).", ORANGE,
         ), flush=True)
-        args.max_budget_usd = None
-        if (getattr(args, "overnight", False)
-                or getattr(args, "preset", None) == "overnight"
-                or loop_count == 0) and args.max_cycles is None:
-            raise SystemExit(
-                "--harness cursor cleared --max-budget-usd (no Cursor USD "
-                "telemetry); add --max-cycles <N> to bound this run"
-            )
 
     def build_command(
         self,
@@ -1139,7 +1204,7 @@ class CursorHarness(Harness):
           wrote_tester_guidance gate). tool_call/completed has no Anthropic
           slot and passes through untouched.
         - result with flat `usage` → Claude-shaped `modelUsage` (token fields
-          renamed; costUSD=0). Leaves total_cost_usd absent/0.
+          renamed; costUSD estimated from published rates) + total_cost_usd.
         - system/init, user, assistant pass through unchanged.
         """
         t = event.get("type")
@@ -1156,13 +1221,15 @@ class CursorHarness(Harness):
             # Copy so the raw jsonl line (written before normalize) stays native;
             # only the in-memory event fed to handle_event is reshaped.
             out = dict(event)
-            out["modelUsage"] = _cursor_usage_to_model_usage(
-                event.get("usage") or {},
-                event.get("model") or _cursor_model(),
-            )
-            # Cursor never emits USD cost; keep explicit 0 so summaries don't
-            # look like a missing field vs a real $0.
-            out.setdefault("total_cost_usd", 0)
+            model = event.get("model") or _cursor_model()
+            usage = event.get("usage") or {}
+            out["modelUsage"] = _cursor_usage_to_model_usage(usage, model)
+            # Prefer stream total when present; else sum estimated costUSD.
+            if not out.get("total_cost_usd"):
+                mu = out["modelUsage"]
+                out["total_cost_usd"] = sum(
+                    float((u or {}).get("costUSD") or 0) for u in mu.values()
+                )
             return out
         return event
 

@@ -271,3 +271,9 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 
 **Review follow-ups (open — schedule as the next `/ssp-dev` cycle):**
 - [x] 59.2 [easy] [should-fix] `.claude/skills/ssp-chain-driver/SKILL.md:40` — Locations still says "or use the overnight chain for jitter" after 59.1 deleted overnight YAMLs; invocation examples at `:80` were updated but Locations was left stale, so operators are steered toward a removed chain. Proposed fix: retarget that clause to `--overnight` / `--loop-delay-random` (match `:80`).
+
+### Phase 60: Cursor harness estimated `$` cost from token usage
+
+**Context.** Phase 58.5 mapped Cursor `usage` → `modelUsage` but left `costUSD=0` / loud-skipped `--max-budget-usd` because the stream has no USD. Cursor publishes model API rates; Grok 4.5 (default) is first-party at xAI list price. User-queued 2026-07-14: estimate cost so budget metering works.
+
+- [x] 60.1 [medium] **Estimate Cursor harness `$` cost from result `usage` tokens.** Rate table: Cursor-published API rates when known (Claude family); else Grok 4.5 public API (`$2` input / `$0.50` cache-read / `$6` output per 1M; cache-write = input rate). Fill `modelUsage.costUSD` + `total_cost_usd` in normalize_event. Keep `--max-budget-usd` under `--harness cursor` (note: API-equivalent estimate; subscription pool may differ). Drop the loud-skip / overnight SystemExit. Acceptance: fixture result has non-zero estimated cost; budget cap retained with estimate note; overnight+budget alone OK; full suite green; README Cursor notes updated.
