@@ -822,6 +822,19 @@ class Harness:
         """
         return event
 
+    def apply_budget_constraints(
+        self,
+        args: argparse.Namespace,
+        loop_count: int,
+    ) -> None:
+        """Harness-specific budget / cap adjustments (in-place on args).
+
+        Default no-op. Subclasses that lack a telemetry signal the runner's
+        budget gate depends on (e.g. Cursor has no total_cost_usd) override
+        this to clear or remap the relevant flags before the loop starts.
+        """
+        return
+
 
 class ClaudeCodeHarness(Harness):
     """Anthropic Claude Code CLI as the agent harness."""
@@ -1027,11 +1040,43 @@ class CursorHarness(Harness):
     (`editToolCall`/`readToolCall`/`shellToolCall` → assistant/tool_use) and
     maps result-frame `usage` → Claude-shaped `modelUsage` (token telemetry in
     the manifest). Cursor still emits NO `total_cost_usd` (subscription, not
-    USD-metered), so `--max-budget-usd` is loud-skipped under this harness
-    (see main()); prefer `--max-cycles` to cap a Cursor run.
+    USD-metered), so `--max-budget-usd` is loud-skipped via
+    `apply_budget_constraints`; prefer `--max-cycles` to cap a Cursor run.
     """
 
     name = "cursor"
+
+    def apply_budget_constraints(
+        self,
+        args: argparse.Namespace,
+        loop_count: int,
+    ) -> None:
+        """Loud-skip --max-budget-usd (in-place on args).
+
+        Cursor result frames carry token `usage` but no `total_cost_usd`
+        (subscription, not USD-metered). Leaving the cap set would keep
+        cumulative cost at $0 forever and look like "the budget worked."
+        Clear it with an orange note; prefer `--max-cycles`. If the run was
+        overnight / infinite and clearing the budget leaves no cycle cap,
+        raise SystemExit.
+        """
+        if args.max_budget_usd is None:
+            return
+        cleared = args.max_budget_usd
+        print(c(
+            f"[note] --max-budget-usd ${cleared:.2f} is inert under "
+            f"--harness cursor: Cursor result frames have no total_cost_usd "
+            f"(subscription, not USD-metered). Cap cleared; use --max-cycles "
+            f"to bound a Cursor run.", ORANGE,
+        ), flush=True)
+        args.max_budget_usd = None
+        if (getattr(args, "overnight", False)
+                or getattr(args, "preset", None) == "overnight"
+                or loop_count == 0) and args.max_cycles is None:
+            raise SystemExit(
+                "--harness cursor cleared --max-budget-usd (no Cursor USD "
+                "telemetry); add --max-cycles <N> to bound this run"
+            )
 
     def build_command(
         self,
@@ -2406,38 +2451,6 @@ def _apply_preset(args: argparse.Namespace, explicit_loop: bool) -> None:
             args.loop_delay_random = PRESETS["overnight"]["loop_delay_random"]
 
 
-def _maybe_clear_cursor_budget(
-    args: argparse.Namespace,
-    harness: Harness,
-    loop_count: int,
-) -> None:
-    """Loud-skip --max-budget-usd under the cursor harness (in-place on args).
-
-    Cursor result frames carry token `usage` but no `total_cost_usd`
-    (subscription, not USD-metered). Leaving the cap set would keep cumulative
-    cost at $0 forever and look like "the budget worked." Clear it with an
-    orange note; prefer `--max-cycles`. If the run was overnight / infinite and
-    clearing the budget leaves no cycle cap, raise SystemExit.
-    """
-    if harness.name != "cursor" or args.max_budget_usd is None:
-        return
-    cleared = args.max_budget_usd
-    print(c(
-        f"[note] --max-budget-usd ${cleared:.2f} is inert under "
-        f"--harness cursor: Cursor result frames have no total_cost_usd "
-        f"(subscription, not USD-metered). Cap cleared; use --max-cycles "
-        f"to bound a Cursor run.", ORANGE,
-    ), flush=True)
-    args.max_budget_usd = None
-    if (getattr(args, "overnight", False)
-            or getattr(args, "preset", None) == "overnight"
-            or loop_count == 0) and args.max_cycles is None:
-        raise SystemExit(
-            "--harness cursor cleared --max-budget-usd (no Cursor USD "
-            "telemetry); add --max-cycles <N> to bound this run"
-        )
-
-
 def _wrapper_telegram_enabled(args: argparse.Namespace) -> bool:
     """Telegram event posting is opt-in: enabled only when the user supplied
     --telegram-env, --profile, or --label (and did not pass --no-telegram). A
@@ -3480,7 +3493,7 @@ def main() -> int:
     if args.max_cycles is not None and args.max_cycles < 1:
         raise SystemExit("--max-cycles must be >= 1")
 
-    _maybe_clear_cursor_budget(args, harness, loop_count)
+    harness.apply_budget_constraints(args, loop_count)
 
     looping = (loop_count != 1)
     infinite = (loop_count == 0)

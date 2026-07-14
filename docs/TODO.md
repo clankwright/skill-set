@@ -8,6 +8,7 @@
 
 ## Just shipped (last cycle)
 
+- Phase 58.7: `Harness.apply_budget_constraints` no-op + `CursorHarness` override (loud-skip `--max-budget-usd`); removed module-level `_maybe_clear_cursor_budget` name-branch — by ssp-dev at 2026-07-14T00:43:52Z
 - Default loop-delay is none: runner no longer injects DEFAULT_LOOP_DELAY_RANDOM when unset; `dev-cycle-with-review-looped` uses `loop-delay: 0` (overnight / `--overnight` keep 5-30min jitter) — by manual at 2026-07-14T00:39:51Z
 - Phase 58.6: inject proxied `num_turns` when Cursor result emits null (not only when key absent) so summary prints "N turns" not "None turns"; regression test with explicit null key (25→26) — by ssp-dev at 2026-07-14T00:37:35Z
 - Phase 58.5: Cursor telemetry gap closed — `usage`→`modelUsage` (cache key rename); `num_turns` proxy from assistant frames; `--max-budget-usd` loud-skipped under `--harness cursor` (prefer `--max-cycles`); overnight/infinite without cycles SystemExits after clear. 8 new tests (17→25); 614→622 green; README Cursor notes updated — by ssp-dev at 2026-07-14T00:30:13Z
@@ -17,7 +18,6 @@
 - Post-Phase-54 ssp reconcile + objectives fix: reconciled ALL ssp-* wrappers across ~/Dev to current base versions (cm + dahrouge dev/dev-review/manager/supervisor + ssp-manager) and refreshed the stale ~/.claude/skills runtime copies (4 transferables reinstalled, 2 installed manager wrappers synced); bumped the two pre-existing stale wrappers ssp-cm-chain-driver (base 1.3.0->1.4.0) and ssp-dahrouge-tester (base 1.6.0->1.8.0), both config-only re their base changes; fixed ssp-manager objectives.md skill-set-tests-passing check to call ~/.local/bin/pytest (was python3 -m pytest, a false-fail since system python3 is 3.10 but pytest is 3.11 at ~/.local/bin); check-ssp-sync clean from all 3 roots -- by manual completion (live session) at 2026-06-25T23:46:46Z
 - Phase 54 (54.1+54.2+54.3+54.4): consolidate HUMAN.md to the oversight layer -- revoke read/write from sst-dev-cycle (v1.14.0) + sst-dev-review (v1.13.0); RE-HOME the phase-completion branch-setup handoff to sst-supervisor (§5b.1, v2.7.0) and the blocked-item pick-gating to sst-manager (§3b, v2.4.0); mirror into ssp-cm-dev (base 1.14.0) + ssp-cm-dev-review (base 1.13.0); SPEC "Handoff docs" + README carry the invariant; reconciled ssp-manager base-version 2.3.0->2.4.0; 26 new tests in test_phase54.py; 564->590 green; validate-frontmatter clean; transferables sanitize-clean -- by manual completion (live session) at 2026-06-25T12:11:54Z (orphaned cycle 2026-06-25T09-17-14Z continued from its failing test file)
 - Phase 53 (53.1+53.2): sst-manager always-reply hard rule (v2.2.0->v2.3.0) + manager-bot.py deadlock-watcher; 17 new tests; 547->564 green — by sst-dev-cycle at 2026-06-25T05:00:00Z
-- Runner markdown-wrapped sentinel fix: relax PICKED_DIFFICULTY_SENTINEL_RE + BATCH_PICK_SENTINEL_RE with \W* tolerance; 5 new guard tests in test_skill_chain.py; 542->547 green — by sst-dev-cycle at 2026-06-25T03:30:00Z
 
 <!--
   Append-on-close, newest first. Format:
@@ -38,9 +38,6 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
-
-<!-- From 2026-07-14T00-27-32Z review of Phase 58.5 (b94a9c4). 58.6 closed this cycle; 58.7 remains. -->
-- [medium] [should-fix] 58.7 `bin/skill-chain.py:2419` — move `_maybe_clear_cursor_budget`'s `harness.name == "cursor"` branch onto a CursorHarness method — review of b94a9c4
 
 <!-- Phase 42 `--overnight` preset (loop:0 + loop-delay-random + cap) makes dedicated overnight chain YAMLs redundant. -->
 - [easy] Remove redundant overnight chain YAMLs (`chains/dev-cycle-overnight.yaml` + proprietary `.claude/chains/skill-set-overnight.yaml`); use `--overnight` / `--preset overnight` on the looped (or single) cycle chain instead; update README/CLAUDE.md/tests that reference the overnight YAML — source: user request 2026-07-14
