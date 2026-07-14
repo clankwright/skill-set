@@ -42,6 +42,9 @@
 <!-- From 2026-07-14T00-27-32Z review of Phase 58.5 (b94a9c4). 58.6 closed this cycle; 58.7 remains. -->
 - [medium] [should-fix] 58.7 `bin/skill-chain.py:2419` — move `_maybe_clear_cursor_budget`'s `harness.name == "cursor"` branch onto a CursorHarness method — review of b94a9c4
 
+<!-- Phase 42 `--overnight` preset (loop:0 + loop-delay-random + cap) makes dedicated overnight chain YAMLs redundant. -->
+- [easy] Remove redundant overnight chain YAMLs (`chains/dev-cycle-overnight.yaml` + proprietary `.claude/chains/skill-set-overnight.yaml`); use `--overnight` / `--preset overnight` on the looped (or single) cycle chain instead; update README/CLAUDE.md/tests that reference the overnight YAML — source: user request 2026-07-14
+
 <!-- Cursor capability gaps surfaced by harness dogfood runs 2026-07-14 (00-10-28Z + 00-27-32Z). Highest-impact first. -->
 - [medium] Build a Cursor-harness-only Brave web-search + page-fetch tool: free Brave API key first, on rate-limit fall back to paid key; cover both WebSearch and WebFetch substitutes; wire under `--harness cursor` only (Claude Code keeps native tools) — source: user request 2026-07-14 + run analysis (research skills need fetch too)
 - [hard] Cursor has no Skill tool — nested `/sst-sanitize-transferable` (and other sub-skill) invocations from inlined skill prose cannot run; add a Cursor path (runner-spawned nested skill inline, or harness-aware prose: Read SKILL.md + follow) so transferable-editing cycles under `--harness cursor` still pass the sanitize gate — source: run analysis 2026-07-14 (Phase 58.5 skipped sanitize only because no transferable; next transferable cycle will hit this)
