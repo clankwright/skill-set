@@ -39,6 +39,9 @@
   Order: blockers/highest-impact first.
 -->
 
+<!-- From 2026-07-14T00-42-58Z review of Phase 59.1 (4f3fa73) + prior Cursor harness closes since last Review:. -->
+- [easy] [should-fix] 59.2 `.claude/skills/ssp-chain-driver/SKILL.md:40` — Locations still points at deleted overnight chain for jitter; retarget to `--overnight` / `--loop-delay-random` — review of 4f3fa73
+
 <!-- Cursor capability gaps surfaced by harness dogfood runs 2026-07-14 (00-10-28Z + 00-27-32Z). Highest-impact first. -->
 - [medium] Build a Cursor-harness-only Brave web-search + page-fetch tool: free Brave API key first, on rate-limit fall back to paid key; cover both WebSearch and WebFetch substitutes; wire under `--harness cursor` only (Claude Code keeps native tools) — source: user request 2026-07-14 + run analysis (research skills need fetch too)
 - [hard] Cursor has no Skill tool — nested `/sst-sanitize-transferable` (and other sub-skill) invocations from inlined skill prose cannot run; add a Cursor path (runner-spawned nested skill inline, or harness-aware prose: Read SKILL.md + follow) so transferable-editing cycles under `--harness cursor` still pass the sanitize gate — source: run analysis 2026-07-14 (Phase 58.5 skipped sanitize only because no transferable; next transferable cycle will hit this)
