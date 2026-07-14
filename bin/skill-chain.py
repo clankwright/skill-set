@@ -4196,11 +4196,13 @@ def main() -> int:
             # fires in headless runs too.
             iter_cost = _iteration_cost(iter_manifest)
             cumulative_cost_usd += iter_cost
-            # Phase 65: cumulative totals line after each iter (even without Telegram).
-            run_so_far = _compute_run_totals(iterations=iterations_collected)
-            print(c(_format_run_totals_line(
-                run_so_far, label=f"totals after iter {iteration}"
-            ), DIM), flush=True)
+            # Phase 65: cumulative totals after each iter when looping
+            # (single-run loop=1 only gets the session-end [totals] line).
+            if looping:
+                run_so_far = _compute_run_totals(iterations=iterations_collected)
+                print(c(_format_run_totals_line(
+                    run_so_far, label=f"totals after iter {iteration}"
+                ), DIM), flush=True)
             iter_verdict = "unknown"
             if log_dir is not None:
                 iter_verdict = _verdict_outcome(

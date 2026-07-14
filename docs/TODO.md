@@ -8,6 +8,7 @@
 
 ## Just shipped (last cycle)
 
+- Phase 65.2: gate post-iter `[totals after iter N]` behind `if looping:` (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:28:24Z
 - Phase 65.1: cumulative run totals in MANIFEST `totals:` + `[totals]` stdout (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:22:33Z
 - Phase 63.2: comment out CURSOR_MODEL in `.env.example` (opt-in pin; copy no longer disables Grok ladder) (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:06:08Z
 - Phase 64.3: exclude normalize-synthesized tool_call frames from Cursor `_turn_proxy` / max-turns (tag `_synthetic_from_tool_call`; Phase-49 gates unchanged) (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:58:59Z
@@ -17,7 +18,6 @@
 - Phase 61.3: brave-web `_resolve_credentials` merges missing keys from env-file (free-in-env + paid-from-file); 3 regression tests (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:20:18Z
 - Phase 61 (61.1-61.2): Cursor Brave web search/fetch (`bin/brave-web.py`, free→paid key) + `--approve-mcps`/`--trust`; Claude Code untouched (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:15:27Z
 - Phase 60.1: estimate Cursor harness $ cost from usage tokens (Grok 4.5 API rates fallback; --max-budget-usd re-enabled; Sanitize: n/a) — by ssp-dev at 2026-07-14T01:09:44Z
-- Phase 59.2: ssp-chain-driver Locations retargeted — overnight jitter via `--overnight` / `--loop-delay-random` (v1.0.3; Sanitize: n/a, proprietary) — by ssp-dev at 2026-07-14T00:54:10Z
 
 <!--
   Append-on-close, newest first. Format:
@@ -38,8 +38,6 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
-
-- [easy] [should-fix] 65.2 `bin/skill-chain.py:main` (~L4199) — gate post-iter `[totals after iter N]` behind `if looping:` (SPEC 65.1 parenthetical) — review of df087a3
 
 <!-- From 2026-07-14T01-55Z review of Phases 61.3–64 since last Review (89f218b, 7b10693, 9b1e01d, 87c0ed7). -->
 
