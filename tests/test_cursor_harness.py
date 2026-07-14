@@ -275,6 +275,25 @@ def test_claude_result_num_turns_not_overwritten_by_proxy():
     assert rec["total_cost_usd"] == 0.12
 
 
+def test_handle_event_null_num_turns_uses_proxy(capsys):
+    """Live Cursor emits num_turns:null; inject proxy so summary is not 'None turns'."""
+    sink = sc._Sink(None)
+    rec: dict = {"_turn_proxy": 7}
+    sc.handle_event(sink, {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "duration_ms": 1500,
+        "total_cost_usd": 0,
+        "num_turns": None,  # key present, value null (live Cursor shape)
+        "modelUsage": {},
+    }, rec)
+    assert rec["num_turns"] == 7
+    out = capsys.readouterr().out
+    assert "7 turns" in out
+    assert "None turns" not in out
+
+
 def test_cursor_budget_cap_cleared_with_loud_note(capsys):
     """--max-budget-usd under cursor is cleared (inert) with an orange note."""
     args = sc.parse_args([

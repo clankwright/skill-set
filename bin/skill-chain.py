@@ -1440,7 +1440,10 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
             num_turns = skill_record.pop("_turn_proxy", 0)
         skill_record.pop("_turn_proxy", None)  # drop if Claude path left it
         # Inject so print_result_summary shows the resolved turn count.
-        if "num_turns" not in event:
+        # Live Cursor result frames emit `"num_turns": null` (key present,
+        # value null) — inject on None, not only on a missing key, or the
+        # summary prints "None turns" while skill_record is already correct.
+        if event.get("num_turns") is None:
             event = dict(event)
             event["num_turns"] = num_turns
         print_result_summary(sink, event)
