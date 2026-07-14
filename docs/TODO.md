@@ -42,6 +42,10 @@
 <!-- From 2026-07-14T01-03-22Z review of Phase 61 (7b96d31) + Phase 60.1 / 59.2 since last Review. -->
 - [easy] [should-fix] 61.3 `bin/brave-web.py:_resolve_credentials` — early-return on either key set blocks paid-from-file when free is in env; merge missing keys so free→paid 429 fallback works — review of 7b96d31
 
+<!-- Cursor still prints Claude Phase-19 fiction (opus/fable/xhigh) + fable-cap banner while every skill actually runs on CURSOR_MODEL / Grok. -->
+- [medium] Cursor harness routing + stdout: map item difficulty / skill floors onto Grok effort ladder (`cursor-grok-4.5-{low,medium,high}[-fast]`, not Claude haiku/sonnet/opus/fable); print real model id + effort in `[route]` lines and MANIFEST `route` records; pass resolved id to `cursor-agent --model` (stop collapsing every skill to DEFAULT_CURSOR_MODEL) — source: user request 2026-07-14
+- [easy] Suppress Claude-only fable toggle stdout under `--harness cursor`: do not print `[model] fable disabled…` / honor `--enable-fable` messaging (fable is not a Cursor tier); leave Claude Code path unchanged — source: user request 2026-07-14
+
 <!-- Cursor capability gaps surfaced by harness dogfood runs 2026-07-14 (00-10-28Z + 00-27-32Z). Highest-impact first. -->
 - [hard] Cursor has no Skill tool — nested `/sst-sanitize-transferable` (and other sub-skill) invocations from inlined skill prose cannot run; add a Cursor path (runner-spawned nested skill inline, or harness-aware prose: Read SKILL.md + follow) so transferable-editing cycles under `--harness cursor` still pass the sanitize gate — source: run analysis 2026-07-14 (Phase 58.5 skipped sanitize only because no transferable; next transferable cycle will hit this)
 - [medium] Cursor has no `--max-turns` hard backstop (soft wind-down is tester-only / advisory); add a runner-side turn/watchdog (count assistant frames, kill or wind-down after N) under `--harness cursor` — source: run analysis 2026-07-14 (documented gap; runaway risk)
