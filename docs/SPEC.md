@@ -258,3 +258,7 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 - Live fixture `tests/fixtures/cursor-stream-sample.jsonl` (11 events from a real cursor-agent probe).
 - `bin/skill-chain.py`: `_cursor_tool_call_fields` handles `editToolCall` / `shellToolCall`; CursorHarness docstring updated; `_cursor_usage_to_model_usage` + result normalize; `_maybe_clear_cursor_budget` loud-skip.
 - `tests/test_cursor_harness.py`: 17 → 25 tests. Sanitize: n/a (no transferable touched).
+
+**Review follow-ups (open — schedule as the next `/ssp-dev` cycle):**
+- [ ] 58.6 [easy] [should-fix] `bin/skill-chain.py:1443` — `handle_event` only injects proxied `num_turns` when the key is absent; live Cursor result frames emit `"num_turns": null`, so `print_result_summary` (`:1255`) prints `None turns` even though `skill_record["num_turns"]` is correct. Fixture omits the key, so unit tests miss it. Proposed fix: inject when `event.get("num_turns") is None` (covers missing and null); add a regression test with an explicit null key.
+- [ ] 58.7 [medium] [should-fix] `bin/skill-chain.py:2419` — `_maybe_clear_cursor_budget` branches on `harness.name != "cursor"`, violating the Phase-1 Harness-as-single-source-of-truth contract. Proposed fix: add a default no-op `Harness.apply_budget_constraints(args, loop_count)` (or equivalent); override on `CursorHarness`; call via the harness instance from `main()`.
