@@ -11,8 +11,8 @@ WebFetch. Claude Code keeps its native tools; this CLI is unused there.
 
 Credential resolution (keys always free-first when both are set):
   1. BRAVE_SEARCH_API_KEY_FREE / BRAVE_SEARCH_API_KEY already in the environment
-  2. BRAVE_ENV_FILE pointing at a .env (sourced when keys not yet set)
-  3. ~/Dev/skill-set/brave.env (base-dir fallback; gitignored)
+  2. BRAVE_ENV_FILE pointing at a .env — fills only *missing* keys (merge)
+  3. ~/Dev/skill-set/brave.env (base-dir fallback; gitignored; same merge)
 
 Free key is tried first; paid key only when the request itself fails (429 /
 auth / timeout / 5xx). A 2xx with empty results does NOT fall through — that
@@ -64,17 +64,22 @@ def _load_dotenv(path: Path) -> None:
 
 
 def _resolve_credentials() -> None:
-    """Populate Brave keys from env-file fallbacks when not already exported."""
+    """Fill *missing* Brave keys from env-file fallbacks (merge, don't short-circuit).
+
+    A free key already in the environment must not block loading a paid key from
+    BRAVE_ENV_FILE / brave.env — otherwise free→paid 429 fallback never sees paid.
+    `_load_dotenv` only sets keys not already present, so re-running is safe.
+    """
     free = os.environ.get("BRAVE_SEARCH_API_KEY_FREE", "").strip()
     paid = os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()
-    if free or paid:
+    if free and paid:
         return
     env_file = os.environ.get("BRAVE_ENV_FILE", "").strip()
     if env_file:
         _load_dotenv(Path(env_file).expanduser())
         free = os.environ.get("BRAVE_SEARCH_API_KEY_FREE", "").strip()
         paid = os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()
-        if free or paid:
+        if free and paid:
             return
     _load_dotenv(BASE_BRAVE_ENV)
 
