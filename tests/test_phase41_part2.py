@@ -4,8 +4,9 @@
         `fail`→`[blocker]`, `needs-change`→`[should-fix]`; surfaces `degraded`;
         treats `skipped` as non-finding; adds `Tester:` line to §6 report; back-compat
         when files absent.
-41.4 — `chains/dev-cycle-with-review.yaml`, `…-looped.yaml`, `…-overnight.yaml`
+41.4 — `chains/dev-cycle-with-review.yaml`, `…-looped.yaml`
         list `sst-tester` at index 1 (between dev at 0 and review at 2).
+        (Dedicated overnight YAML removed in Phase 59; overnight is `--overnight` on the looped chain.)
 41.9 — `sst-dev-cycle` documents writing `tester-guidance.md` to the run-log dir
         after committing (when FE/UI surface changed) or emitting `[skip-tester]`
         sentinel (when no FE/UI surface).
@@ -24,7 +25,6 @@ _DEV_REVIEW = _REPO / "skills/dev/sst-dev-review/SKILL.md"
 _DEV_CYCLE = _REPO / "skills/dev/sst-dev-cycle/SKILL.md"
 _CHAIN_REVIEW = _REPO / "chains/dev-cycle-with-review.yaml"
 _CHAIN_LOOPED = _REPO / "chains/dev-cycle-with-review-looped.yaml"
-_CHAIN_OVERNIGHT = _REPO / "chains/dev-cycle-overnight.yaml"
 
 _CHAIN_PATH = _REPO / "bin" / "skill-chain.py"
 _spec = importlib.util.spec_from_file_location("skill_chain_41p2", _CHAIN_PATH)
@@ -185,17 +185,12 @@ def test_dev_cycle_with_review_looped_chain_has_tester():
     assert dev_idx < tester_idx < review_idx
 
 
-def test_dev_cycle_overnight_chain_has_tester():
-    """41.4: dev-cycle-overnight.yaml lists sst-tester between dev and review."""
-    skills = _parse_yaml_skills(_CHAIN_OVERNIGHT)
-    assert "sst-tester" in skills, (
-        "chains/dev-cycle-overnight.yaml must list sst-tester"
+def test_dev_cycle_overnight_yaml_removed():
+    """Phase 59: dedicated overnight chain YAML is gone; use --overnight on the looped chain."""
+    assert not (_REPO / "chains/dev-cycle-overnight.yaml").exists(), (
+        "chains/dev-cycle-overnight.yaml must not exist; overnight is --overnight on "
+        "dev-cycle-with-review-looped"
     )
-    dev_idx = next((i for i, s in enumerate(skills) if "dev-cycle" in s), None)
-    tester_idx = next((i for i, s in enumerate(skills) if s == "sst-tester"), None)
-    review_idx = next((i for i, s in enumerate(skills) if "dev-review" in s), None)
-    assert dev_idx is not None and tester_idx is not None and review_idx is not None
-    assert dev_idx < tester_idx < review_idx
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
       (a) the framework + transferable/proprietary sst-/ssp- model
       (b) the skill catalog (dev-cycle, dev-review, tester, supervisor, manager,
           chain-driver, sanitize-transferable, research/content/outreach families)
-      (c) the chains (dev-cycle-with-review, -looped, -overnight, etc.)
+      (c) the chains (dev-cycle-with-review, -looped, --overnight preset, etc.)
       (d) the unified runner CLI flags (--chain/--loop/--overnight/--batch/
           --max-budget-usd/--profile)
 47.2: README.md has a Usage section with four copy-pasteable examples, all via
@@ -78,9 +78,12 @@ def test_features_chains_dev_cycle_with_review():
 
 
 def test_features_chains_overnight():
-    """Features section must mention the overnight chain variant."""
+    """Features section must mention the overnight drain path (--overnight preset)."""
     assert "overnight" in _text()
-
+    assert "dev-cycle-overnight" not in _text(), (
+        "dedicated overnight chain YAML was removed; README must not list "
+        "dev-cycle-overnight as a shipped chain"
+    )
 
 def test_features_cli_flag_chain():
     """Features section must document the --chain CLI flag."""

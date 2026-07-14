@@ -31,8 +31,7 @@ See `skills/` for the full catalog (research, content, evaluation, outreach, orc
 | Chain | Loop | Use case |
 |---|---|---|
 | `dev-cycle-with-review` | 1 | Single item: dev-cycle + tester + review |
-| `dev-cycle-with-review-looped` | 3 | 3-item batch with aggressive supervisor routing |
-| `dev-cycle-overnight` | 0 | Unattended queue drain; stops when queue is empty |
+| `dev-cycle-with-review-looped` | 3 | 3-item batch; add `--overnight` for unattended drain |
 | `research-and-write` | 1 | Research a topic and produce a written deliverable |
 | `editorial-with-fact-check` | 1 | Draft through editorial pass with citation check |
 | `research-write-promote` | 1 | Research to write to social-promote pipeline |
@@ -66,7 +65,7 @@ bin/skill-chain.py --chain dev-cycle-with-review-looped --loop 3
 **Drain the queue overnight (stops when queue is empty or budget is exhausted):**
 
 ```bash
-bin/skill-chain.py --chain dev-cycle-overnight --overnight --max-budget-usd 30
+bin/skill-chain.py --chain dev-cycle-with-review-looped --overnight --max-budget-usd 30
 ```
 
 **Batch mode (run a skill over every matching file):**
@@ -127,7 +126,7 @@ In this repo (skill-set dogfooding itself) the proprietary set is:
 
 Consuming projects name theirs `ssp-<project>-<role>` (e.g. `ssp-sdrai-supervisor`) so several projects' skills can coexist in one harness without colliding; skill-set's own use the bare `ssp-<role>` form since this repo is a single project.
 
-Each `ssp-*` skill is a thin overlay: it `transferable:`-declares its `sst-*` parent, inherits that parent's full process at runtime, and adds only the local facts the method can't know. **They are NOT in the repo** — a fresh clone or a second machine has none of them. Set them up locally (create `.claude/skills/ssp-<role>/SKILL.md` plus the proprietary chains under `.claude/chains/`, or copy them from a machine that already has them, then `bin/install-skills.sh -y` to deploy the `sst-*` parents they inherit). Keeping them gitignored is intentional: each environment customizes freely without leaking private config into the public repo. The dogfooding chains (`skill-set-cycle` / `skill-set-overnight`) invoke them by name (`ssp-dev` → `ssp-dev-review` → auto-appended `ssp-supervisor`), so running the loop needs them present; hand-editing the `sst-*` transferables needs only what's in the repo.
+Each `ssp-*` skill is a thin overlay: it `transferable:`-declares its `sst-*` parent, inherits that parent's full process at runtime, and adds only the local facts the method can't know. **They are NOT in the repo** — a fresh clone or a second machine has none of them. Set them up locally (create `.claude/skills/ssp-<role>/SKILL.md` plus the proprietary chains under `.claude/chains/`, or copy them from a machine that already has them, then `bin/install-skills.sh -y` to deploy the `sst-*` parents they inherit). Keeping them gitignored is intentional: each environment customizes freely without leaking private config into the public repo. The dogfooding chain (`skill-set-cycle`, with `--overnight` for unattended drains) invokes them by name (`ssp-dev` → `ssp-dev-review` → auto-appended `ssp-supervisor`), so running the loop needs them present; hand-editing the `sst-*` transferables needs only what's in the repo.
 
 ## Three loops
 
@@ -171,15 +170,14 @@ CLI flags (`--loop`, `--loop-delay`, `--on-rate-limit`, `--max-overload-retries`
 
 Loop mode pairs naturally with skills that pick the next item from `TODO.md > Next up` each iteration: dev cycles, content cycles, lead-gen runs. The supervisor still runs once per iteration, so the handoff-doc contract stays intact between cycles.
 
-**Empty-queue bail (steady-state stop).** When the project reaches steady state (`TODO.md > Next up` empty AND every `- [ ]` in `docs/SPEC.md` flipped `[x]`), the dev-cycle skill exits cleanly with the line `[no-work] <reason>` on stdout instead of inventing speculative work. The chain runner recognizes the `[no-work]` sentinel, skips the remaining skills in the iteration (review, supervisor), since there's no commit for them to work against, and aborts the loop entirely. The iter manifest records `no_work_bail: {skill, reason}`; the top-level `manifest["loop"]["terminated_by"] = "no_work_bail"` so a chain driver's session-end summary can label the stop "no-work bail" rather than "max-cycles reached." This is the canonical clean stop, not an error condition: an unattended `dev-cycle-overnight` run terminates as soon as the queue is exhausted instead of looping on speculative work to the budget cap. Sentinel format documented in `templates/SPEC.md`; any consuming project's dev skill opts in simply by emitting it.
+**Empty-queue bail (steady-state stop).** When the project reaches steady state (`TODO.md > Next up` empty AND every `- [ ]` in `docs/SPEC.md` flipped `[x]`), the dev-cycle skill exits cleanly with the line `[no-work] <reason>` on stdout instead of inventing speculative work. The chain runner recognizes the `[no-work]` sentinel, skips the remaining skills in the iteration (review, supervisor), since there's no commit for them to work against, and aborts the loop entirely. The iter manifest records `no_work_bail: {skill, reason}`; the top-level `manifest["loop"]["terminated_by"] = "no_work_bail"` so a chain driver's session-end summary can label the stop "no-work bail" rather than "max-cycles reached." This is the canonical clean stop, not an error condition: an unattended `--overnight` run terminates as soon as the queue is exhausted instead of looping on speculative work to the budget cap. Sentinel format documented in `templates/SPEC.md`; any consuming project's dev skill opts in simply by emitting it.
 
 ### Chains shipped here
 
 | Chain                            | Loop      | Auto-promote   | Use case                                                                                  |
 | :---                             | :---      | :---           | :---                                                                                      |
 | `dev-cycle-with-review`          | 1         | `proprietary`  | Single-item dev work; stage order: `dev → tester → review`. Conservative supervisor routing (proprietary edits land; transferable improvements wait for human promotion). |
-| `dev-cycle-with-review-looped`   | 3         | `all`          | Three-item dev batch; stage order: `dev → tester → review`. No inter-iter delay by default (back-to-back). Aggressive routing so the supervisor's transferable improvements land within the run and later iterations consume them. |
-| `dev-cycle-overnight`            | 0         | `all`          | Unattended overnight drain of `TODO.md > Next up`; stage order: `dev → tester → review`. Auto-stops when the queue is exhausted (dev skill emits `[no-work]`, runner aborts the loop); `sst-chain-driver --max-budget-usd $X` is the secondary safety net. Randomized [5min, 30min] inter-iter delay keeps commit cadence human-shaped. |
+| `dev-cycle-with-review-looped`   | 3         | `all`          | Multi-iter dev batch; stage order: `dev → tester → review`. No inter-iter delay by default (back-to-back). Pass `--overnight` (requires a budget or cycle cap) for unattended drain: expands to `loop: 0` + randomized [5min, 30min] delay. Aggressive routing so the supervisor's transferable improvements land within the run and later iterations consume them. |
 | `editorial-with-fact-check`      | 1         | `off`          | Run a draft through an editorial pass with citation verification. No supervisor self-modification. |
 | `multi-output-evaluation`        | 1         | `off`          | Compare N candidate outputs on a rubric and pick the best. |
 | `research-and-write`             | 1         | `off`          | Research a topic and produce a synthesized written deliverable. |
@@ -189,7 +187,7 @@ Pick the dev chain by intent:
 
 - **One specific change** → `dev-cycle-with-review` directly (`bin/skill-chain.py --chain dev-cycle-with-review`).
 - **Knock out the next 1-3 items in one sitting** → `dev-cycle-with-review-looped` via `sst-chain-driver` so you get per-iter Telegram bodies.
-- **Drain the queue overnight** → `dev-cycle-overnight` via `sst-chain-driver` with `--max-budget-usd $X` as the budget gate.
+- **Drain the queue overnight** → same looped chain with `--overnight --max-budget-usd $X` (or `--max-cycles N`); dedicated overnight YAMLs were removed in Phase 59.
 
 A proprietary `ssp-<persona>-chain-driver` skill (e.g. `ssp-chain-driver` in this repo, `ssp-sdrai-chain-driver` in a consumer) carries the chain name + cap defaults so the user types `/<persona>-chain-driver` with no flags. Override `--loop`, `--max-budget-usd`, or `--max-cycles` on the CLI for a one-off shape change.
 

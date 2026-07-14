@@ -1,6 +1,6 @@
 name: dev-cycle-with-review-looped
-description: Multi-iteration variant of dev-cycle-with-review. Runs sst-dev-cycle then sst-dev-review three times in a row so a single invocation knocks out three queued items from `TODO.md > Next up` without a human re-invoking between them. The supervisor edits and commits skill improvements directly within the same run (transferables after sst-sanitize-transferable clears them) so later iterations can pick them up. No inter-iter delay by default (iterations run back-to-back); opt in with --loop-delay / --loop-delay-random or YAML loop-delay-random (overnight chains keep human-shaped jitter).
-version: 1.6.0
+description: Multi-iteration variant of dev-cycle-with-review. Runs sst-dev-cycle then sst-dev-review three times in a row so a single invocation knocks out three queued items from `TODO.md > Next up` without a human re-invoking between them. The supervisor edits and commits skill improvements directly within the same run (transferables after sst-sanitize-transferable clears them) so later iterations can pick them up. No inter-iter delay by default (iterations run back-to-back); opt in with --loop-delay / --loop-delay-random or YAML loop-delay-random. For unattended overnight drain, pass --overnight / --preset overnight (loop:0 + randomized [5min, 30min] delay; requires a budget or cycle cap) instead of a separate overnight chain YAML.
+version: 1.7.0
 user-invocable: true
 loop: 3
 loop-delay: 0
