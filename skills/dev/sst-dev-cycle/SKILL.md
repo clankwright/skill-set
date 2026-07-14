@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.16.0
+version: 1.17.0
 model-floor: fable
 effort-floor: high
 ---
@@ -305,6 +305,8 @@ Exercise the specific thing you changed against the live environment:
 - Background-job change: submit a real small job and confirm it completes.
 
 Reuse the project's permanent test account or staging credentials — never create ad-hoc accounts.
+
+**Secrets must never reach printed output.** Live verification and its diagnostics run with real credentials, and everything a command prints (stdout AND stderr) lands verbatim in the persistent chain transcript, which outlives the session. Before the FIRST command that reads a credential-bearing file (a DB/config file holding passwords, a saved session or token store), route all output through a redaction filter (e.g. `2>&1 | grep -viE 'password|pwd|token|secret'`) and prefer non-interpolating parsers: an error traceback can embed the raw value (Python's interpolating `configparser` raises `InterpolationSyntaxError` quoting the full raw value when a stored password contains `%`). Redaction is a pre-condition of the first probe, not a post-leak fix; a credential fragment in a transcript is a rotation-grade incident even when the file never leaves the machine.
 
 If verification fails:
 - Minor issue (copy, layout nit): fix forward in a new cycle.
