@@ -8,6 +8,7 @@
 
 ## Just shipped (last cycle)
 
+- Phase 65.1: cumulative run totals in MANIFEST `totals:` + `[totals]` stdout (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:22:33Z
 - Phase 63.2: comment out CURSOR_MODEL in `.env.example` (opt-in pin; copy no longer disables Grok ladder) (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:06:08Z
 - Phase 64.3: exclude normalize-synthesized tool_call frames from Cursor `_turn_proxy` / max-turns (tag `_synthetic_from_tool_call`; Phase-49 gates unchanged) (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:58:59Z
 - Phase 64 (64.1-64.2): Cursor nested-skill Read+follow cold-start directive + runner max-turns watchdog via assistant-frame proxy (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:52:46Z
@@ -17,7 +18,6 @@
 - Phase 61 (61.1-61.2): Cursor Brave web search/fetch (`bin/brave-web.py`, free→paid key) + `--approve-mcps`/`--trust`; Claude Code untouched (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:15:27Z
 - Phase 60.1: estimate Cursor harness $ cost from usage tokens (Grok 4.5 API rates fallback; --max-budget-usd re-enabled; Sanitize: n/a) — by ssp-dev at 2026-07-14T01:09:44Z
 - Phase 59.2: ssp-chain-driver Locations retargeted — overnight jitter via `--overnight` / `--loop-delay-random` (v1.0.3; Sanitize: n/a, proprietary) — by ssp-dev at 2026-07-14T00:54:10Z
-- Phase 59.1: remove redundant overnight chain YAMLs (`dev-cycle-overnight` + `skill-set-overnight`); overnight = `--overnight` on looped cycle; README/CLAUDE.md/tests updated (Sanitize: n/a) — by ssp-dev at 2026-07-14T00:48:37Z
 
 <!--
   Append-on-close, newest first. Format:

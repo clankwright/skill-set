@@ -313,3 +313,9 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 
 **Review follow-ups (open — schedule as the next `/ssp-dev` cycle):**
 - [x] 64.3 [medium] [should-fix] `bin/skill-chain.py:CursorHarness.normalize_event` (~L1528) + `handle_event` `_turn_proxy` (~L1744) + `run_skill` kill (~L2032) — Phase-64 hard-cap counts every post-normalize `assistant` frame, and `tool_call/started` is reshaped into a synthetic assistant/tool_use event, so each tool call burns a turn. Live dogfood (`iter_02/00_ssp-dev.jsonl`): 6 real assistant text frames + 54 tool_call:started → `_turn_proxy=60` (90% tool-only). Claude bundles tool_use inside one assistant message (one turn); Cursor tester/outreach runs with many MCP calls will hit `--max-turns` (default 250) far earlier than intended. Proposed fix: exclude normalize-synthesized tool_call frames from the turn-cap counter (tag or count only native assistant/text frames); keep tool_use reshaping for Phase-49 gates; add a regression test with mixed text+tool_call stream.
+
+### Phase 65: cumulative run totals in MANIFEST + stdout
+
+**Context.** Multi-iter Cursor/Claude runs already record per-skill `duration_ms` / `num_turns` / `model_usage` / `total_cost_usd` on each iter MANIFEST, and Telegram session-end prints cumulative `$` only. Run analysis still requires hand-summing every skill record across iterations. User-queued 2026-07-14: persist + print session-level totals.
+
+- [x] 65.1 [medium] **Print + persist cumulative run totals at session end.** Sum across all iterations/skills: wall time (`duration_ms`), turns, input/output/cache-read/cache-write tokens, and `$` cost. Write a top-level `MANIFEST.json` `totals:` block; print a one-line `[totals]` stdout summary even without `--telegram` (also after each iter when looping). Acceptance: multi-iter fixture totals match sum of skill records; stdout line present; unit tests green.
