@@ -4,10 +4,11 @@
 
 ## In flight
 
-- [ssp-dev @ 2026-07-14T00:28:20Z] Close Cursor telemetry gap (usage→modelUsage + budget loud-skip)
+<!-- nothing in flight -->
 
 ## Just shipped (last cycle)
 
+- Phase 58.5: Cursor telemetry gap closed — `usage`→`modelUsage` (cache key rename); `num_turns` proxy from assistant frames; `--max-budget-usd` loud-skipped under `--harness cursor` (prefer `--max-cycles`); overnight/infinite without cycles SystemExits after clear. 8 new tests (17→25); 614→622 green; README Cursor notes updated — by ssp-dev at 2026-07-14T00:30:13Z
 - CLAUDE.md low-bandwidth rule: briefly note completed items (was "do not report routine successes") so the user can see work was not overlooked — by manual (stash pop from Phase 58 park) at 2026-07-14T00:23:00Z
 - Phase 58 (58.1-58.4): Cursor harness finalization — live stream-json fixture (`tests/fixtures/cursor-stream-sample.jsonl`); `_cursor_tool_call_fields` maps live `editToolCall`/`readToolCall`/`shellToolCall` (path→file_path) so Phase 49 wrote_tester_guidance works; 17 unit tests in `test_cursor_harness.py`; README documents `--harness cursor` + CURSOR_MODEL ids (also lands dirty Phase 57 fable-off-by-default paragraph). Grok default already `cursor-grok-4.5-high` (33ea3f0), confirmed live. Telemetry gap (no cost/num_turns; usage tokens present) left on Next up — by ssp-dev at 2026-07-14T00:13:08Z
 - Phase 55 (55.1-55.4): a skill failure no longer kills the chain. (1) dev-cycle model floor sonnet->opus so the lead agent finishes in-budget (sst-dev-cycle v1.15.0 + rationale note; ssp-cm-dev base 1.15.0/ver 1.14.0; ssp-dahrouge-dev base 1.15.0/ver 1.3.5). (2) bin/skill-chain.py run_iteration FLAGS a non-zero non-supervisor exit as a top-level skill_failure {skill,exit_code,failure_kind,num_turns}, skips the remaining intermediate skills, and hands off to the auto-supervisor for graceful resolution; rc stays 0 so the loop continues; rate-limit/overload aborts stay HARD stops; new _classify_skill_failure (error_max_turns->turn_limit_exhausted). (3) main() consecutive-failure backstop SKILL_FAILURE_BACKSTOP=2 -> terminated_by skill_failure_backstop + per-iter Telegram SKILL FAILURE line. (4) sst-supervisor §1a "Skill-failure graceful resolution" (v2.8.0): diagnose, re-home/split the offending item, surface (never mutate) partial work, escalate; mirrored into ssp-cm-supervisor (base 2.8.0/ver 2.2.7) + ssp-dahrouge-supervisor (base 2.8.0/ver 2.1.7). (5) [55.5] fixed the skill-set-validator-clean objective: validate-frontmatter.py now WALKS a directory arg (was crashing IsADirectoryError on `skills/ chains/`, swallowed by the objective's grep -> spuriously green), and objectives.md switched to the exit-code form. 5 new tests in test_skill_chain.py + 2 in test_validate.py; 590->597 green; validate-frontmatter clean; check-ssp-sync OK all 3 roots; sanitize must-fix 0 pending at push -- by manual completion (live session) at 2026-06-26T05:28:45Z
@@ -17,7 +18,6 @@
 - Runner markdown-wrapped sentinel fix: relax PICKED_DIFFICULTY_SENTINEL_RE + BATCH_PICK_SENTINEL_RE with \W* tolerance; 5 new guard tests in test_skill_chain.py; 542->547 green — by sst-dev-cycle at 2026-06-25T03:30:00Z
 - 52.1+52.2: add four anti-pattern RED-FLAGS to sst-tester + ssp-cm-tester mirror; add synthetic-data-masking note to sst-dev-cycle e2e guard — by sst-dev-cycle at 2026-06-25T02:00:00Z
 - 51.4 fix sst-tester standalone blast-radius diff source (git show HEAD -> git log -p per file): SKILL.md step 6a mode-conditional note; 3 new tests; 527->530 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-25T01:00:00Z
-- 51.1+51.2+51.3 Phase 51 close: sst-tester blast-radius mandate (FLOOR-not-ceiling, derive-from-diff, adjacent/integrated surfaces, All/none/many, record-gaps, budget reconciliation) v1.6.1->v1.7.0; ssp-cm-tester base-version 1.6.1->1.7.0 + §4b CM heuristics (merged-table scroll/virtualization, select-all partitions, all-clients aggregate, legend swatch match, report/credit sanity); README in-chain broadened coverage prose; 18 new tests; 509->527 green; sanitize must-fix=0 — by sst-dev-cycle at 2026-06-25T00:15:00Z
 
 <!--
   Append-on-close, newest first. Format:
@@ -38,9 +38,6 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
-
-<!-- Cursor harness residual (Phase 58 left this open). Live 2026-07-14 capture showed result.usage {inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens} IS present — only cost/num_turns are missing. -->
-- [medium] Close the Cursor telemetry gap: result frames carry token `usage` but no `total_cost_usd` / `num_turns`, so manifest cost stays 0 and `sst-chain-driver --max-budget-usd` cannot meter a Cursor run — map usage into modelUsage and either estimate cost or make the budget gate detect harness=="cursor" and skip with a loud note — source: Phase 58 open residual; live capture 2026-07-14
 
 <!-- Cursor has no native WebSearch (unlike Claude Code). Research skills (sst-web-research, sst-fact-checker, …) need a harness-local substitute when AGENT_HARNESS=cursor. -->
 - [medium] Build a Cursor-harness-only Brave web-search tool: free Brave API key first, on rate-limit fall back to paid Brave API key; wire so it is available under `--harness cursor` only (Claude Code keeps its native WebSearch — do not dual-path or replace it) — source: user request 2026-07-14 (Cursor harness lacks WebSearch)

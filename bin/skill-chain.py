@@ -915,6 +915,38 @@ def _cursor_model() -> str:
     return os.environ.get("CURSOR_MODEL") or DEFAULT_CURSOR_MODEL
 
 
+def _cursor_usage_to_model_usage(usage: dict, model: str | None = None) -> dict:
+    """Map Cursor result-frame `usage` into Claude-shaped `modelUsage`.
+
+    Live Cursor (2026-07-14) emits flat camelCase token counts with shorter
+    cache key names (`cacheReadTokens` / `cacheWriteTokens`). Downstream
+    consumers (manifest, print_result_summary, sst-dev-review §2.11 band check)
+    expect Claude's nested `modelUsage[model] = {inputTokens,
+    cacheReadInputTokens, cacheCreationInputTokens, outputTokens, costUSD}`.
+    Cost stays 0 — Cursor subscriptions are not USD-metered in the stream.
+    """
+    if not usage:
+        return {}
+    key = model or _cursor_model()
+    return {
+        key: {
+            "inputTokens": int(usage.get("inputTokens") or 0),
+            "outputTokens": int(usage.get("outputTokens") or 0),
+            "cacheReadInputTokens": int(
+                usage.get("cacheReadInputTokens")
+                or usage.get("cacheReadTokens")
+                or 0
+            ),
+            "cacheCreationInputTokens": int(
+                usage.get("cacheCreationInputTokens")
+                or usage.get("cacheWriteTokens")
+                or 0
+            ),
+            "costUSD": float(usage.get("costUSD") or 0),
+        }
+    }
+
+
 def _read_skill_body(path: Path | None) -> str | None:
     """Return a SKILL.md's body with its leading YAML frontmatter stripped, or
     None when the file is missing/unreadable. Used by the Cursor harness to
@@ -992,10 +1024,11 @@ class CursorHarness(Harness):
     assistant/text frames, so session-id capture, --resume, and the chain's text
     sentinels ([no-work], [picked-difficulty], [batch-pick], ...) all work
     unchanged. normalize_event() reshapes the differing tool_call frames
-    (`editToolCall`/`readToolCall`/`shellToolCall` → assistant/tool_use). Cursor's
-    result frame carries token `usage` (inputTokens/outputTokens/…) but NO
-    `total_cost_usd` / `num_turns`, so cost-based budget gates
-    (`sst-chain-driver --max-budget-usd`) cannot meter a Cursor run yet.
+    (`editToolCall`/`readToolCall`/`shellToolCall` → assistant/tool_use) and
+    maps result-frame `usage` → Claude-shaped `modelUsage` (token telemetry in
+    the manifest). Cursor still emits NO `total_cost_usd` (subscription, not
+    USD-metered), so `--max-budget-usd` is loud-skipped under this harness
+    (see main()); prefer `--max-cycles` to cap a Cursor run.
     """
 
     name = "cursor"
@@ -1055,21 +1088,38 @@ class CursorHarness(Harness):
 
     def normalize_event(self, event: dict) -> dict:
         """Translate a Cursor stream-json event into the Anthropic-shaped dict
-        handle_event() understands. system/init, user, assistant and result
-        frames already match closely enough to pass through; only tool_call
-        frames need reshaping. A `started` frame becomes an assistant `tool_use`
-        block (so tool rendering + the wrote_tester_guidance gate keep working);
-        a `completed` frame has no Anthropic slot and passes through untouched
-        (handle_event has no tool_call branch, so it is ignored).
+        handle_event() understands.
+
+        - tool_call/started → assistant/tool_use (tool rendering + Phase 49
+          wrote_tester_guidance gate). tool_call/completed has no Anthropic
+          slot and passes through untouched.
+        - result with flat `usage` → Claude-shaped `modelUsage` (token fields
+          renamed; costUSD=0). Leaves total_cost_usd absent/0.
+        - system/init, user, assistant pass through unchanged.
         """
-        if event.get("type") != "tool_call" or event.get("subtype") != "started":
-            return event
-        name, inp = _cursor_tool_call_fields(event.get("tool_call", {}) or {})
-        return {
-            "type": "assistant",
-            "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]},
-            "session_id": event.get("session_id", ""),
-        }
+        t = event.get("type")
+        if t == "tool_call" and event.get("subtype") == "started":
+            name, inp = _cursor_tool_call_fields(event.get("tool_call", {}) or {})
+            return {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "tool_use", "name": name, "input": inp}]
+                },
+                "session_id": event.get("session_id", ""),
+            }
+        if t == "result" and event.get("usage") and not event.get("modelUsage"):
+            # Copy so the raw jsonl line (written before normalize) stays native;
+            # only the in-memory event fed to handle_event is reshaped.
+            out = dict(event)
+            out["modelUsage"] = _cursor_usage_to_model_usage(
+                event.get("usage") or {},
+                event.get("model") or _cursor_model(),
+            )
+            # Cursor never emits USD cost; keep explicit 0 so summaries don't
+            # look like a missing field vs a real $0.
+            out.setdefault("total_cost_usd", 0)
+            return out
+        return event
 
 
 HARNESSES: dict[str, type[Harness]] = {
@@ -1260,6 +1310,9 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
         return
 
     if t == "assistant":
+        # Cursor result frames omit num_turns; count each assistant frame as a
+        # turn proxy so the result summary / manifest still have a useful value.
+        skill_record["_turn_proxy"] = skill_record.get("_turn_proxy", 0) + 1
         for block in event.get("message", {}).get("content", []):
             bt = block.get("type")
             if bt == "text":
@@ -1379,11 +1432,22 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
         return
 
     if t == "result":
+        # Cursor omits num_turns; fall back to the assistant-frame proxy counted
+        # above. Claude Code always emits num_turns on the result frame.
+        if "num_turns" in event and event.get("num_turns") is not None:
+            num_turns = event.get("num_turns") or 0
+        else:
+            num_turns = skill_record.pop("_turn_proxy", 0)
+        skill_record.pop("_turn_proxy", None)  # drop if Claude path left it
+        # Inject so print_result_summary shows the resolved turn count.
+        if "num_turns" not in event:
+            event = dict(event)
+            event["num_turns"] = num_turns
         print_result_summary(sink, event)
         skill_record["result_subtype"]   = event.get("subtype", "")
         skill_record["is_error"]         = bool(event.get("is_error", False))
         skill_record["total_cost_usd"]   = event.get("total_cost_usd") or 0
-        skill_record["num_turns"]        = event.get("num_turns", 0)
+        skill_record["num_turns"]        = num_turns
         skill_record["duration_ms"]      = event.get("duration_ms") or 0
         skill_record["model_usage"]      = event.get("modelUsage", {}) or {}
         # Phase 50: structured overload detection from the result frame.
@@ -2337,6 +2401,38 @@ def _apply_preset(args: argparse.Namespace, explicit_loop: bool) -> None:
         args.loop = 0
         if args.loop_delay_random is None:
             args.loop_delay_random = PRESETS["overnight"]["loop_delay_random"]
+
+
+def _maybe_clear_cursor_budget(
+    args: argparse.Namespace,
+    harness: Harness,
+    loop_count: int,
+) -> None:
+    """Loud-skip --max-budget-usd under the cursor harness (in-place on args).
+
+    Cursor result frames carry token `usage` but no `total_cost_usd`
+    (subscription, not USD-metered). Leaving the cap set would keep cumulative
+    cost at $0 forever and look like "the budget worked." Clear it with an
+    orange note; prefer `--max-cycles`. If the run was overnight / infinite and
+    clearing the budget leaves no cycle cap, raise SystemExit.
+    """
+    if harness.name != "cursor" or args.max_budget_usd is None:
+        return
+    cleared = args.max_budget_usd
+    print(c(
+        f"[note] --max-budget-usd ${cleared:.2f} is inert under "
+        f"--harness cursor: Cursor result frames have no total_cost_usd "
+        f"(subscription, not USD-metered). Cap cleared; use --max-cycles "
+        f"to bound a Cursor run.", ORANGE,
+    ), flush=True)
+    args.max_budget_usd = None
+    if (getattr(args, "overnight", False)
+            or getattr(args, "preset", None) == "overnight"
+            or loop_count == 0) and args.max_cycles is None:
+        raise SystemExit(
+            "--harness cursor cleared --max-budget-usd (no Cursor USD "
+            "telemetry); add --max-cycles <N> to bound this run"
+        )
 
 
 def _wrapper_telegram_enabled(args: argparse.Namespace) -> bool:
@@ -3378,6 +3474,8 @@ def main() -> int:
         raise SystemExit("--max-budget-usd must be > 0")
     if args.max_cycles is not None and args.max_cycles < 1:
         raise SystemExit("--max-cycles must be >= 1")
+
+    _maybe_clear_cursor_budget(args, harness, loop_count)
 
     looping = (loop_count != 1)
     infinite = (loop_count == 0)
