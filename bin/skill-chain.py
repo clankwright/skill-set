@@ -835,6 +835,21 @@ class Harness:
         """
         return
 
+    def print_runtime_model_notes(self) -> None:
+        """Print Claude Code model-tier / fable-ceiling notes at session start.
+
+        Default emits the Phase 57 fable-disabled banner when the runtime
+        ceiling is active. Harnesses that do not use the Claude model ladder
+        (e.g. Cursor) override to a no-op so operators are not shown
+        Claude-only fiction.
+        """
+        if _RUNTIME_MODEL_CEILING is not None:
+            print(c(
+                f"[model] fable disabled; models capped at "
+                f"'{_RUNTIME_MODEL_CEILING}' (--enable-fable to allow fable)",
+                GRAY,
+            ), flush=True)
+
 
 class ClaudeCodeHarness(Harness):
     """Anthropic Claude Code CLI as the agent harness."""
@@ -1110,6 +1125,117 @@ Do not invent search results. If the helper exits non-zero, report the error
 verbatim and continue without fabricated sources.
 """
 
+# Appended to every Cursor cold-start prompt so tester/outreach/research skills
+# that need a real browser use Playwright MCP — never Cursor IDE's
+# cursor-ide-browser (IDE-only; unavailable under headless cursor-agent -p).
+CURSOR_PLAYWRIGHT_MCP_DIRECTIVE_TEMPLATE = """\
+## Browser automation (Cursor harness)
+
+Headless `cursor-agent -p` does NOT expose Cursor IDE's `cursor-ide-browser` MCP.
+Never call `cursor-ide-browser` tools — they are IDE-only and unavailable here.
+
+Use the project's **Playwright** browser MCP for any real-browser work
+(tester, outreach, research on JS-heavy pages, etc.).
+
+Config discovery (Cursor loads these automatically; `--approve-mcps` is already on):
+  1. `<cwd>/.cursor/mcp.json` (project)
+  2. `~/.cursor/mcp.json` (user-global)
+
+{servers_block}
+
+Headed vs headless for this run: {display_hint}
+If the Playwright MCP is missing or fails to connect, report the error and
+degrade — do not invent browser snapshots or navigation results.
+"""
+
+_PLAYWRIGHT_HINT_RE = re.compile(r"playwright", re.I)
+_IDE_BROWSER_BLOCKLIST = frozenset({
+    "cursor-ide-browser",
+    "ide-browser",
+})
+
+
+def _mcp_server_looks_like_playwright(name: str, cfg: dict) -> bool:
+    """True when an mcpServers entry is a Playwright browser MCP (not IDE browser)."""
+    lower = name.lower()
+    if lower in _IDE_BROWSER_BLOCKLIST or "ide-browser" in lower:
+        return False
+    if _PLAYWRIGHT_HINT_RE.search(name):
+        return True
+    cmd = cfg.get("command") or ""
+    if isinstance(cmd, str) and _PLAYWRIGHT_HINT_RE.search(cmd):
+        return True
+    args = cfg.get("args") or []
+    if isinstance(args, list):
+        for a in args:
+            if isinstance(a, str) and _PLAYWRIGHT_HINT_RE.search(a):
+                return True
+    return False
+
+
+def _discover_playwright_mcp_servers(cwd: str | Path | None = None) -> list[str]:
+    """Return Playwright MCP server names from project then user mcp.json.
+
+    Discovery order: `<cwd>/.cursor/mcp.json`, then `~/.cursor/mcp.json`.
+    Dedupes by name (project wins). Excludes IDE-only `cursor-ide-browser`.
+    """
+    root = Path(cwd) if cwd is not None else Path(os.getcwd())
+    paths = [
+        root / ".cursor" / "mcp.json",
+        Path.home() / ".cursor" / "mcp.json",
+    ]
+    found: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+        servers = data.get("mcpServers") or {}
+        if not isinstance(servers, dict):
+            continue
+        for name, cfg in servers.items():
+            if not isinstance(name, str) or name in seen:
+                continue
+            if not isinstance(cfg, dict):
+                cfg = {}
+            if _mcp_server_looks_like_playwright(name, cfg):
+                seen.add(name)
+                found.append(name)
+    return found
+
+
+def _cursor_playwright_directive(cwd: str | Path | None = None) -> str:
+    """Build the Playwright MCP cold-start directive for the current workspace."""
+    servers = _discover_playwright_mcp_servers(cwd)
+    if servers:
+        servers_block = (
+            "Configured Playwright MCP server(s) for this workspace: "
+            + ", ".join(f"`{s}`" for s in servers)
+            + "."
+        )
+    else:
+        servers_block = (
+            "No Playwright MCP server found in those paths. Add one under "
+            "`mcpServers` (e.g. `@playwright/mcp` via npx, or a project wrapper) "
+            "before running tester/outreach/browser skills."
+        )
+    display = os.environ.get("DISPLAY", "").strip()
+    if display:
+        display_hint = (
+            f"DISPLAY is set ({display}) — prefer headed Playwright MCP / "
+            "headed launch args when the server offers them."
+        )
+    else:
+        display_hint = (
+            "no DISPLAY — expect headless Playwright MCP "
+            "(CI / overnight / detached)."
+        )
+    return CURSOR_PLAYWRIGHT_MCP_DIRECTIVE_TEMPLATE.format(
+        servers_block=servers_block,
+        display_hint=display_hint,
+    )
+
 
 class CursorHarness(Harness):
     """Cursor Agent CLI (`cursor-agent`) as the agent harness.
@@ -1133,6 +1259,10 @@ class CursorHarness(Harness):
       5. Headless MCP/workspace trust: build_command passes `--approve-mcps`
          and `--trust` alongside `--force` so Playwright/MCP skills do not
          stall on approval prompts in `-p` mode.
+      6. No IDE browser. Cold-start prompts append a Playwright MCP directive
+         (Phase 62): discover servers from `.cursor/mcp.json` /
+         `~/.cursor/mcp.json`, never use `cursor-ide-browser` (IDE-only),
+         headed when DISPLAY is set / headless otherwise.
 
     Cursor's stream-json envelope is Anthropic-compatible for system/init and
     assistant/text frames, so session-id capture, --resume, and the chain's text
@@ -1167,6 +1297,14 @@ class CursorHarness(Harness):
             f"(token usage × published model rates; subscription pool burn "
             f"may differ).", ORANGE,
         ), flush=True)
+
+    def print_runtime_model_notes(self) -> None:
+        """No-op: fable/opus/sonnet ladder is Claude Code only.
+
+        Cursor runs on CURSOR_MODEL / Grok; printing the Phase 57 fable banner
+        under `--harness cursor` is misleading fiction.
+        """
+        return
 
     def build_command(
         self,
@@ -1217,10 +1355,13 @@ class CursorHarness(Harness):
                 f"respond with anything else first."
             )
         # Cursor has no native WebSearch/WebFetch — point at bin/brave-web.py.
+        # Also steer browser work to Playwright MCP (never cursor-ide-browser).
         helper = str(REPO_ROOT / "bin" / "brave-web.py")
         prompt = (
             prompt + "\n\n"
             + CURSOR_BRAVE_WEB_DIRECTIVE_TEMPLATE.format(helper=helper)
+            + "\n\n"
+            + _cursor_playwright_directive(os.getcwd())
         )
         if extra_prompt:
             prompt = prompt + "\n\n" + extra_prompt
@@ -3437,12 +3578,12 @@ def main() -> int:
 
     # Phase 57: Fable is off by default (see _RUNTIME_MODEL_CEILING). --enable-fable
     # (or SKILL_CHAIN_ENABLE_FABLE=1, already honored at import) lifts the ceiling.
+    # Harness.print_runtime_model_notes emits the banner (Claude Code) or no-ops
+    # (Cursor — fable is not a Cursor tier; Phase 62).
     global _RUNTIME_MODEL_CEILING
     if args.enable_fable:
         _RUNTIME_MODEL_CEILING = None
-    if _RUNTIME_MODEL_CEILING is not None:
-        print(c(f"[model] fable disabled; models capped at '{_RUNTIME_MODEL_CEILING}' "
-                f"(--enable-fable to allow fable)", GRAY), flush=True)
+    harness.print_runtime_model_notes()
 
     cwd = os.getcwd()
 
