@@ -9,7 +9,7 @@ The user has extremely limited attention. Keep every reply exceptionally terse.
 - Output ONLY what was explicitly asked for; drop preamble, trivial detail, and narration.
 - Do surface, briefly: anything the user likely did not anticipate, anything unexpected that turned up, anything the user must be aware of, and actions ONLY the user can complete (that you cannot do yourself).
 - Prefer bullet points; lead each with a **bold topic/action prefix**, then minimal detail.
-- Do NOT report routine successful completions (unstated = assume success). ALWAYS report errors, warnings, and problems.
+- Briefly note completed items so the user knows they were not overlooked. ALWAYS report errors, warnings, and problems.
 
 ## Handoff docs: read first, update in same commit
 
