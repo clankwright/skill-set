@@ -383,6 +383,22 @@ def test_overnight_preserves_explicit_loop_delay_random():
     assert args.loop_delay_random == "60,120"
 
 
+def test_default_loop_delay_is_none_when_unset():
+    """Unset CLI/YAML delay must not inject DEFAULT_LOOP_DELAY_RANDOM.
+
+    Runner default is no inter-iter delay; overnight / explicit flags opt in.
+    """
+    assert sc.DEFAULT_LOOP_DELAY_RANDOM == (300.0, 1800.0)
+    import yaml
+    from pathlib import Path
+    chain = yaml.safe_load(
+        (Path(__file__).parent.parent / "chains" / "dev-cycle-with-review-looped.yaml")
+        .read_text(encoding="utf-8")
+    )
+    assert chain.get("loop-delay", 0) == 0
+    assert "loop-delay-random" not in chain
+
+
 def test_preset_overnight_equivalent_to_overnight_flag():
     """`--preset overnight` behaves identically to `--overnight`."""
     args = sc.parse_args(["--chain", "x", "--preset", "overnight", "--max-budget-usd", "30"])

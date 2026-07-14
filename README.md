@@ -152,8 +152,8 @@ skills:                         # required, ordered; runner invokes each in sequ
   - skill-b
 
 loop: 3                         # default 1; N>1 runs the sequence N times; 0 = until failure / Ctrl-C
-loop-delay: 0                   # seconds to sleep between iterations (default 0)
-loop-delay-random: [60, 3600]   # OR sample uniform-random delay per boundary; mutually exclusive with loop-delay
+loop-delay: 0                   # seconds to sleep between iterations (default 0 — no delay)
+loop-delay-random: [60, 3600]   # OR sample uniform-random delay per boundary (opt-in; mutually exclusive with loop-delay)
 
 on-rate-limit: pause            # fail | pause (default) | pause-with-cap
 max-rate-limit-pause-seconds: 28800   # cap on a single pause when on-rate-limit is pause-with-cap
@@ -178,8 +178,8 @@ Loop mode pairs naturally with skills that pick the next item from `TODO.md > Ne
 | Chain                            | Loop      | Auto-promote   | Use case                                                                                  |
 | :---                             | :---      | :---           | :---                                                                                      |
 | `dev-cycle-with-review`          | 1         | `proprietary`  | Single-item dev work; stage order: `dev → tester → review`. Conservative supervisor routing (proprietary edits land; transferable improvements wait for human promotion). |
-| `dev-cycle-with-review-looped`   | 3         | `all`          | Three-item dev batch; stage order: `dev → tester → review`. Aggressive routing so the supervisor's transferable improvements land within the run and later iterations consume them. |
-| `dev-cycle-overnight`            | 0         | `all`          | Unattended overnight drain of `TODO.md > Next up`; stage order: `dev → tester → review`. Auto-stops when the queue is exhausted (dev skill emits `[no-work]`, runner aborts the loop); `sst-chain-driver --max-budget-usd $X` is the secondary safety net. Randomized [5min, 2h] inter-iter delay keeps commit cadence human-shaped. |
+| `dev-cycle-with-review-looped`   | 3         | `all`          | Three-item dev batch; stage order: `dev → tester → review`. No inter-iter delay by default (back-to-back). Aggressive routing so the supervisor's transferable improvements land within the run and later iterations consume them. |
+| `dev-cycle-overnight`            | 0         | `all`          | Unattended overnight drain of `TODO.md > Next up`; stage order: `dev → tester → review`. Auto-stops when the queue is exhausted (dev skill emits `[no-work]`, runner aborts the loop); `sst-chain-driver --max-budget-usd $X` is the secondary safety net. Randomized [5min, 30min] inter-iter delay keeps commit cadence human-shaped. |
 | `editorial-with-fact-check`      | 1         | `off`          | Run a draft through an editorial pass with citation verification. No supervisor self-modification. |
 | `multi-output-evaluation`        | 1         | `off`          | Compare N candidate outputs on a rubric and pick the best. |
 | `research-and-write`             | 1         | `off`          | Research a topic and produce a synthesized written deliverable. |
