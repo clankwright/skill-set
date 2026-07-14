@@ -23,7 +23,10 @@ sequence N times. --loop 0 loops until a non-supervisor skill fails or the
 user interrupts with Ctrl-C. --loop-delay inserts a sleep between iterations.
 When looping, each iteration's logs land in its own <log-dir>/iter_NN/
 subdir with its own MANIFEST.json; the top-level MANIFEST.json records the
-iteration summaries.
+iteration summaries plus a session-level `totals:` block (wall time, turns,
+tokens, $) summed across every skill in every iteration. A one-line
+`[totals]` summary is always printed at session end (and after each
+iteration when looping), even without `--telegram`.
 
 Rate-limit pause-and-resume: a multi-iteration run can cross the rolling
 5h Anthropic quota window mid-flight. When the harness emits a
@@ -2687,6 +2690,76 @@ def _iteration_cost(iter_manifest: dict) -> float:
     return sum(float(s.get("total_cost_usd") or 0) for s in iter_manifest.get("skills", []))
 
 
+def _compute_run_totals(
+    *,
+    iterations: list[dict] | None = None,
+    skills: list[dict] | None = None,
+) -> dict:
+    """Sum wall time, turns, tokens, and $ across all skill records in a run.
+
+    Accepts either a looping run's `iterations` list (each with `skills`) or a
+    flat single-run `skills` list. Returns a dict suitable for the top-level
+    MANIFEST `totals:` block (Phase 65).
+    """
+    records: list[dict] = []
+    if iterations:
+        for it in iterations:
+            records.extend(it.get("skills") or [])
+    elif skills:
+        records = list(skills)
+
+    duration_ms = 0
+    num_turns = 0
+    total_cost_usd = 0.0
+    input_tokens = 0
+    output_tokens = 0
+    cache_read_tokens = 0
+    cache_write_tokens = 0
+
+    for s in records:
+        duration_ms += int(s.get("duration_ms") or 0)
+        num_turns += int(s.get("num_turns") or 0)
+        total_cost_usd += float(s.get("total_cost_usd") or 0)
+        usage = s.get("model_usage") or {}
+        if isinstance(usage, dict):
+            for u in usage.values():
+                if not isinstance(u, dict):
+                    continue
+                input_tokens += int(u.get("inputTokens") or 0)
+                output_tokens += int(u.get("outputTokens") or 0)
+                cache_read_tokens += int(u.get("cacheReadInputTokens") or 0)
+                cache_write_tokens += int(u.get("cacheCreationInputTokens") or 0)
+
+    n_iters = len(iterations) if iterations else (1 if records else 0)
+    return {
+        "iterations": n_iters,
+        "skills": len(records),
+        "duration_ms": duration_ms,
+        "num_turns": num_turns,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "cache_write_tokens": cache_write_tokens,
+        "total_cost_usd": round(total_cost_usd, 6),
+    }
+
+
+def _format_run_totals_line(totals: dict, *, label: str = "totals") -> str:
+    """One-line stdout summary of run totals (Phase 65)."""
+    dur_s = (totals.get("duration_ms") or 0) / 1000.0
+    return (
+        f"[{label}] {totals.get('iterations', 0)} iters * "
+        f"{totals.get('skills', 0)} skills * "
+        f"{dur_s:.1f}s * "
+        f"{totals.get('num_turns', 0)} turns * "
+        f"{totals.get('input_tokens', 0):,} in * "
+        f"{totals.get('output_tokens', 0):,} out * "
+        f"{totals.get('cache_read_tokens', 0):,} cache-read * "
+        f"{totals.get('cache_write_tokens', 0):,} cache-write * "
+        f"${float(totals.get('total_cost_usd') or 0):.4f}"
+    )
+
+
 def _supervisor_verdict_path(log_dir: Path, iter_num: int, looping: bool) -> Path:
     if looping:
         return log_dir / f"iter_{iter_num:02d}" / "supervisor_verdict.md"
@@ -4123,6 +4196,11 @@ def main() -> int:
             # fires in headless runs too.
             iter_cost = _iteration_cost(iter_manifest)
             cumulative_cost_usd += iter_cost
+            # Phase 65: cumulative totals line after each iter (even without Telegram).
+            run_so_far = _compute_run_totals(iterations=iterations_collected)
+            print(c(_format_run_totals_line(
+                run_so_far, label=f"totals after iter {iteration}"
+            ), DIM), flush=True)
             iter_verdict = "unknown"
             if log_dir is not None:
                 iter_verdict = _verdict_outcome(
@@ -4287,6 +4365,7 @@ def main() -> int:
     if looping:
         manifest["loop"]["completed"] = iteration
         manifest["iterations"] = iterations_collected
+        totals = _compute_run_totals(iterations=iterations_collected)
     else:
         # Preserve the original flat shape for single-run manifests.
         # Also promote iter-level routing fields so §2.11 batch-sizing and
@@ -4299,6 +4378,12 @@ def main() -> int:
             manifest["rate_limit_pauses"] = iter0.get("rate_limit_pauses", [])
         else:
             manifest["skills"] = []
+        totals = _compute_run_totals(skills=manifest.get("skills") or [])
+
+    # Phase 65: persist cumulative run totals + always print a one-line summary
+    # (Telegram session-end already carries cumulative $ only).
+    manifest["totals"] = totals
+    print(c(_format_run_totals_line(totals), DIM), flush=True)
 
     if log_dir is not None:
         (log_dir / "MANIFEST.json").write_text(
