@@ -251,11 +251,10 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 - [x] 58.2 [medium] **Fix `_cursor_tool_call_fields` against the live shape.** Live Cursor emits `editToolCall` (args.path + streamContent) for writes/creates — not `writeToolCall` — plus `readToolCall` / `shellToolCall`. Map `editToolCall` → `Edit` with `file_path` hoisted from `args.path` so Phase 49 `wrote_tester_guidance` detection keeps working; map `shellToolCall` → `Bash`. Acceptance: unit test asserts Edit+file_path from editToolCall; handle_event sets `wrote_tester_guidance` on a Cursor-shaped edit of `tester-guidance.md`.
 - [x] 58.3 [easy] **CursorHarness unit tests.** `tests/test_cursor_harness.py`: build_command cold/resume/tester-winddown, normalize_event tool_call→tool_use, fixture round-trip, claude-code identity, DEFAULT_CURSOR_MODEL == `cursor-grok-4.5-high`. Acceptance: new file green; existing `test_skill_chain.py` still green.
 - [x] 58.4 [easy] **README reflects the cursor harness.** Replace "only Claude Code is implemented" with both harnesses; document `--harness cursor`, `CURSOR_MODEL` / valid Grok ids, Skill-inline / no-effort / no-cost-telemetry notes. (Also lands the in-flight Phase 57 fable-off-by-default README paragraph that was dirty in the working tree.) Acceptance: README lines ~5 and Selecting-a-harness section mention cursor.
-
-**Open (left on Next up):** Cursor result frames carry token `usage` but still no `total_cost_usd` / `num_turns` — `--max-budget-usd` cannot meter a Cursor run until that gap closes.
+- [x] 58.5 [medium] **Close the Cursor telemetry gap.** Map result-frame `usage` → Claude-shaped `modelUsage` (rename `cacheReadTokens`/`cacheWriteTokens`); proxy `num_turns` from assistant-frame count when absent; loud-skip `--max-budget-usd` under `--harness cursor` (no USD in stream — prefer `--max-cycles`; overnight/infinite without cycles SystemExits after the clear). Acceptance: fixture result normalizes to modelUsage; budget helper clears cap with note; full suite green; README Cursor notes updated.
 
 **Phase 58 shipped — 2026-07-14**
 
 - Live fixture `tests/fixtures/cursor-stream-sample.jsonl` (11 events from a real cursor-agent probe).
-- `bin/skill-chain.py`: `_cursor_tool_call_fields` handles `editToolCall` / `shellToolCall`; CursorHarness docstring updated.
-- `tests/test_cursor_harness.py`: 17 tests. Sanitize: n/a (no transferable touched).
+- `bin/skill-chain.py`: `_cursor_tool_call_fields` handles `editToolCall` / `shellToolCall`; CursorHarness docstring updated; `_cursor_usage_to_model_usage` + result normalize; `_maybe_clear_cursor_budget` loud-skip.
+- `tests/test_cursor_harness.py`: 17 → 25 tests. Sanitize: n/a (no transferable touched).

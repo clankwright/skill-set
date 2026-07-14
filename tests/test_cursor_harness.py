@@ -149,6 +149,9 @@ def test_normalize_event_passthrough_system_assistant_result():
     for event in _fixture_events():
         if event.get("type") == "tool_call" and event.get("subtype") == "started":
             continue
+        # result frames with usage are reshaped (usage → modelUsage); skip them.
+        if event.get("type") == "result" and event.get("usage"):
+            continue
         assert h.normalize_event(event) is event or h.normalize_event(event) == event
 
 
@@ -200,3 +203,146 @@ def test_default_cursor_model_is_valid_grok_id():
     """DEFAULT_CURSOR_MODEL must be a real cursor-agent --model id, not bare 'grok'."""
     assert DEFAULT_CURSOR_MODEL == "cursor-grok-4.5-high"
     assert DEFAULT_CURSOR_MODEL != "grok"
+
+
+# ---- Cursor telemetry (usage → modelUsage + budget loud-skip) ---------------
+
+def test_cursor_usage_to_model_usage_renames_cache_keys():
+    usage = {
+        "inputTokens": 21442,
+        "outputTokens": 134,
+        "cacheReadTokens": 34048,
+        "cacheWriteTokens": 0,
+    }
+    out = sc._cursor_usage_to_model_usage(usage, "cursor-grok-4.5-high")
+    assert "cursor-grok-4.5-high" in out
+    u = out["cursor-grok-4.5-high"]
+    assert u["inputTokens"] == 21442
+    assert u["outputTokens"] == 134
+    assert u["cacheReadInputTokens"] == 34048
+    assert u["cacheCreationInputTokens"] == 0
+    assert u["costUSD"] == 0
+
+
+def test_normalize_result_maps_usage_to_model_usage():
+    h = CursorHarness()
+    result = next(e for e in _fixture_events() if e.get("type") == "result")
+    assert "usage" in result and "modelUsage" not in result
+    out = h.normalize_event(result)
+    assert "modelUsage" in out
+    model_key = next(iter(out["modelUsage"]))
+    u = out["modelUsage"][model_key]
+    assert u["inputTokens"] == result["usage"]["inputTokens"]
+    assert u["cacheReadInputTokens"] == result["usage"]["cacheReadTokens"]
+    assert out.get("total_cost_usd") == 0
+    # Raw fixture event must stay untouched (jsonl writes pre-normalize).
+    assert "modelUsage" not in result
+
+
+def test_handle_event_cursor_result_fills_model_usage_and_turn_proxy():
+    """Full path: normalize + handle_event → skill_record has tokens + turn proxy."""
+    h = CursorHarness()
+    sink = sc._Sink(None)
+    rec: dict = {}
+    # Two assistant frames → turn_proxy=2 when result omits num_turns.
+    for e in _fixture_events():
+        ev = h.normalize_event(e)
+        sc.handle_event(sink, ev, rec)
+    assert rec["total_cost_usd"] == 0
+    assert rec["num_turns"] >= 1  # assistant text + tool_use frames
+    assert rec["model_usage"]
+    model_key = next(iter(rec["model_usage"]))
+    assert rec["model_usage"][model_key]["inputTokens"] == 21442
+    assert "_turn_proxy" not in rec  # cleaned up after result
+
+
+def test_claude_result_num_turns_not_overwritten_by_proxy():
+    sink = sc._Sink(None)
+    rec: dict = {"_turn_proxy": 99}
+    sc.handle_event(sink, {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "duration_ms": 100,
+        "total_cost_usd": 0.12,
+        "num_turns": 5,
+        "modelUsage": {"claude-opus": {"inputTokens": 1, "outputTokens": 1,
+                                       "cacheReadInputTokens": 0,
+                                       "cacheCreationInputTokens": 0,
+                                       "costUSD": 0.12}},
+    }, rec)
+    assert rec["num_turns"] == 5
+    assert rec["total_cost_usd"] == 0.12
+
+
+def test_cursor_budget_cap_cleared_with_loud_note(capsys):
+    """--max-budget-usd under cursor is cleared (inert) with an orange note."""
+    args = sc.parse_args([
+        "--harness", "cursor",
+        "--max-budget-usd", "30",
+        "--max-cycles", "2",
+        "--no-log",
+        "--no-supervisor",
+        "sst-translator",
+    ])
+    harness = sc.get_harness(args.harness)
+    sc._maybe_clear_cursor_budget(args, harness, loop_count=2)
+    assert args.max_budget_usd is None
+    out = capsys.readouterr().out
+    assert "inert" in out
+    assert "cursor" in out.lower()
+    assert "--max-cycles" in out
+
+
+def test_cursor_budget_clear_noop_for_claude():
+    args = sc.parse_args([
+        "--harness", "claude-code",
+        "--max-budget-usd", "30",
+        "--no-log",
+        "--no-supervisor",
+        "sst-translator",
+    ])
+    harness = sc.get_harness(args.harness)
+    sc._maybe_clear_cursor_budget(args, harness, loop_count=1)
+    assert args.max_budget_usd == 30.0
+
+
+def test_cursor_overnight_budget_only_exits_without_max_cycles():
+    """After budget clear, overnight/infinite with no --max-cycles SystemExits."""
+    args = sc.parse_args([
+        "--harness", "cursor",
+        "--overnight",
+        "--max-budget-usd", "80",
+        "--no-log",
+        "--no-supervisor",
+        "sst-translator",
+    ])
+    # --overnight expands in _apply_preset; parse_args alone leaves overnight=True
+    # and loop unset. Simulate post-preset state: loop_count=0, budget set.
+    args.max_budget_usd = 80.0
+    args.max_cycles = None
+    harness = sc.get_harness("cursor")
+    try:
+        sc._maybe_clear_cursor_budget(args, harness, loop_count=0)
+        assert False, "expected SystemExit"
+    except SystemExit as e:
+        assert "max-cycles" in str(e)
+    assert args.max_budget_usd is None
+
+
+def test_cursor_overnight_budget_plus_cycles_ok(capsys):
+    args = sc.parse_args([
+        "--harness", "cursor",
+        "--overnight",
+        "--max-budget-usd", "80",
+        "--max-cycles", "5",
+        "--no-log",
+        "--no-supervisor",
+        "sst-translator",
+    ])
+    harness = sc.get_harness("cursor")
+    sc._maybe_clear_cursor_budget(args, harness, loop_count=0)
+    assert args.max_budget_usd is None
+    assert args.max_cycles == 5
+    assert "inert" in capsys.readouterr().out
+
