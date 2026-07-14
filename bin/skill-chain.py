@@ -1092,11 +1092,30 @@ def _cursor_tool_call_fields(tc: dict) -> tuple[str, dict]:
     return "?", {}
 
 
+# Appended to every Cursor cold-start prompt so research skills that name
+# Claude Code's WebSearch/WebFetch keep working under headless cursor-agent
+# (which has no native equivalents). Claude Code never sees this block.
+CURSOR_BRAVE_WEB_DIRECTIVE_TEMPLATE = """\
+## Web search / fetch (Cursor harness)
+
+Cursor headless (`cursor-agent -p`) has no native WebSearch or WebFetch tools.
+When a skill asks for web search or page fetch, use the Shell tool:
+
+  {helper} search "<query>" [--count N]
+  {helper} fetch "<url>" [--max-chars N]
+
+Keys (free first, paid only on 429/request failure): BRAVE_SEARCH_API_KEY_FREE,
+then BRAVE_SEARCH_API_KEY — or BRAVE_ENV_FILE / ~/Dev/skill-set/brave.env.
+Do not invent search results. If the helper exits non-zero, report the error
+verbatim and continue without fabricated sources.
+"""
+
+
 class CursorHarness(Harness):
     """Cursor Agent CLI (`cursor-agent`) as the agent harness.
 
     Runs on a Cursor subscription or a CURSOR_API_KEY, on whatever model Cursor
-    exposes (defaults to Grok via CURSOR_MODEL). Three things differ from the
+    exposes (defaults to Grok via CURSOR_MODEL). Things that differ from the
     Claude Code harness, all bridged here:
 
       1. No Skill tool. Cursor cannot lazy-load a SKILL.md by name, so
@@ -1108,6 +1127,12 @@ class CursorHarness(Harness):
       3. No --max-turns backstop. Cursor's CLI has no turn-ceiling flag, so the
          hard cap is not enforced; the soft wind-down directive is still sent to
          *-tester skills (advisory only, no hard chop behind it).
+      4. No native WebSearch/WebFetch. Cold-start prompts append a directive to
+         Shell-invoke `bin/brave-web.py` (Phase 61; free Brave key first, paid
+         on rate-limit). Claude Code keeps its native tools untouched.
+      5. Headless MCP/workspace trust: build_command passes `--approve-mcps`
+         and `--trust` alongside `--force` so Playwright/MCP skills do not
+         stall on approval prompts in `-p` mode.
 
     Cursor's stream-json envelope is Anthropic-compatible for system/init and
     assistant/text frames, so session-id capture, --resume, and the chain's text
@@ -1159,6 +1184,11 @@ class CursorHarness(Harness):
             # Claude Code --permission-mode bypassPermissions. A headless run
             # REQUIRES an explicit allow/deny policy or it stalls on approval.
             "--force",
+            # Auto-approve MCP servers + trust the workspace so Playwright /
+            # browser MCP skills do not stall on interactive prompts in -p mode
+            # (Phase 61.2; see `cursor-agent --help`).
+            "--approve-mcps",
+            "--trust",
             "--output-format", "stream-json",
             # No tier ladder / no --effort under Cursor: collapse to one model.
             # Use the long --model flag; cursor-agent dropped the `-m` short
@@ -1186,6 +1216,12 @@ class CursorHarness(Harness):
                 f"Invoke and run the '{skill_name}' skill to completion. Do not "
                 f"respond with anything else first."
             )
+        # Cursor has no native WebSearch/WebFetch — point at bin/brave-web.py.
+        helper = str(REPO_ROOT / "bin" / "brave-web.py")
+        prompt = (
+            prompt + "\n\n"
+            + CURSOR_BRAVE_WEB_DIRECTIVE_TEMPLATE.format(helper=helper)
+        )
         if extra_prompt:
             prompt = prompt + "\n\n" + extra_prompt
         if skill_name.endswith("-tester"):

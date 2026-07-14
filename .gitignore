@@ -27,6 +27,10 @@ __pycache__/
 # Shared Telegram channel credentials (base-dir fallback for consuming projects)
 telegram.env
 
+# Brave Search API keys (Cursor-harness WebSearch/WebFetch substitute; base-dir
+# fallback for bin/brave-web.py — BRAVE_SEARCH_API_KEY_FREE + BRAVE_SEARCH_API_KEY)
+brave.env
+
 # Local credentials loaded by skill-chain.py (CURSOR_API_KEY, CURSOR_MODEL, ...)
 # — never commit. Templates like .env.example stay tracked.
 .env
