@@ -39,6 +39,8 @@
   Order: blockers/highest-impact first.
 -->
 
+- [easy] [should-fix] 65.2 `bin/skill-chain.py:main` (~L4199) — gate post-iter `[totals after iter N]` behind `if looping:` (SPEC 65.1 parenthetical) — review of df087a3
+
 <!-- From 2026-07-14T01-55Z review of Phases 61.3–64 since last Review (89f218b, 7b10693, 9b1e01d, 87c0ed7). -->
 
 <!-- planner candidate tests-passing-fix (2026-06-25) resolved: the objectives.md pytest-path fix was applied directly in a live session; candidate removed, no dev-cycle pick needed. -->
