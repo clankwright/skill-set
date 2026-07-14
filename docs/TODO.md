@@ -39,4 +39,8 @@
   Order: blockers/highest-impact first.
 -->
 
+<!-- From 2026-07-14T01-55Z review of Phases 61.3–64 since last Review (89f218b, 7b10693, 9b1e01d, 87c0ed7). -->
+- [medium] [should-fix] 64.3 `bin/skill-chain.py:normalize_event`+`_turn_proxy` — tool_call→assistant inflation makes Phase-64 max-turns fire ~10× early on tool-heavy Cursor runs — review of 87c0ed7
+- [easy] [should-fix] 63.2 `.env.example:13` — filled `CURSOR_MODEL=` pin disables Phase-63 Grok ladder when copied to `.env` — review of 9b1e01d
+
 <!-- planner candidate tests-passing-fix (2026-06-25) resolved: the objectives.md pytest-path fix was applied directly in a live session; candidate removed, no dev-cycle pick needed. -->
