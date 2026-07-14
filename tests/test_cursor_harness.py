@@ -45,9 +45,15 @@ def test_cursor_cold_start_inlines_skill_body():
     cmd = h.build_command("sst-translator")
     prompt = cmd[-1]
     assert "===== SKILL: sst-translator =====" in prompt
-    assert "Use the Skill tool" not in prompt
+    # Claude-style Skill-tool *bootstrap* must not be the cold-start lead-in
+    # (Phase 64 nested-skill directive may quote the phrase as what to replace).
+    assert not prompt.lstrip().startswith("Use the Skill tool")
     # Body should include transferable skill prose (not just the wrapper).
     assert "Translate" in prompt or "translate" in prompt
+    # Phase 64 — nested-skill Read+follow directive (sanitize gate path).
+    assert "Nested skills / Skill tool (Cursor harness)" in prompt
+    assert "sst-sanitize-transferable" in prompt
+    assert "same session" in prompt
     # Phase 61.1 — Brave WebSearch/WebFetch substitute directive.
     assert "brave-web.py" in prompt
     assert "Web search / fetch (Cursor harness)" in prompt
@@ -58,23 +64,25 @@ def test_cursor_cold_start_inlines_skill_body():
 
 
 def test_cursor_resume_skips_brave_directive():
-    """Resume path must not re-inject Brave/web directive (bare continue)."""
+    """Resume path must not re-inject Brave/web/nested-skill directives."""
     h = CursorHarness()
     cmd = h.build_command("sst-translator", resume_session_id="sess_x")
     joined = " ".join(cmd)
     assert "brave-web.py" not in joined
     assert "Browser automation (Cursor harness)" not in joined
+    assert "Nested skills / Skill tool (Cursor harness)" not in joined
     assert "--approve-mcps" in cmd  # flags still present on resume
     assert "--trust" in cmd
 
 
 def test_claude_code_has_no_brave_directive():
-    """Brave substitute is Cursor-only; Claude Code keeps native WebSearch."""
+    """Brave/Playwright/nested-skill substitutes are Cursor-only."""
     h = ClaudeCodeHarness()
     cmd = h.build_command("sst-dev-cycle")
     joined = " ".join(cmd)
     assert "brave-web.py" not in joined
     assert "Browser automation (Cursor harness)" not in joined
+    assert "Nested skills / Skill tool (Cursor harness)" not in joined
     assert "--approve-mcps" not in cmd
     assert "--trust" not in cmd
 
@@ -606,4 +614,138 @@ def test_claude_skips_fable_note_when_ceiling_lifted(capsys, monkeypatch):
     monkeypatch.setattr(sc, "_RUNTIME_MODEL_CEILING", None)
     ClaudeCodeHarness().print_runtime_model_notes()
     assert capsys.readouterr().out == ""
+
+
+# ---- Phase 64: nested-skill directive + runner max-turns --------------------
+
+def test_cursor_runner_enforces_max_turns_claude_does_not():
+    assert CursorHarness().runner_enforces_max_turns() is True
+    assert ClaudeCodeHarness().runner_enforces_max_turns() is False
+
+
+def test_find_skill_md_repo_fallback(tmp_path, monkeypatch):
+    """When not installed under .claude/, resolve from skill-set skills/ tree."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sc.Path, "home", lambda: tmp_path / "nohome")
+    # sst-translator lives under REPO_ROOT/skills/... — should still resolve.
+    found = sc._find_skill_md("sst-translator", str(tmp_path))
+    assert found is not None
+    assert found.name == "SKILL.md"
+    assert "sst-translator" in str(found)
+
+
+def test_run_skill_cursor_turn_watchdog_kills_at_max_turns(tmp_path, monkeypatch, capsys):
+    """Phase 64: runner terminates Cursor subprocess when _turn_proxy >= max_turns."""
+    import io
+    import threading
+
+    h = CursorHarness()
+    h.max_turns = 3
+
+    # Stream 5 assistant frames; watchdog should kill after the 3rd.
+    events = []
+    for i in range(5):
+        events.append(json.dumps({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": f"turn {i}"}]},
+            "session_id": "sess_wd",
+        }))
+    # Extra lines after the kill point (should not all be consumed if kill is
+    # prompt — but our loop breaks on kill, so leftover unread is fine).
+    stream = io.StringIO("\n".join(events) + "\n")
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = stream
+            self._terminated = False
+            self.returncode = None
+
+        def terminate(self):
+            self._terminated = True
+            self.returncode = -15
+
+        def kill(self):
+            self._terminated = True
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            return self.returncode if self.returncode is not None else 0
+
+        def poll(self):
+            return self.returncode
+
+    fake = FakeProc()
+    monkeypatch.setattr(
+        sc.subprocess, "Popen",
+        lambda *a, **k: fake,
+    )
+    # Avoid real skill-body / brave / playwright prompt work in build_command
+    # by stubbing build_command — we only care about the stream loop.
+    monkeypatch.setattr(
+        CursorHarness, "build_command",
+        lambda self, *a, **k: ["cursor-agent", "-p", "noop"],
+    )
+
+    rc, rec = sc.run_skill(h, "sst-translator", 0, tmp_path)
+    assert fake._terminated is True
+    assert rec.get("turn_limit_killed") is True
+    assert rec.get("result_subtype") == "error_max_turns"
+    assert rec.get("is_error") is True
+    assert rec.get("num_turns") == 3
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "[turn-limit]" in out
+
+
+def test_run_skill_claude_does_not_runner_kill(tmp_path, monkeypatch):
+    """Claude path: runner_enforces_max_turns is False — no terminate on proxy."""
+    import io
+
+    h = ClaudeCodeHarness()
+    h.max_turns = 2
+    events = [
+        json.dumps({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": f"t{i}"}]},
+        })
+        for i in range(4)
+    ] + [
+        json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "duration_ms": 10,
+            "total_cost_usd": 0,
+            "num_turns": 4,
+            "modelUsage": {},
+        })
+    ]
+    stream = io.StringIO("\n".join(events) + "\n")
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = stream
+            self._terminated = False
+            self.returncode = 0
+
+        def terminate(self):
+            self._terminated = True
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    fake = FakeProc()
+    monkeypatch.setattr(sc.subprocess, "Popen", lambda *a, **k: fake)
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "build_command",
+        lambda self, *a, **k: ["claude", "-p", "noop"],
+    )
+    rc, rec = sc.run_skill(h, "sst-translator", 0, tmp_path)
+    assert fake._terminated is False
+    assert not rec.get("turn_limit_killed")
+    assert rec.get("num_turns") == 4
+    assert rc == 0
 

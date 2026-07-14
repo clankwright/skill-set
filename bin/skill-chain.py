@@ -474,12 +474,16 @@ def _apply_model_ceiling(model: str) -> str:
 def _find_skill_md(skill_name: str, cwd: str) -> Path | None:
     """Locate the SKILL.md the harness will load for this skill.
 
-    Mirrors Claude Code's resolution order: project-scoped first
-    (<cwd>/.claude/skills/<name>/SKILL.md), then personal-global
-    (~/.claude/skills/<name>/SKILL.md). Returns None when neither exists; the
-    caller treats that as "no frontmatter" and falls back to defaults rather
-    than failing — a missing SKILL.md will surface as a harness error on the
-    actual skill invocation a moment later.
+    Resolution order (Phase 64 added the framework-repo fallback):
+      1. <cwd>/.claude/skills/<name>/SKILL.md  (project proprietary)
+      2. ~/.claude/skills/<name>/SKILL.md       (installed transferable)
+      3. <repo>/skills/**/<name>/SKILL.md       (framework source tree)
+
+    Returns None when none exist; the caller treats that as "no frontmatter"
+    and falls back to defaults rather than failing — a missing SKILL.md will
+    surface as a harness error on the actual skill invocation a moment later.
+    The same order is documented in the Cursor nested-skill cold-start
+    directive so in-session Read+follow of sub-skills matches the runner.
     """
     candidates = [
         Path(cwd) / ".claude" / "skills" / skill_name / "SKILL.md",
@@ -488,7 +492,9 @@ def _find_skill_md(skill_name: str, cwd: str) -> Path | None:
     for p in candidates:
         if p.exists():
             return p
-    return None
+    # Framework source fallback (uninstalled transferable still resolvable).
+    matches = sorted(REPO_ROOT.glob(f"skills/**/{skill_name}/SKILL.md"))
+    return matches[0] if matches else None
 
 
 def _read_skill_frontmatter(path: Path | None) -> dict:
@@ -863,6 +869,15 @@ class Harness:
         """
         return (model or DEFAULT_MODEL_FLOOR, effort or DEFAULT_EFFORT_FLOOR)
 
+    def runner_enforces_max_turns(self) -> bool:
+        """True when run_skill (not the CLI) must hard-cap assistant turns.
+
+        Claude Code passes `--max-turns` to the CLI, so the default is False.
+        Harnesses without a CLI turn flag (Cursor) override to True; run_skill
+        then terminates the subprocess when `_turn_proxy` reaches `max_turns`.
+        """
+        return False
+
 
 class ClaudeCodeHarness(Harness):
     """Anthropic Claude Code CLI as the agent harness."""
@@ -1168,6 +1183,30 @@ def _cursor_tool_call_fields(tc: dict) -> tuple[str, dict]:
     return "?", {}
 
 
+# Appended to every Cursor cold-start prompt so nested `/sst-*` invocations
+# (especially `/sst-sanitize-transferable`) still run when there is no Skill
+# tool: the agent Reads the resolved SKILL.md and follows it in-session.
+# Claude Code never sees this block (it has a real Skill tool).
+CURSOR_NESTED_SKILL_DIRECTIVE_TEMPLATE = """\
+## Nested skills / Skill tool (Cursor harness)
+
+Cursor has no Skill tool. When this skill's prose says to invoke `/<name>`,
+`Use the Skill tool`, or any nested sub-skill (especially
+`/sst-sanitize-transferable` before committing a transferable edit):
+
+1. Resolve the skill file in order: `<cwd>/.claude/skills/<name>/SKILL.md`,
+   then `~/.claude/skills/<name>/SKILL.md`, then the first match under
+   `{repo}/skills/**/<name>/SKILL.md`.
+2. Read that SKILL.md end-to-end (ignore YAML frontmatter).
+3. Follow its instructions **in this same session** — do not spawn a
+   separate agent subprocess, and do not treat its completion as the
+   parent cycle ending.
+4. After the nested skill's deliverable is on disk (e.g. a `.findings.md`),
+   continue the parent skill's remaining steps immediately.
+
+Never skip a required nested skill just because the Skill tool is absent.
+"""
+
 # Appended to every Cursor cold-start prompt so research skills that name
 # Claude Code's WebSearch/WebFetch keep working under headless cursor-agent
 # (which has no native equivalents). Claude Code never sees this block.
@@ -1308,14 +1347,17 @@ class CursorHarness(Harness):
       1. No Skill tool. Cursor cannot lazy-load a SKILL.md by name, so
          build_command INLINES the skill body into the prompt instead of asking
          the agent to "use the Skill tool". The file is resolved with the same
-         project-then-global order Claude Code uses (_find_skill_md).
+         project-then-global-then-repo order Claude Code uses (_find_skill_md).
+         Nested `/sst-*` calls (sanitize etc.) get a cold-start directive to
+         Read+follow the resolved SKILL.md in-session (Phase 64).
       2. No separate --effort flag. Phase 19 (model, effort) routing maps onto
          the Grok effort ladder via resolve_cli_route → cursor-grok-4.5-
          {low,medium,high} (max of model-floor band and effort band). Set
          CURSOR_MODEL to pin one id for every skill (disables the ladder).
-      3. No --max-turns backstop. Cursor's CLI has no turn-ceiling flag, so the
-         hard cap is not enforced; the soft wind-down directive is still sent to
-         *-tester skills (advisory only, no hard chop behind it).
+      3. No CLI --max-turns flag. Phase 64: run_skill enforces the hard cap by
+         counting assistant frames (`_turn_proxy`) and terminating the
+         subprocess at `max_turns` (sets result_subtype=error_max_turns). Soft
+         wind-down directive still appended for *-tester skills.
       4. No native WebSearch/WebFetch. Cold-start prompts append a directive to
          Shell-invoke `bin/brave-web.py` (Phase 61; free Brave key first, paid
          on rate-limit). Claude Code keeps its native tools untouched.
@@ -1338,6 +1380,10 @@ class CursorHarness(Harness):
     """
 
     name = "cursor"
+
+    def runner_enforces_max_turns(self) -> bool:
+        """Cursor CLI has no --max-turns; run_skill hard-caps via turn proxy."""
+        return True
 
     def resolve_cli_route(
         self,
@@ -1430,9 +1476,12 @@ class CursorHarness(Harness):
             )
         # Cursor has no native WebSearch/WebFetch — point at bin/brave-web.py.
         # Also steer browser work to Playwright MCP (never cursor-ide-browser).
+        # Nested /sst-* calls: Read+follow resolved SKILL.md (no Skill tool).
         helper = str(REPO_ROOT / "bin" / "brave-web.py")
         prompt = (
             prompt + "\n\n"
+            + CURSOR_NESTED_SKILL_DIRECTIVE_TEMPLATE.format(repo=str(REPO_ROOT))
+            + "\n\n"
             + CURSOR_BRAVE_WEB_DIRECTIVE_TEMPLATE.format(helper=helper)
             + "\n\n"
             + _cursor_playwright_directive(os.getcwd())
@@ -1959,6 +2008,34 @@ def run_skill(
             try:
                 event = harness.normalize_event(event)
                 handle_event(sink, event, skill_record)
+                # Phase 64: Cursor has no CLI --max-turns; hard-cap via the
+                # assistant-frame proxy counted in handle_event. Claude Code
+                # enforces in-CLI (runner_enforces_max_turns() is False).
+                if (
+                    harness.runner_enforces_max_turns()
+                    and not skill_record.get("turn_limit_killed")
+                    and skill_record.get("_turn_proxy", 0) >= harness.max_turns
+                ):
+                    skill_record["turn_limit_killed"] = True
+                    skill_record["result_subtype"] = "error_max_turns"
+                    skill_record["is_error"] = True
+                    skill_record["num_turns"] = skill_record.get(
+                        "_turn_proxy", harness.max_turns
+                    )
+                    sink.write("")
+                    sink.write(c(
+                        f"[turn-limit] runner capped at {harness.max_turns} "
+                        f"assistant frames (--max-turns); terminating "
+                        f"/{skill_name}",
+                        ORANGE,
+                    ))
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                    break
             except Exception as exc:
                 sink.write(f"{c(f'[render error: {exc}]', RED)}  {_truncate(line, 300)}")
     except KeyboardInterrupt:
@@ -1968,7 +2045,13 @@ def run_skill(
         sink.write(c("[interrupted]", ORANGE))
         rc = 130
     else:
-        rc = proc.wait()
+        if skill_record.get("turn_limit_killed"):
+            # Already waited after terminate/kill above.
+            rc = proc.poll()
+            if rc is None or rc == 0:
+                rc = 1  # non-zero so Phase 55 classifies as skill failure
+        else:
+            rc = proc.wait()
 
     elapsed = time.monotonic() - started
     skill_record["finished_at"] = _utc_iso()
