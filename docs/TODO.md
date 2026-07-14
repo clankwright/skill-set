@@ -39,10 +39,14 @@
   Order: blockers/highest-impact first.
 -->
 
+<!-- From 2026-07-14T00-27-32Z review of Phase 58.5 (b94a9c4). Live result frames emit num_turns:null; MANIFEST this iter still empty model_usage because the process started pre-58.5 — cold-start verify falls out of 58.6 fix. -->
 - [easy] [should-fix] 58.6 `bin/skill-chain.py:1443` — inject proxied num_turns when value is null (live Cursor), not only when key absent; fix "None turns" summary — review of b94a9c4
 - [medium] [should-fix] 58.7 `bin/skill-chain.py:2419` — move `_maybe_clear_cursor_budget`'s `harness.name == "cursor"` branch onto a CursorHarness method — review of b94a9c4
 
-<!-- Cursor has no native WebSearch (unlike Claude Code). Research skills (sst-web-research, sst-fact-checker, …) need a harness-local substitute when AGENT_HARNESS=cursor. -->
-- [medium] Build a Cursor-harness-only Brave web-search tool: free Brave API key first, on rate-limit fall back to paid Brave API key; wire so it is available under `--harness cursor` only (Claude Code keeps its native WebSearch — do not dual-path or replace it) — source: user request 2026-07-14 (Cursor harness lacks WebSearch)
+<!-- Cursor capability gaps surfaced by harness dogfood runs 2026-07-14 (00-10-28Z + 00-27-32Z). Highest-impact first. -->
+- [medium] Build a Cursor-harness-only Brave web-search + page-fetch tool: free Brave API key first, on rate-limit fall back to paid key; cover both WebSearch and WebFetch substitutes; wire under `--harness cursor` only (Claude Code keeps native tools) — source: user request 2026-07-14 + run analysis (research skills need fetch too)
+- [hard] Cursor has no Skill tool — nested `/sst-sanitize-transferable` (and other sub-skill) invocations from inlined skill prose cannot run; add a Cursor path (runner-spawned nested skill inline, or harness-aware prose: Read SKILL.md + follow) so transferable-editing cycles under `--harness cursor` still pass the sanitize gate — source: run analysis 2026-07-14 (Phase 58.5 skipped sanitize only because no transferable; next transferable cycle will hit this)
+- [medium] CursorHarness.build_command: pass `--approve-mcps` and `--trust` (cursor-agent headless flags) alongside `--force` so Playwright/MCP skills do not stall on approval prompts in `-p` mode — source: run analysis 2026-07-14 (`cursor-agent --help`; harness currently only passes `--force`)
+- [medium] Cursor has no `--max-turns` hard backstop (soft wind-down is tester-only / advisory); add a runner-side turn/watchdog (count assistant frames, kill or wind-down after N) under `--harness cursor` — source: run analysis 2026-07-14 (documented gap; runaway risk)
 
 <!-- planner candidate tests-passing-fix (2026-06-25) resolved: the objectives.md pytest-path fix was applied directly in a live session; candidate removed, no dev-cycle pick needed. -->
