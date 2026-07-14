@@ -4,7 +4,7 @@
 
 ## In flight
 
-<!-- nothing in flight -->
+- [ssp-dev @ 2026-07-14T01:19:49Z] 61.3 brave-web credential merge (free-in-env + paid-from-file)
 
 ## Just shipped (last cycle)
 
@@ -38,6 +38,9 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
+
+<!-- Priority: Cursor IDE browser is not available to cursor-agent -p; Playwright MCP is the chain browser. Phase 61 only passed --approve-mcps/--trust — tool still not first-class for Cursor harness. -->
+- [medium] Cursor-harness web browser tool via Playwright MCP: ensure headless `cursor-agent` can call the project's Playwright browser MCP (config/`mcp.json` discovery, cold-start directive for tester/outreach/research skills that need a real browser, headed when DISPLAY exists); do not use Cursor IDE `cursor-ide-browser` (IDE-only) — source: user request 2026-07-14 (priority)
 
 <!-- From 2026-07-14T01-03-22Z review of Phase 61 (7b96d31) + Phase 60.1 / 59.2 since last Review. -->
 - [easy] [should-fix] 61.3 `bin/brave-web.py:_resolve_credentials` — early-return on either key set blocks paid-from-file when free is in env; merge missing keys so free→paid 429 fallback works — review of 7b96d31
