@@ -2,7 +2,7 @@
 
 Field-agnostic, harness-agnostic **skill-sets** for autonomous LLM agents.
 
-Currently only the [Claude Code](https://docs.anthropic.com/claude/docs/claude-code) harness is implemented; the chain runner, supervisor, and manager are written so a second harness (Codex CLI, Gemini CLI, Cursor headless, etc.) drops in via a single `Harness` subclass.
+Two harnesses ship today: [Claude Code](https://docs.anthropic.com/claude/docs/claude-code) (default) and [Cursor Agent](https://cursor.com) (`cursor-agent` CLI, Grok-capable). Additional harnesses (Codex CLI, Gemini CLI, etc.) drop in via a single `Harness` subclass.
 
 ## Features
 
@@ -268,7 +268,9 @@ Routing flow: the runner pre-parses the next item's difficulty BEFORE invoking t
 
 The tester and review run on Opus+high (effort floor wins on the effort axis; model floor matches the item tier on the model axis); the dev and supervisor run on Fable regardless of item difficulty because their `fable` floors win on the model axis. A `[hard]` item by the same chain would lift tester and review to Fable+high (item tier wins on both axes); an `[easy]` item by `sst-translator` would run on Sonnet+medium (model floors match the item tier; the `medium` effort floor lifts the item's `low`).
 
-**Quota trade-off.** The Phase 56 shift deliberately spends more quota per iter for capability: the dev, supervisor, manager, executor, and sanitize gate always run Fable 5, review-class work runs at least Opus, and mechanical work at least Sonnet. When an account lacks access to a resolved tier (e.g. `fable` is gated), the runner's model-unavailable fallback steps the invocation down one tier at a time (fable → opus → sonnet → haiku) with a fresh session, records the step-down on the manifest (`model_fallbacks`), and notifies — so chains still complete below their intended tier rather than aborting.
+**Quota trade-off.** The Phase 56 shift deliberately spends more quota per iter for capability: the dev, supervisor, manager, executor, and sanitize gate declare a `fable` floor, review-class work declares at least `opus`, and mechanical work at least `sonnet`. When an account lacks access to a resolved tier (e.g. `fable` is gated), the runner's model-unavailable fallback steps the invocation down one tier at a time (fable → opus → sonnet → haiku) with a fresh session, records the step-down on the manifest (`model_fallbacks`), and notifies — so chains still complete below their intended tier rather than aborting.
+
+**Fable is OFF BY DEFAULT (Phase 57).** Fable 5's allocation is a small weekly pool, easily exhausted by every fable-floored skill running every iter. `bin/skill-chain.py` applies a runtime ceiling that caps every resolved model at `opus` regardless of frontmatter floors, unless the run passes `--enable-fable` (or sets `SKILL_CHAIN_ENABLE_FABLE=1`). So in the default configuration, all the rows above that resolve to `fable` actually run at `opus` — the frontmatter floor still declares the skill's intent, but the runtime ceiling is what decides the model that session actually gets. Separately, if a resolved tier hits a **model-switchable** rate limit mid-run (its weekly/monthly/overage/spend allocation, not the shared five-hour window) the runner drops that tier for the rest of the run and retries immediately rather than sleeping until the multi-day reset; the shared five-hour window still pauses-and-resumes as before, since dropping a tier doesn't clear it.
 
 **Anti-fork rule.** Floors are declared in SKILL.md frontmatter; the runner reads them, never invents them. The `max()` resolution rule binds at both axes — there is no path that lets an item difficulty drop a skill below its floor, and no fifth resolution input that bypasses both axes. If a new skill class needs a different floor pair, add the frontmatter values; don't branch the resolver.
 
@@ -376,11 +378,21 @@ Three host options:
 # Explicit:
 ./bin/skill-chain.py --harness claude-code my-cycle
 
+# Cursor Agent (requires cursor-agent on PATH + CURSOR_API_KEY or a logged-in Cursor subscription):
+./bin/skill-chain.py --harness cursor my-cycle
+# Optional model pin (default: cursor-grok-4.5-high). Valid Grok ids:
+#   cursor-grok-4.5-{low,medium,high}[-fast]
+# Other Cursor-exposed ids (claude-4.5-sonnet, gpt-5.1, …) also work; bare "grok" does not.
+CURSOR_MODEL=cursor-grok-4.5-high ./bin/skill-chain.py --harness cursor my-cycle
+
 # Or via env:
 AGENT_HARNESS=claude-code ./bin/skill-chain.py my-cycle
+AGENT_HARNESS=cursor ./bin/skill-chain.py my-cycle
 ```
 
-To add another harness, subclass `Harness` in `bin/skill-chain.py`, register it in `HARNESSES`, and (if it emits a different stream format) supply an event parser.
+**Cursor harness notes.** Cursor has no Skill tool, so the runner inlines each skill's `SKILL.md` into the prompt. There is no `--effort` / model-tier ladder and no `--max-turns` hard cap (the soft wind-down directive is still appended for `*-tester` skills). Result frames carry token `usage` but not `total_cost_usd` / `num_turns`, so `--max-budget-usd` cannot meter a Cursor run yet. Live stream-json fixture: `tests/fixtures/cursor-stream-sample.jsonl`.
+
+To add another harness, subclass `Harness` in `bin/skill-chain.py`, register it in `HARNESSES`, and (if it emits a different stream format) implement `normalize_event`.
 
 ## Status
 
