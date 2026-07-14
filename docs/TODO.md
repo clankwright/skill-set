@@ -4,10 +4,11 @@
 
 ## In flight
 
-- [ssp-dev @ 2026-07-14T01:19:49Z] 61.3 brave-web credential merge (free-in-env + paid-from-file)
+<!-- nothing in flight -->
 
 ## Just shipped (last cycle)
 
+- Phase 61.3: brave-web `_resolve_credentials` merges missing keys from env-file (free-in-env + paid-from-file); 3 regression tests (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:20:18Z
 - Phase 61 (61.1-61.2): Cursor Brave web search/fetch (`bin/brave-web.py`, free→paid key) + `--approve-mcps`/`--trust`; Claude Code untouched (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:15:27Z
 - Phase 60.1: estimate Cursor harness $ cost from usage tokens (Grok 4.5 API rates fallback; --max-budget-usd re-enabled; Sanitize: n/a) — by ssp-dev at 2026-07-14T01:09:44Z
 - Phase 59.2: ssp-chain-driver Locations retargeted — overnight jitter via `--overnight` / `--loop-delay-random` (v1.0.3; Sanitize: n/a, proprietary) — by ssp-dev at 2026-07-14T00:54:10Z
@@ -17,7 +18,6 @@
 - Phase 58.6: inject proxied `num_turns` when Cursor result emits null (not only when key absent) so summary prints "N turns" not "None turns"; regression test with explicit null key (25→26) — by ssp-dev at 2026-07-14T00:37:35Z
 - Phase 58.5: Cursor telemetry gap closed — `usage`→`modelUsage` (cache key rename); `num_turns` proxy from assistant frames; `--max-budget-usd` loud-skipped under `--harness cursor` (prefer `--max-cycles`); overnight/infinite without cycles SystemExits after clear. 8 new tests (17→25); 614→622 green; README Cursor notes updated — by ssp-dev at 2026-07-14T00:30:13Z
 - CLAUDE.md low-bandwidth rule: briefly note completed items (was "do not report routine successes") so the user can see work was not overlooked — by manual (stash pop from Phase 58 park) at 2026-07-14T00:23:00Z
-- Phase 58 (58.1-58.4): Cursor harness finalization — live stream-json fixture (`tests/fixtures/cursor-stream-sample.jsonl`); `_cursor_tool_call_fields` maps live `editToolCall`/`readToolCall`/`shellToolCall` (path→file_path) so Phase 49 wrote_tester_guidance works; 17 unit tests in `test_cursor_harness.py`; README documents `--harness cursor` + CURSOR_MODEL ids (also lands dirty Phase 57 fable-off-by-default paragraph). Grok default already `cursor-grok-4.5-high` (33ea3f0), confirmed live. Telemetry gap (no cost/num_turns; usage tokens present) left on Next up — by ssp-dev at 2026-07-14T00:13:08Z
 
 <!--
   Append-on-close, newest first. Format:
@@ -41,9 +41,6 @@
 
 <!-- Priority: Cursor IDE browser is not available to cursor-agent -p; Playwright MCP is the chain browser. Phase 61 only passed --approve-mcps/--trust — tool still not first-class for Cursor harness. -->
 - [medium] Cursor-harness web browser tool via Playwright MCP: ensure headless `cursor-agent` can call the project's Playwright browser MCP (config/`mcp.json` discovery, cold-start directive for tester/outreach/research skills that need a real browser, headed when DISPLAY exists); do not use Cursor IDE `cursor-ide-browser` (IDE-only) — source: user request 2026-07-14 (priority)
-
-<!-- From 2026-07-14T01-03-22Z review of Phase 61 (7b96d31) + Phase 60.1 / 59.2 since last Review. -->
-- [easy] [should-fix] 61.3 `bin/brave-web.py:_resolve_credentials` — early-return on either key set blocks paid-from-file when free is in env; merge missing keys so free→paid 429 fallback works — review of 7b96d31
 
 <!-- Cursor still prints Claude Phase-19 fiction (opus/fable/xhigh) + fable-cap banner while every skill actually runs on CURSOR_MODEL / Grok. -->
 - [medium] Cursor harness routing + stdout: map item difficulty / skill floors onto Grok effort ladder (`cursor-grok-4.5-{low,medium,high}[-fast]`, not Claude haiku/sonnet/opus/fable); print real model id + effort in `[route]` lines and MANIFEST `route` records; pass resolved id to `cursor-agent --model` (stop collapsing every skill to DEFAULT_CURSOR_MODEL) — source: user request 2026-07-14

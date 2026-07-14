@@ -53,6 +53,34 @@ class TestBraveApiKeys:
         monkeypatch.setattr(bw, "BASE_BRAVE_ENV", tmp_path / "missing.env")
         assert bw.brave_api_keys() == [("free", "FROMFILE")]
 
+    def test_free_in_env_merges_paid_from_file(self, monkeypatch, tmp_path):
+        """Free already exported must not block paid from BRAVE_ENV_FILE (61.3)."""
+        _set_keys(monkeypatch, free="F", paid=None)
+        env = tmp_path / "brave.env"
+        env.write_text("BRAVE_SEARCH_API_KEY=PAIDFILE\n", encoding="utf-8")
+        monkeypatch.setenv("BRAVE_ENV_FILE", str(env))
+        monkeypatch.setattr(bw, "BASE_BRAVE_ENV", tmp_path / "missing.env")
+        assert bw.brave_api_keys() == [("free", "F"), ("paid", "PAIDFILE")]
+
+    def test_paid_in_env_merges_free_from_file(self, monkeypatch, tmp_path):
+        _set_keys(monkeypatch, free=None, paid="P")
+        env = tmp_path / "brave.env"
+        env.write_text("BRAVE_SEARCH_API_KEY_FREE=FREEFILE\n", encoding="utf-8")
+        monkeypatch.setenv("BRAVE_ENV_FILE", str(env))
+        monkeypatch.setattr(bw, "BASE_BRAVE_ENV", tmp_path / "missing.env")
+        assert bw.brave_api_keys() == [("free", "FREEFILE"), ("paid", "P")]
+
+    def test_env_key_not_overwritten_by_file(self, monkeypatch, tmp_path):
+        _set_keys(monkeypatch, free="ENVFREE", paid=None)
+        env = tmp_path / "brave.env"
+        env.write_text(
+            "BRAVE_SEARCH_API_KEY_FREE=FILEFREE\nBRAVE_SEARCH_API_KEY=FILEPAID\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("BRAVE_ENV_FILE", str(env))
+        monkeypatch.setattr(bw, "BASE_BRAVE_ENV", tmp_path / "missing.env")
+        assert bw.brave_api_keys() == [("free", "ENVFREE"), ("paid", "FILEPAID")]
+
 
 class TestBraveSearchFallback:
     def test_uses_free_on_success(self, monkeypatch):
