@@ -1003,7 +1003,9 @@ class CursorHarness(Harness):
             "--force",
             "--output-format", "stream-json",
             # No tier ladder / no --effort under Cursor: collapse to one model.
-            "-m", _cursor_model(),
+            # Use the long --model flag; cursor-agent dropped the `-m` short
+            # alias in 2026.07 (only --model is accepted now).
+            "--model", _cursor_model(),
         ]
         if resume_session_id:
             # Cursor resumes a chat by id; a bare "continue" restores context
