@@ -4,7 +4,7 @@
 
 ## In flight
 
-<!-- nothing in flight -->
+- [ssp-dev @ 2026-07-14T00:28:20Z] Close Cursor telemetry gap (usage→modelUsage + budget loud-skip)
 
 ## Just shipped (last cycle)
 
@@ -41,5 +41,8 @@
 
 <!-- Cursor harness residual (Phase 58 left this open). Live 2026-07-14 capture showed result.usage {inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens} IS present — only cost/num_turns are missing. -->
 - [medium] Close the Cursor telemetry gap: result frames carry token `usage` but no `total_cost_usd` / `num_turns`, so manifest cost stays 0 and `sst-chain-driver --max-budget-usd` cannot meter a Cursor run — map usage into modelUsage and either estimate cost or make the budget gate detect harness=="cursor" and skip with a loud note — source: Phase 58 open residual; live capture 2026-07-14
+
+<!-- Cursor has no native WebSearch (unlike Claude Code). Research skills (sst-web-research, sst-fact-checker, …) need a harness-local substitute when AGENT_HARNESS=cursor. -->
+- [medium] Build a Cursor-harness-only Brave web-search tool: free Brave API key first, on rate-limit fall back to paid Brave API key; wire so it is available under `--harness cursor` only (Claude Code keeps its native WebSearch — do not dual-path or replace it) — source: user request 2026-07-14 (Cursor harness lacks WebSearch)
 
 <!-- planner candidate tests-passing-fix (2026-06-25) resolved: the objectives.md pytest-path fix was applied directly in a live session; candidate removed, no dev-cycle pick needed. -->
