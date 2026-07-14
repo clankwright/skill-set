@@ -850,6 +850,19 @@ class Harness:
                 GRAY,
             ), flush=True)
 
+    def resolve_cli_route(
+        self,
+        model: str | None,
+        effort: str | None,
+    ) -> tuple[str, str | None]:
+        """Map Phase-19 (model, effort) to CLI `--model` / `--effort` values.
+
+        Returns `(cli_model, cli_effort)`. `cli_effort` is None when the
+        harness has no separate effort flag (effort is baked into the model
+        id). Default = Claude Code shape (pass tiers through).
+        """
+        return (model or DEFAULT_MODEL_FLOOR, effort or DEFAULT_EFFORT_FLOOR)
+
 
 class ClaudeCodeHarness(Harness):
     """Anthropic Claude Code CLI as the agent harness."""
@@ -925,14 +938,31 @@ class ClaudeCodeHarness(Harness):
         return cmd
 
 
-# Default model for the Cursor harness. Cursor has no fable/opus/sonnet/haiku
-# tier ladder and no --effort knob, so the Phase 19 per-tier (model, effort)
-# routing collapses to a single model here. Override with the CURSOR_MODEL env
-# var to pin a specific id. Valid Grok ids (from `cursor-agent -m <bad>` error
-# listing): cursor-grok-4.5-{low,medium,high}[-fast]. Other providers' ids are
-# also accepted (claude-4.5-sonnet, gpt-5.1, gemini-3-flash, ...). "grok" alone
-# is NOT valid.
+# Default model for the Cursor harness when no Phase-19 route is available
+# (ad-hoc invocation with neither model nor effort). Override with CURSOR_MODEL
+# to pin a specific id for EVERY skill (disables per-skill Grok-ladder routing).
+# Valid Grok ids (cursor-agent --list-models): cursor-grok-4.5-{low,medium,high}
+# [-fast]. Other providers' ids are also accepted. "grok" alone is NOT valid.
 DEFAULT_CURSOR_MODEL = "cursor-grok-4.5-high"
+
+# Phase 63: map Claude Phase-19 (model, effort) tiers onto the Cursor Grok
+# effort ladder. Cursor has no separate --effort flag — effort is baked into
+# the --model id. Take the max of the model-floor band and the effort band so
+# an opus/fable floor still lifts an otherwise-low effort to high.
+CURSOR_GROK_BANDS = ["low", "medium", "high"]
+MODEL_TO_CURSOR_BAND = {
+    "haiku": "low",
+    "sonnet": "medium",
+    "opus": "high",
+    "fable": "high",
+}
+EFFORT_TO_CURSOR_BAND = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "high",
+    "max": "high",
+}
 
 # USD per 1M tokens: (input, cache_write, cache_read, output).
 # Prefer Cursor-published model API rates (cursor.com/docs/models-and-pricing)
@@ -962,6 +992,37 @@ def _cursor_model() -> str:
     DEFAULT_CURSOR_MODEL when the env var is unset/empty.
     """
     return os.environ.get("CURSOR_MODEL") or DEFAULT_CURSOR_MODEL
+
+
+def _cursor_band_index(band: str) -> int:
+    """Index of a Grok band in CURSOR_GROK_BANDS; unknown → medium (1)."""
+    try:
+        return CURSOR_GROK_BANDS.index(band)
+    except ValueError:
+        return 1
+
+
+def _cursor_grok_id_for_route(model: str | None, effort: str | None) -> str:
+    """Map Phase-19 Claude (model, effort) tiers to a cursor-grok-4.5-* id.
+
+    Precedence:
+      1. CURSOR_MODEL env pin (forces one id for every skill; no per-skill ladder)
+      2. `model` already a concrete Cursor id (not a Phase-19 tier name) → as-is
+      3. max(MODEL_TO_CURSOR_BAND[model], EFFORT_TO_CURSOR_BAND[effort])
+         → cursor-grok-4.5-{low|medium|high}
+      4. Neither model nor effort → DEFAULT_CURSOR_MODEL
+    """
+    pin = os.environ.get("CURSOR_MODEL")
+    if pin:
+        return pin
+    if model and model not in MODEL_TIERS:
+        return model
+    if model is None and effort is None:
+        return DEFAULT_CURSOR_MODEL
+    m_band = MODEL_TO_CURSOR_BAND.get(model or "", "medium")
+    e_band = EFFORT_TO_CURSOR_BAND.get(effort or "", "medium")
+    band = CURSOR_GROK_BANDS[max(_cursor_band_index(m_band), _cursor_band_index(e_band))]
+    return f"cursor-grok-4.5-{band}"
 
 
 def _resolve_cursor_rates(model: str | None) -> tuple[float, float, float, float]:
@@ -1241,15 +1302,17 @@ class CursorHarness(Harness):
     """Cursor Agent CLI (`cursor-agent`) as the agent harness.
 
     Runs on a Cursor subscription or a CURSOR_API_KEY, on whatever model Cursor
-    exposes (defaults to Grok via CURSOR_MODEL). Things that differ from the
-    Claude Code harness, all bridged here:
+    exposes (defaults to Grok via Phase-63 ladder / CURSOR_MODEL pin). Things
+    that differ from the Claude Code harness, all bridged here:
 
       1. No Skill tool. Cursor cannot lazy-load a SKILL.md by name, so
          build_command INLINES the skill body into the prompt instead of asking
          the agent to "use the Skill tool". The file is resolved with the same
          project-then-global order Claude Code uses (_find_skill_md).
-      2. No --effort and no model-tier ladder. The Phase 19 (model, effort)
-         routing is accepted but ignored; every skill runs on DEFAULT_CURSOR_MODEL.
+      2. No separate --effort flag. Phase 19 (model, effort) routing maps onto
+         the Grok effort ladder via resolve_cli_route → cursor-grok-4.5-
+         {low,medium,high} (max of model-floor band and effort band). Set
+         CURSOR_MODEL to pin one id for every skill (disables the ladder).
       3. No --max-turns backstop. Cursor's CLI has no turn-ceiling flag, so the
          hard cap is not enforced; the soft wind-down directive is still sent to
          *-tester skills (advisory only, no hard chop behind it).
@@ -1276,6 +1339,14 @@ class CursorHarness(Harness):
 
     name = "cursor"
 
+    def resolve_cli_route(
+        self,
+        model: str | None,
+        effort: str | None,
+    ) -> tuple[str, str | None]:
+        """Map Phase-19 tiers onto a cursor-grok-4.5-* id; no separate effort."""
+        return (_cursor_grok_id_for_route(model, effort), None)
+
     def apply_budget_constraints(
         self,
         args: argparse.Namespace,
@@ -1301,8 +1372,9 @@ class CursorHarness(Harness):
     def print_runtime_model_notes(self) -> None:
         """No-op: fable/opus/sonnet ladder is Claude Code only.
 
-        Cursor runs on CURSOR_MODEL / Grok; printing the Phase 57 fable banner
-        under `--harness cursor` is misleading fiction.
+        Cursor runs on the Grok effort ladder (Phase 63) / CURSOR_MODEL pin;
+        printing the Phase 57 fable banner under `--harness cursor` is
+        misleading fiction.
         """
         return
 
@@ -1315,6 +1387,9 @@ class CursorHarness(Harness):
         extra_prompt: str = "",
         resume_session_id: str | None = None,
     ) -> list[str]:
+        # Phase 63: honor Phase-19 routing via the Grok ladder (or CURSOR_MODEL
+        # pin). Accept either Claude tier names or an already-resolved cursor id.
+        cli_model, _ = self.resolve_cli_route(model, effort)
         cmd = [
             "cursor-agent",
             "-p",
@@ -1328,10 +1403,9 @@ class CursorHarness(Harness):
             "--approve-mcps",
             "--trust",
             "--output-format", "stream-json",
-            # No tier ladder / no --effort under Cursor: collapse to one model.
             # Use the long --model flag; cursor-agent dropped the `-m` short
             # alias in 2026.07 (only --model is accepted now).
-            "--model", _cursor_model(),
+            "--model", cli_model,
         ]
         if resume_session_id:
             # Cursor resumes a chat by id; a bare "continue" restores context
@@ -3130,9 +3204,20 @@ def run_iteration(
         eff_model, eff_effort, route_record = _resolve_skill_route(
             skill, iter_manifest["difficulty"], cwd,
         )
-        print(c(f"[route] /{skill}: difficulty={route_record['difficulty']} "
-                f"floors=({route_record['model_floor']},{route_record['effort_floor']}) "
-                f"-> model={eff_model} effort={eff_effort}", DIM), flush=True)
+        # Phase 63: harness maps Claude tiers → real CLI model id (Cursor Grok
+        # ladder, or Claude pass-through). [route] + MANIFEST show the CLI id.
+        cli_model, cli_effort = harness.resolve_cli_route(eff_model, eff_effort)
+        route_record["cli_model"] = cli_model
+        if cli_effort is not None:
+            route_record["cli_effort"] = cli_effort
+            print(c(f"[route] /{skill}: difficulty={route_record['difficulty']} "
+                    f"floors=({route_record['model_floor']},{route_record['effort_floor']}) "
+                    f"-> model={cli_model} effort={cli_effort}", DIM), flush=True)
+        else:
+            print(c(f"[route] /{skill}: difficulty={route_record['difficulty']} "
+                    f"floors=({route_record['model_floor']},{route_record['effort_floor']}) "
+                    f"claude=({eff_model},{eff_effort}) -> model={cli_model}", DIM),
+                  flush=True)
         skill_rc, record = run_skill_with_retry(
             harness,
             skill,
@@ -3142,8 +3227,8 @@ def run_iteration(
             max_pause_seconds=max_pause_seconds,
             max_pauses=max_pauses,
             pause_records=iter_manifest["rate_limit_pauses"],
-            model=eff_model,
-            effort=eff_effort,
+            model=cli_model,
+            effort=cli_effort,
             loop_delay=loop_delay,
             loop_delay_random=loop_delay_random,
             notify=notify,
@@ -3473,6 +3558,7 @@ def run_batch_mode(args: "argparse.Namespace", harness: Harness, cwd: str) -> in
         log_dir = (Path(cwd) / ".skill-batch-runs" / f"{_utc_dirname()}_{skill}").resolve()
 
     eff_model, eff_effort, _route = _resolve_skill_route(skill, "medium", cwd)
+    cli_model, cli_effort = harness.resolve_cli_route(eff_model, eff_effort)
 
     print(f"[skill-batch] skill={skill} matched={len(inputs)} "
           f"on_rate_limit={on_rate_limit} log_dir={log_dir}")
@@ -3507,7 +3593,7 @@ def run_batch_mode(args: "argparse.Namespace", harness: Harness, cwd: str) -> in
         print(f"[{i}/{len(inputs)}] [run ] {inp.stem} -> {out_path}")
 
         if args.dry_run:
-            cmd = harness.build_command(skill, model=eff_model, effort=eff_effort,
+            cmd = harness.build_command(skill, model=cli_model, effort=cli_effort,
                                         extra_prompt=extra_prompt)
             print("  DRY-RUN:", " ".join(repr(c_) for c_ in cmd))
             completed += 1
@@ -3524,7 +3610,7 @@ def run_batch_mode(args: "argparse.Namespace", harness: Harness, cwd: str) -> in
             max_pause_seconds=max_pause_seconds,
             max_pauses=max_pauses,
             pause_records=manifest["rate_limit_pauses"],
-            model=eff_model, effort=eff_effort,
+            model=cli_model, effort=cli_effort,
             extra_prompt=extra_prompt,
             log_stem_override=f"{i:03d}_{inp.stem}",
         )

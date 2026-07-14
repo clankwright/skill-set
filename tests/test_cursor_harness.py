@@ -236,6 +236,57 @@ def test_default_cursor_model_is_valid_grok_id():
     assert DEFAULT_CURSOR_MODEL != "grok"
 
 
+# ---- Phase 63: Grok ladder routing ------------------------------------------
+
+def test_cursor_grok_id_maps_effort_and_model_floors(monkeypatch):
+    """max(model-band, effort-band) → cursor-grok-4.5-{low,medium,high}."""
+    monkeypatch.delenv("CURSOR_MODEL", raising=False)
+    assert sc._cursor_grok_id_for_route("haiku", "low") == "cursor-grok-4.5-low"
+    assert sc._cursor_grok_id_for_route("sonnet", "low") == "cursor-grok-4.5-medium"
+    assert sc._cursor_grok_id_for_route("sonnet", "medium") == "cursor-grok-4.5-medium"
+    assert sc._cursor_grok_id_for_route("opus", "medium") == "cursor-grok-4.5-high"
+    assert sc._cursor_grok_id_for_route("opus", "high") == "cursor-grok-4.5-high"
+    assert sc._cursor_grok_id_for_route("fable", "xhigh") == "cursor-grok-4.5-high"
+    assert sc._cursor_grok_id_for_route("haiku", "high") == "cursor-grok-4.5-high"
+    # Neither → default high
+    assert sc._cursor_grok_id_for_route(None, None) == DEFAULT_CURSOR_MODEL
+
+
+def test_cursor_grok_id_env_pin_overrides_ladder(monkeypatch):
+    monkeypatch.setenv("CURSOR_MODEL", "cursor-grok-4.5-low")
+    assert sc._cursor_grok_id_for_route("opus", "xhigh") == "cursor-grok-4.5-low"
+
+
+def test_cursor_grok_id_passes_through_concrete_ids(monkeypatch):
+    monkeypatch.delenv("CURSOR_MODEL", raising=False)
+    assert sc._cursor_grok_id_for_route("cursor-grok-4.5-medium-fast", None) == (
+        "cursor-grok-4.5-medium-fast"
+    )
+    assert sc._cursor_grok_id_for_route("composer-2.5", "high") == "composer-2.5"
+
+
+def test_cursor_resolve_cli_route_and_build_command_honor_ladder(monkeypatch):
+    monkeypatch.delenv("CURSOR_MODEL", raising=False)
+    h = CursorHarness()
+    cli_model, cli_effort = h.resolve_cli_route("sonnet", "low")
+    assert cli_model == "cursor-grok-4.5-medium"
+    assert cli_effort is None
+    cmd = h.build_command("sst-translator", model="sonnet", effort="low")
+    assert cmd[cmd.index("--model") + 1] == "cursor-grok-4.5-medium"
+    # Claude harness still passes tiers through.
+    ch = ClaudeCodeHarness()
+    cm, ce = ch.resolve_cli_route("sonnet", "low")
+    assert (cm, ce) == ("sonnet", "low")
+
+
+def test_cursor_build_command_uses_passed_cli_model(monkeypatch):
+    """run_iteration may pass an already-resolved Grok id."""
+    monkeypatch.delenv("CURSOR_MODEL", raising=False)
+    h = CursorHarness()
+    cmd = h.build_command("sst-translator", model="cursor-grok-4.5-low", effort=None)
+    assert cmd[cmd.index("--model") + 1] == "cursor-grok-4.5-low"
+
+
 # ---- Cursor telemetry (usage → modelUsage + budget loud-skip) ---------------
 
 def test_cursor_usage_to_model_usage_renames_cache_keys():
