@@ -221,7 +221,33 @@ def test_cursor_usage_to_model_usage_renames_cache_keys():
     assert u["outputTokens"] == 134
     assert u["cacheReadInputTokens"] == 34048
     assert u["cacheCreationInputTokens"] == 0
-    assert u["costUSD"] == 0
+    # Grok 4.5 rates: $2/M in + $0.50/M cache-read + $6/M out
+    expected = (21442 * 2.0 + 134 * 6.0 + 34048 * 0.50) / 1_000_000
+    assert abs(u["costUSD"] - expected) < 1e-9
+
+
+def test_estimate_cursor_cost_usd_grok_rates():
+    usage = {
+        "inputTokens": 1_000_000,
+        "outputTokens": 500_000,
+        "cacheReadTokens": 2_000_000,
+        "cacheWriteTokens": 100_000,
+    }
+    # 1M*$2 + 0.5M*$6 + 2M*$0.50 + 0.1M*$2 = 2 + 3 + 1 + 0.2 = 6.2
+    assert sc._estimate_cursor_cost_usd(usage, "cursor-grok-4.5-high") == 6.2
+
+
+def test_estimate_cursor_cost_usd_claude_sonnet_rates():
+    usage = {
+        "inputTokens": 1_000_000,
+        "outputTokens": 1_000_000,
+        "cacheReadTokens": 1_000_000,
+        "cacheWriteTokens": 1_000_000,
+    }
+    # Cursor docs: $3 / $3.75 / $0.3 / $15
+    assert sc._estimate_cursor_cost_usd(usage, "claude-4.5-sonnet") == (
+        3.0 + 3.75 + 0.3 + 15.0
+    )
 
 
 def test_normalize_result_maps_usage_to_model_usage():
@@ -234,7 +260,11 @@ def test_normalize_result_maps_usage_to_model_usage():
     u = out["modelUsage"][model_key]
     assert u["inputTokens"] == result["usage"]["inputTokens"]
     assert u["cacheReadInputTokens"] == result["usage"]["cacheReadTokens"]
-    assert out.get("total_cost_usd") == 0
+    expected = sc._estimate_cursor_cost_usd(
+        result["usage"], "cursor-grok-4.5-high"
+    )
+    assert abs(out.get("total_cost_usd") - expected) < 1e-9
+    assert abs(u["costUSD"] - expected) < 1e-9
     # Raw fixture event must stay untouched (jsonl writes pre-normalize).
     assert "modelUsage" not in result
 
@@ -248,7 +278,11 @@ def test_handle_event_cursor_result_fills_model_usage_and_turn_proxy():
     for e in _fixture_events():
         ev = h.normalize_event(e)
         sc.handle_event(sink, ev, rec)
-    assert rec["total_cost_usd"] == 0
+    expected = sc._estimate_cursor_cost_usd(
+        next(e for e in _fixture_events() if e.get("type") == "result")["usage"],
+        "cursor-grok-4.5-high",
+    )
+    assert abs(rec["total_cost_usd"] - expected) < 1e-9
     assert rec["num_turns"] >= 1  # assistant text + tool_use frames
     assert rec["model_usage"]
     model_key = next(iter(rec["model_usage"]))
@@ -294,8 +328,8 @@ def test_handle_event_null_num_turns_uses_proxy(capsys):
     assert "None turns" not in out
 
 
-def test_cursor_budget_cap_cleared_with_loud_note(capsys):
-    """--max-budget-usd under cursor is cleared (inert) with an orange note."""
+def test_cursor_budget_cap_kept_with_estimate_note(capsys):
+    """--max-budget-usd under cursor stays set; note says costs are estimated."""
     args = sc.parse_args([
         "--harness", "cursor",
         "--max-budget-usd", "30",
@@ -306,11 +340,10 @@ def test_cursor_budget_cap_cleared_with_loud_note(capsys):
     ])
     harness = sc.get_harness(args.harness)
     harness.apply_budget_constraints(args, loop_count=2)
-    assert args.max_budget_usd is None
+    assert args.max_budget_usd == 30.0
     out = capsys.readouterr().out
-    assert "inert" in out
+    assert "estimated" in out.lower()
     assert "cursor" in out.lower()
-    assert "--max-cycles" in out
 
 
 def test_cursor_budget_clear_noop_for_claude():
@@ -326,8 +359,8 @@ def test_cursor_budget_clear_noop_for_claude():
     assert args.max_budget_usd == 30.0
 
 
-def test_cursor_overnight_budget_only_exits_without_max_cycles():
-    """After budget clear, overnight/infinite with no --max-cycles SystemExits."""
+def test_cursor_overnight_budget_only_ok(capsys):
+    """Overnight + budget alone is valid again (estimates meter the gate)."""
     args = sc.parse_args([
         "--harness", "cursor",
         "--overnight",
@@ -336,17 +369,12 @@ def test_cursor_overnight_budget_only_exits_without_max_cycles():
         "--no-supervisor",
         "sst-translator",
     ])
-    # --overnight expands in _apply_preset; parse_args alone leaves overnight=True
-    # and loop unset. Simulate post-preset state: loop_count=0, budget set.
     args.max_budget_usd = 80.0
     args.max_cycles = None
     harness = sc.get_harness("cursor")
-    try:
-        harness.apply_budget_constraints(args, loop_count=0)
-        assert False, "expected SystemExit"
-    except SystemExit as e:
-        assert "max-cycles" in str(e)
-    assert args.max_budget_usd is None
+    harness.apply_budget_constraints(args, loop_count=0)
+    assert args.max_budget_usd == 80.0
+    assert "estimated" in capsys.readouterr().out.lower()
 
 
 def test_cursor_overnight_budget_plus_cycles_ok(capsys):
@@ -361,7 +389,7 @@ def test_cursor_overnight_budget_plus_cycles_ok(capsys):
     ])
     harness = sc.get_harness("cursor")
     harness.apply_budget_constraints(args, loop_count=0)
-    assert args.max_budget_usd is None
+    assert args.max_budget_usd == 80.0
     assert args.max_cycles == 5
-    assert "inert" in capsys.readouterr().out
+    assert "estimated" in capsys.readouterr().out.lower()
 
