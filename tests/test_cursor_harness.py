@@ -305,7 +305,7 @@ def test_cursor_budget_cap_cleared_with_loud_note(capsys):
         "sst-translator",
     ])
     harness = sc.get_harness(args.harness)
-    sc._maybe_clear_cursor_budget(args, harness, loop_count=2)
+    harness.apply_budget_constraints(args, loop_count=2)
     assert args.max_budget_usd is None
     out = capsys.readouterr().out
     assert "inert" in out
@@ -322,7 +322,7 @@ def test_cursor_budget_clear_noop_for_claude():
         "sst-translator",
     ])
     harness = sc.get_harness(args.harness)
-    sc._maybe_clear_cursor_budget(args, harness, loop_count=1)
+    harness.apply_budget_constraints(args, loop_count=1)
     assert args.max_budget_usd == 30.0
 
 
@@ -342,7 +342,7 @@ def test_cursor_overnight_budget_only_exits_without_max_cycles():
     args.max_cycles = None
     harness = sc.get_harness("cursor")
     try:
-        sc._maybe_clear_cursor_budget(args, harness, loop_count=0)
+        harness.apply_budget_constraints(args, loop_count=0)
         assert False, "expected SystemExit"
     except SystemExit as e:
         assert "max-cycles" in str(e)
@@ -360,7 +360,7 @@ def test_cursor_overnight_budget_plus_cycles_ok(capsys):
         "sst-translator",
     ])
     harness = sc.get_harness("cursor")
-    sc._maybe_clear_cursor_budget(args, harness, loop_count=0)
+    harness.apply_budget_constraints(args, loop_count=0)
     assert args.max_budget_usd is None
     assert args.max_cycles == 5
     assert "inert" in capsys.readouterr().out
