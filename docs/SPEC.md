@@ -262,3 +262,9 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 **Review follow-ups (open — schedule as the next `/ssp-dev` cycle):**
 - [x] 58.6 [easy] [should-fix] `bin/skill-chain.py:1443` — `handle_event` only injects proxied `num_turns` when the key is absent; live Cursor result frames emit `"num_turns": null`, so `print_result_summary` (`:1255`) prints `None turns` even though `skill_record["num_turns"]` is correct. Fixture omits the key, so unit tests miss it. Proposed fix: inject when `event.get("num_turns") is None` (covers missing and null); add a regression test with an explicit null key.
 - [x] 58.7 [medium] [should-fix] `bin/skill-chain.py:2419` — `_maybe_clear_cursor_budget` branches on `harness.name != "cursor"`, violating the Phase-1 Harness-as-single-source-of-truth contract. Proposed fix: add a default no-op `Harness.apply_budget_constraints(args, loop_count)` (or equivalent); override on `CursorHarness`; call via the harness instance from `main()`.
+
+### Phase 59: remove redundant overnight chain YAMLs
+
+**Context.** Phase 42's `--overnight` / `--preset overnight` expands to `loop: 0` + randomized [5min, 30min] delay (requires a budget or cycle cap). Dedicated `chains/dev-cycle-overnight.yaml` and proprietary `.claude/chains/skill-set-overnight.yaml` duplicated that shape and confused the catalog. User-queued removal 2026-07-14.
+
+- [x] 59.1 [easy] **Delete overnight chain YAMLs; document `--overnight` on the looped cycle.** Remove `chains/dev-cycle-overnight.yaml` + `.claude/chains/skill-set-overnight.yaml`. Point README / CLAUDE.md / ssp-chain-driver / tests at `dev-cycle-with-review-looped` (or `skill-set-cycle`) + `--overnight --max-budget-usd $X`. Bump looped-chain description. Acceptance: overnight YAML absent; README usage example uses looped + `--overnight`; `test_phase41_part2` / `test_phase47` green; `bin/validate-frontmatter.py` clean (6 transferable chains).
