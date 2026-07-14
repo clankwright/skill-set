@@ -51,6 +51,10 @@ def test_cursor_cold_start_inlines_skill_body():
     # Phase 61.1 — Brave WebSearch/WebFetch substitute directive.
     assert "brave-web.py" in prompt
     assert "Web search / fetch (Cursor harness)" in prompt
+    # Phase 62 — Playwright MCP browser directive (never cursor-ide-browser).
+    assert "Browser automation (Cursor harness)" in prompt
+    assert "cursor-ide-browser" in prompt  # named as forbidden
+    assert "Playwright" in prompt
 
 
 def test_cursor_resume_skips_brave_directive():
@@ -59,6 +63,7 @@ def test_cursor_resume_skips_brave_directive():
     cmd = h.build_command("sst-translator", resume_session_id="sess_x")
     joined = " ".join(cmd)
     assert "brave-web.py" not in joined
+    assert "Browser automation (Cursor harness)" not in joined
     assert "--approve-mcps" in cmd  # flags still present on resume
     assert "--trust" in cmd
 
@@ -69,6 +74,7 @@ def test_claude_code_has_no_brave_directive():
     cmd = h.build_command("sst-dev-cycle")
     joined = " ".join(cmd)
     assert "brave-web.py" not in joined
+    assert "Browser automation (Cursor harness)" not in joined
     assert "--approve-mcps" not in cmd
     assert "--trust" not in cmd
 
@@ -417,4 +423,136 @@ def test_cursor_overnight_budget_plus_cycles_ok(capsys):
     assert args.max_budget_usd == 80.0
     assert args.max_cycles == 5
     assert "estimated" in capsys.readouterr().out.lower()
+
+
+# ---- Phase 62: Playwright MCP discovery + fable-stdout suppress -------------
+
+def test_discover_playwright_from_project_mcp_json(tmp_path, monkeypatch):
+    """Project .cursor/mcp.json servers named/commanded with playwright are found."""
+    mcp_dir = tmp_path / ".cursor"
+    mcp_dir.mkdir()
+    (mcp_dir / "mcp.json").write_text(json.dumps({
+        "mcpServers": {
+            "playwright-browser": {
+                "command": "npx",
+                "args": ["@playwright/mcp", "--headless"],
+            },
+            "memory": {"command": "echo"},
+            "cursor-ide-browser": {"command": "ide-only"},
+        }
+    }))
+    # Hide user-global so only project config is visible.
+    monkeypatch.setattr(sc.Path, "home", lambda: tmp_path / "nohome")
+    found = sc._discover_playwright_mcp_servers(tmp_path)
+    assert found == ["playwright-browser"]
+
+
+def test_discover_playwright_matches_command_not_just_name(tmp_path, monkeypatch):
+    mcp_dir = tmp_path / ".cursor"
+    mcp_dir.mkdir()
+    (mcp_dir / "mcp.json").write_text(json.dumps({
+        "mcpServers": {
+            "browser": {
+                "command": "/opt/bin/playwright-universal-mcp",
+                "args": ["--headful"],
+            },
+        }
+    }))
+    monkeypatch.setattr(sc.Path, "home", lambda: tmp_path / "nohome")
+    assert sc._discover_playwright_mcp_servers(tmp_path) == ["browser"]
+
+
+def test_discover_playwright_project_wins_over_user(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    home = tmp_path / "home"
+    (proj / ".cursor").mkdir(parents=True)
+    (home / ".cursor").mkdir(parents=True)
+    (proj / ".cursor" / "mcp.json").write_text(json.dumps({
+        "mcpServers": {"playwright-project": {"command": "npx", "args": ["@playwright/mcp"]}}
+    }))
+    (home / ".cursor" / "mcp.json").write_text(json.dumps({
+        "mcpServers": {
+            "playwright-project": {"command": "npx", "args": ["@playwright/mcp", "--user"]},
+            "playwright-user": {"command": "npx", "args": ["@playwright/mcp"]},
+        }
+    }))
+    monkeypatch.setattr(sc.Path, "home", lambda: home)
+    found = sc._discover_playwright_mcp_servers(proj)
+    assert found == ["playwright-project", "playwright-user"]
+
+
+def test_discover_excludes_ide_browser(tmp_path, monkeypatch):
+    mcp_dir = tmp_path / ".cursor"
+    mcp_dir.mkdir()
+    (mcp_dir / "mcp.json").write_text(json.dumps({
+        "mcpServers": {
+            "cursor-ide-browser": {"command": "whatever"},
+            "ide-browser": {"command": "playwright"},  # blocklisted by name
+        }
+    }))
+    monkeypatch.setattr(sc.Path, "home", lambda: tmp_path / "nohome")
+    assert sc._discover_playwright_mcp_servers(tmp_path) == []
+
+
+def test_cursor_playwright_directive_names_servers_and_display(tmp_path, monkeypatch):
+    mcp_dir = tmp_path / ".cursor"
+    mcp_dir.mkdir()
+    (mcp_dir / "mcp.json").write_text(json.dumps({
+        "mcpServers": {
+            "playwright-mcp": {"command": "npx", "args": ["@playwright/mcp"]},
+        }
+    }))
+    monkeypatch.setattr(sc.Path, "home", lambda: tmp_path / "nohome")
+    monkeypatch.setenv("DISPLAY", ":0")
+    text = sc._cursor_playwright_directive(tmp_path)
+    assert "`playwright-mcp`" in text
+    assert "cursor-ide-browser" in text
+    assert "DISPLAY is set" in text
+    assert "prefer headed" in text
+
+
+def test_cursor_playwright_directive_no_display_expects_headless(tmp_path, monkeypatch):
+    monkeypatch.setattr(sc.Path, "home", lambda: tmp_path / "nohome")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    text = sc._cursor_playwright_directive(tmp_path)
+    assert "No Playwright MCP server found" in text
+    assert "no DISPLAY" in text
+    assert "headless" in text.lower()
+
+
+def test_cursor_cold_start_embeds_discovered_playwright(tmp_path, monkeypatch):
+    mcp_dir = tmp_path / ".cursor"
+    mcp_dir.mkdir()
+    (mcp_dir / "mcp.json").write_text(json.dumps({
+        "mcpServers": {
+            "playwright-browser": {"command": "npx", "args": ["@playwright/mcp"]},
+        }
+    }))
+    monkeypatch.setattr(sc.Path, "home", lambda: tmp_path / "nohome")
+    monkeypatch.chdir(tmp_path)
+    prompt = CursorHarness().build_command("sst-translator")[-1]
+    assert "`playwright-browser`" in prompt
+    assert "Never call `cursor-ide-browser`" in prompt
+
+
+def test_cursor_suppresses_fable_model_note(capsys, monkeypatch):
+    """Phase 62: --harness cursor must not print Claude-only fable banner."""
+    monkeypatch.setattr(sc, "_RUNTIME_MODEL_CEILING", "opus")
+    CursorHarness().print_runtime_model_notes()
+    out = capsys.readouterr().out
+    assert "fable" not in out.lower()
+
+
+def test_claude_emits_fable_model_note(capsys, monkeypatch):
+    monkeypatch.setattr(sc, "_RUNTIME_MODEL_CEILING", "opus")
+    ClaudeCodeHarness().print_runtime_model_notes()
+    out = capsys.readouterr().out
+    assert "fable disabled" in out
+    assert "opus" in out
+
+
+def test_claude_skips_fable_note_when_ceiling_lifted(capsys, monkeypatch):
+    monkeypatch.setattr(sc, "_RUNTIME_MODEL_CEILING", None)
+    ClaudeCodeHarness().print_runtime_model_notes()
+    assert capsys.readouterr().out == ""
 
