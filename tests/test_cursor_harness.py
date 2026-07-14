@@ -30,6 +30,8 @@ def test_cursor_cold_start_uses_stream_json_and_force():
     assert cmd[0] == "cursor-agent"
     assert "-p" in cmd
     assert "--force" in cmd
+    assert "--approve-mcps" in cmd  # Phase 61.2 — headless MCP auto-approve
+    assert "--trust" in cmd         # Phase 61.2 — trust workspace in -p mode
     assert cmd[cmd.index("--output-format") + 1] == "stream-json"
     assert "--model" in cmd
     assert cmd[cmd.index("--model") + 1] == DEFAULT_CURSOR_MODEL
@@ -46,6 +48,29 @@ def test_cursor_cold_start_inlines_skill_body():
     assert "Use the Skill tool" not in prompt
     # Body should include transferable skill prose (not just the wrapper).
     assert "Translate" in prompt or "translate" in prompt
+    # Phase 61.1 — Brave WebSearch/WebFetch substitute directive.
+    assert "brave-web.py" in prompt
+    assert "Web search / fetch (Cursor harness)" in prompt
+
+
+def test_cursor_resume_skips_brave_directive():
+    """Resume path must not re-inject Brave/web directive (bare continue)."""
+    h = CursorHarness()
+    cmd = h.build_command("sst-translator", resume_session_id="sess_x")
+    joined = " ".join(cmd)
+    assert "brave-web.py" not in joined
+    assert "--approve-mcps" in cmd  # flags still present on resume
+    assert "--trust" in cmd
+
+
+def test_claude_code_has_no_brave_directive():
+    """Brave substitute is Cursor-only; Claude Code keeps native WebSearch."""
+    h = ClaudeCodeHarness()
+    cmd = h.build_command("sst-dev-cycle")
+    joined = " ".join(cmd)
+    assert "brave-web.py" not in joined
+    assert "--approve-mcps" not in cmd
+    assert "--trust" not in cmd
 
 
 def test_cursor_resume_bare_continue():
