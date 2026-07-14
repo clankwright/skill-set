@@ -931,26 +931,40 @@ def _read_skill_body(path: Path | None) -> str | None:
 
 
 def _cursor_tool_call_fields(tc: dict) -> tuple[str, dict]:
-    """Best-effort map a Cursor `tool_call.tool_call` payload to a Claude-shaped
-    (name, input) pair. Cursor wraps the call in one of readToolCall /
-    writeToolCall / function; the inner arg shapes are only partly documented,
-    so this reads the common path fields (so the wrote_tester_guidance detection
-    keeps working) and otherwise passes the raw args through. Verify the exact
-    arg keys against a live run before relying on tool-level detection.
+    """Map a Cursor `tool_call` payload to a Claude-shaped (name, input) pair.
+
+    Live `cursor-agent --output-format stream-json` captures (2026-07-14) show
+    Cursor wraps calls as `editToolCall` / `readToolCall` / `shellToolCall`
+    (and occasionally `writeToolCall` / `function`). File tools put the path in
+    `args.path` — we hoist that to `file_path` so Phase 49's
+    `wrote_tester_guidance` detector (`input.file_path.endswith(...)`) keeps
+    working under the cursor harness. `editToolCall` is Cursor's write/create
+    path (even when the prompt asks for "Write"); map it to `Edit`.
     """
     def _path(args: dict) -> str:
         return (args.get("path") or args.get("file_path")
                 or args.get("filePath") or "")
+
+    if "editToolCall" in tc:
+        args = (tc.get("editToolCall") or {}).get("args", {}) or {}
+        return "Edit", {"file_path": _path(args), **args}
     if "writeToolCall" in tc:
         args = (tc.get("writeToolCall") or {}).get("args", {}) or {}
         return "Write", {"file_path": _path(args), **args}
     if "readToolCall" in tc:
         args = (tc.get("readToolCall") or {}).get("args", {}) or {}
         return "Read", {"file_path": _path(args), **args}
+    if "shellToolCall" in tc:
+        args = (tc.get("shellToolCall") or {}).get("args", {}) or {}
+        return "Bash", {"command": args.get("command", ""), **args}
     if "function" in tc:
         fn = tc.get("function") or {}
         return fn.get("name", "function"), fn.get("arguments", fn)
     if tc:
+        # Skip metadata keys Cursor nests alongside the *ToolCall payload.
+        for k, v in tc.items():
+            if k.endswith("ToolCall") or k == "function":
+                return k, v if isinstance(v, dict) else {"value": v}
         k = next(iter(tc))
         v = tc[k]
         return k, v if isinstance(v, dict) else {"value": v}
@@ -977,10 +991,11 @@ class CursorHarness(Harness):
     Cursor's stream-json envelope is Anthropic-compatible for system/init and
     assistant/text frames, so session-id capture, --resume, and the chain's text
     sentinels ([no-work], [picked-difficulty], [batch-pick], ...) all work
-    unchanged. normalize_event() reshapes the differing tool_call frames. Cursor's
-    result frame carries NO cost/turn/usage telemetry, so those manifest fields
-    stay zero and cost-based budget gates (sst-chain-driver --max-budget-usd)
-    cannot meter a Cursor run -- verify against a live run before relying on them.
+    unchanged. normalize_event() reshapes the differing tool_call frames
+    (`editToolCall`/`readToolCall`/`shellToolCall` → assistant/tool_use). Cursor's
+    result frame carries token `usage` (inputTokens/outputTokens/…) but NO
+    `total_cost_usd` / `num_turns`, so cost-based budget gates
+    (`sst-chain-driver --max-budget-usd`) cannot meter a Cursor run yet.
     """
 
     name = "cursor"
