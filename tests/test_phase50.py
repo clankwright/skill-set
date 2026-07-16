@@ -80,6 +80,29 @@ def test_overload_text_re_no_match_on_4xx():
         "OVERLOAD_TEXT_RE must not match 4xx status codes"
 
 
+def test_overload_text_re_matches_resource_exhausted():
+    """Cursor's RetriableError [resource_exhausted] is a Phase-50 overload signal."""
+    line = "RetriableError: [resource_exhausted] Error"
+    assert sc.OVERLOAD_TEXT_RE.search(line) is not None, \
+        "OVERLOAD_TEXT_RE must match Cursor resource_exhausted RetriableError"
+    assert sc.OVERLOAD_TEXT_RE.search("resource_exhausted") is not None
+
+
+def test_overload_text_re_matches_server_error_mid_response():
+    """50.4: non-numeric 'API Error: Server error mid-response' is overload."""
+    line = "API Error: Server error mid-response"
+    assert sc.OVERLOAD_TEXT_RE.search(line) is not None, \
+        "OVERLOAD_TEXT_RE must match 'API Error: Server error mid-response'"
+    assert sc.OVERLOAD_TEXT_RE.search(line).group(1) is None, \
+        "non-numeric Server-error match must not capture a fake 5xx group(1)"
+
+
+def test_overload_text_re_no_match_ordinary_error():
+    """Genuinely-unrecognized ordinary errors must NOT trip overload retry."""
+    assert sc.OVERLOAD_TEXT_RE.search("ValueError: boom") is None
+    assert sc.OVERLOAD_TEXT_RE.search("Skill failed: missing credential") is None
+
+
 # ---------------------------------------------------------------------------
 # 50.1 — handle_event: result-frame structured detection
 # ---------------------------------------------------------------------------
@@ -210,6 +233,79 @@ def test_overload_text_fallback_in_non_json_line():
     )
     assert record["overload_signal"]["source"] == "text_fallback"
     assert record["overload_signal"]["status"] == 529
+
+
+def test_overload_text_fallback_resource_exhausted():
+    """Cursor RetriableError resource_exhausted line sets overload_signal (text fallback)."""
+    h = ClaudeCodeHarness()
+    non_json_line = "RetriableError: [resource_exhausted] Error\n"
+
+    mock_proc = mock.MagicMock()
+    mock_proc.stdout = iter([non_json_line])
+    mock_proc.wait.return_value = 1
+
+    with mock.patch("subprocess.Popen", return_value=mock_proc):
+        rc, record = sc.run_skill(h, "test-skill", 0, None)
+
+    assert record.get("overload_signal") is not None, (
+        "overload_signal must be set for Cursor resource_exhausted RetriableError"
+    )
+    assert record["overload_signal"]["source"] == "text_fallback"
+    assert record["overload_signal"]["status"] == 0
+
+
+def test_run_skill_with_retry_resource_exhausted_then_succeeds():
+    """resource_exhausted failure is backoff-retried (not immediate skill_failure)."""
+    h = ClaudeCodeHarness()
+    call_kwargs: list = []
+    ol_records: list = []
+    sleeps: list = []
+
+    def fake_run_skill(_h, _s, _i, _d, **kwargs):
+        call_kwargs.append(kwargs.copy())
+        if len(call_kwargs) == 1:
+            return (1, {
+                "overload_signal": {"status": 0, "source": "text_fallback"},
+                "session_id": "sess-re",
+            })
+        return (0, {"session_id": "sess-re"})
+
+    with mock.patch.object(sc, "run_skill", side_effect=fake_run_skill), \
+         mock.patch("time.sleep", side_effect=lambda s: sleeps.append(s)), \
+         mock.patch.object(sc.random, "randint", return_value=0):
+        rc, record = sc.run_skill_with_retry(
+            h, "sst-dev-cycle", 0, None,
+            on_rate_limit="pause",
+            max_pause_seconds=3600,
+            max_pauses=3,
+            pause_records=[],
+            max_overload_retries=10,
+            overload_retry_records=ol_records,
+        )
+
+    assert rc == 0
+    assert len(call_kwargs) == 2, "must retry once after resource_exhausted"
+    assert call_kwargs[1].get("resume_session_id") == "sess-re"
+    assert len(sleeps) == 1 and sleeps[0] == sc.OVERLOAD_BACKOFF_BASE_SECONDS
+    assert len(ol_records) == 1
+    assert record.get("overload_aborted") is None
+
+
+def test_overload_text_fallback_server_error_mid_response():
+    """50.4: 'API Error: Server error mid-response' sets overload_signal via text fallback."""
+    h = ClaudeCodeHarness()
+    non_json_line = "API Error: Server error mid-response\n"
+
+    mock_proc = mock.MagicMock()
+    mock_proc.stdout = iter([non_json_line])
+    mock_proc.wait.return_value = 1
+
+    with mock.patch("subprocess.Popen", return_value=mock_proc):
+        rc, record = sc.run_skill(h, "test-skill", 0, None)
+
+    assert record.get("overload_signal") is not None
+    assert record["overload_signal"]["source"] == "text_fallback"
+    assert record["overload_signal"]["status"] == 0
 
 
 # ---------------------------------------------------------------------------

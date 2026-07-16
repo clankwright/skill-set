@@ -206,6 +206,9 @@ RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_
 #      telemetry but NOT consumed as a retry trigger here.
 #   3. OVERLOAD_TEXT_RE matched against non-JSON subprocess output lines —
 #      text fallback for when the subprocess dies before a clean event.
+#      Also covers Cursor's `RetriableError: [resource_exhausted]` and
+#      non-numeric Claude phrasings like `API Error: Server error mid-response`
+#      (Phase 50.4) — same backoff path, no numeric 5xx required.
 #
 # `--max-overload-retries` (default OVERLOAD_MAX_RETRIES) caps the
 # runner-level retry count per skill invocation. On exhaustion, the wrapper
@@ -214,8 +217,15 @@ RATE_LIMIT_FALLBACK_BACKOFF_SECONDS = 300       # initial backoff when no reset_
 
 OVERLOAD_HTTP_STATUSES = frozenset({500, 502, 503, 504, 529})
 
+# group(1) = numeric 5xx when present; other alternatives leave it unset so
+# status_code falls to 0 (banner prints "transient"). Keep 4xx unmatched.
 OVERLOAD_TEXT_RE = re.compile(
-    r"(?:API Error:\s*(5\d{2})|overloaded)",
+    r"(?:API Error:\s*(5\d{2})"
+    r"|API Error:\s*Server error"
+    r"|mid-response"
+    r"|overloaded"
+    r"|resource_exhausted"
+    r"|RetriableError:\s*\[resource_exhausted\])",
     re.IGNORECASE,
 )
 
@@ -1888,6 +1898,26 @@ def handle_event(sink: _Sink, event: dict, skill_record: dict) -> None:
                     "status": api_status,
                     "source": "result_frame",
                 }
+            # Phase 50.4: non-numeric transient phrasing in result text / frame
+            # (Cursor resource_exhausted, "Server error mid-response", …).
+            if "overload_signal" not in skill_record:
+                result_blob = " ".join(
+                    str(x) for x in (
+                        event.get("result"),
+                        event.get("error"),
+                        event.get("message"),
+                    ) if x
+                )
+                om = OVERLOAD_TEXT_RE.search(result_blob) or OVERLOAD_TEXT_RE.search(
+                    json.dumps(event, default=str)
+                )
+                if om:
+                    status_code = int(om.group(1)) if om.group(1) else 0
+                    if not om.group(1) or status_code in OVERLOAD_HTTP_STATUSES:
+                        skill_record["overload_signal"] = {
+                            "status": status_code,
+                            "source": "result_frame_text",
+                        }
             # Phase 56: model-unavailable detection from the result frame. Requires
             # the unavailability phrasing (matched against the serialized frame) so
             # a transient 5xx or an unrelated 4xx is never treated as a bad model.
@@ -2165,8 +2195,9 @@ def run_skill_with_retry(
                 OVERLOAD_BACKOFF_CAP_SECONDS,
                 float(OVERLOAD_BACKOFF_BASE_SECONDS) * (2 ** _ol_retry_count),
             ) + random.randint(*RATE_LIMIT_JITTER_RANGE)
+            status_label = ol_signal.get("status") or "transient"
             print(c(
-                f"[overload] {skill_name} got {ol_signal.get('status', '5xx')} "
+                f"[overload] {skill_name} got {status_label} "
                 f"(attempt {_ol_retry_count + 1}/{max_overload_retries}); "
                 f"sleeping {sleep_seconds:.0f}s before retry",
                 ORANGE,
