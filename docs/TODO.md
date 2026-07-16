@@ -8,6 +8,7 @@
 
 ## Just shipped (last cycle)
 
+- 50.4: Widen OVERLOAD_TEXT_RE for resource_exhausted + Server error mid-response (Phase 50 backoff before supervisor) — by owner request at 2026-07-16T07:32:31Z
 - Phase 65.2: gate post-iter `[totals after iter N]` behind `if looping:` (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:28:24Z
 - Phase 65.1: cumulative run totals in MANIFEST `totals:` + `[totals]` stdout (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:22:33Z
 - Phase 63.2: comment out CURSOR_MODEL in `.env.example` (opt-in pin; copy no longer disables Grok ladder) (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:06:08Z
@@ -38,8 +39,6 @@
   - <one-line description> — <reason/source: spec phase X.Y, supervisor verdict <sha>, manager directive, user message>
   Order: blockers/highest-impact first.
 -->
-
-- [50.4] [medium] Widen the Phase 50 transient-server-error detection so `API Error: Server error mid-response` (and similar non-numeric transient API phrasings) route to the EXISTING overload exponential-backoff retry instead of counting as a `skill_failure`. ROOT CAUSE of the 2026-07-07 cm-cycle halt (`/home/rob/Dev/claim_management/.skill-runs/2026-07-06T22-55-45Z_cm-cycle/`, iters 8 + 9): two consecutive `API Error: Server error mid-response` struck `ssp-cm-dev` and tripped `main()`'s `skill_failure_backstop` (=2, SPEC 55.3), ending a 20-iter run at iter 9 (~11 short; committed work was fine + tree clean, but the run stopped needlessly). `OVERLOAD_TEXT_RE` (`bin/skill-chain.py:217-220` = `r"(?:API Error:\s*(5\d{2})|overloaded)"`) requires a numeric 5xx OR the word "overloaded", so "Server error mid-response" (no status code, not "overloaded") is NOT classified as an `overload_signal` and falls through the `run_skill_with_retry` "ordinary failure, pass through" branch -> counts toward the consecutive-failure backstop. FIX: extend `OVERLOAD_TEXT_RE` (and, where the harness surfaces it, the structured `api_error_status` path at :1073/:1210) to also match transient NON-numeric API errors: at minimum `API Error:\s*Server error`, `mid-response`, and common connection-drop phrasings, so they receive the Phase 50 backoff + `--resume` retry (`OVERLOAD_MAX_RETRIES`=10) and do NOT increment the skill_failure counter until those retries are exhausted. Add `tests/` coverage: a "Server error mid-response" result text sets `overload_signal` + is retried then succeeds; a genuinely-unrecognized ordinary error still passes straight through (no false-positive infinite retry). -- user request 2026-07-07 after diagnosing the cm-cycle halt (re-integrated 2026-07-15 from a rebase-autostash that had silently dropped it); follow-up to the closed Phase 50.
 
 <!-- From 2026-07-14T01-55Z review of Phases 61.3–64 since last Review (89f218b, 7b10693, 9b1e01d, 87c0ed7). -->
 
