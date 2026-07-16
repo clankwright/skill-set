@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.20.0
+version: 1.20.1
 model-floor: fable
 effort-floor: high
 ---
@@ -285,6 +285,8 @@ Where `<reason>` briefly names why the tester stage should be skipped (e.g. `no 
 ## 8. Deploy
 
 If the project has a deploy path (SSH to a VPS, CI workflow, `deploy/` script, container rebuild), run it. The specific command is project-specific and should be documented in the project's `CLAUDE.md`, `README.md`, or a deploy script — read it there, don't guess.
+
+Prefer the project's documented deploy script over inventing an ad-hoc `rsync`/`scp`. When a tree sync is unavoidable (no script, or the script is broken), always exclude secret files (`.env`, credential stores, local key material) so a local stub or placeholder cannot overwrite production secrets on the remote host.
 
 If the change involves a schema migration or new config, run that first before restarting the service. Never use `kill -9` / `pkill -9` on a managed service; use the service's own stop/start or graceful-reload command.
 
