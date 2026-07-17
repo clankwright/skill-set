@@ -28,7 +28,7 @@ Each entry is a checkbox bullet whose ID has the form `H<phase>.<n>` (e.g. `H3.1
   Filed by: sst-supervisor at 2026-06-25T02:23:16Z.
   Source: 2026-06-24T23-57-40Z_dev-cycle-with-review-looped/iter_03/supervisor_verdict.md.
 
-- [ ] H44.1 [easy] **Install `sst-tester` into `~/.claude/skills/` so the chain can invoke it**
+- [x] H44.1 [easy] **Install `sst-tester` into `~/.claude/skills/` so the chain can invoke it**
   The `dev-cycle-with-review-looped` chain runs `sst-tester` as a stage, but the skill is not present in `~/.claude/skills/` (the Skill tool returns `Unknown skill: sst-tester`). In both iter_01 and iter_02 of run `2026-06-16T06-40-57Z` the tester worker only succeeded by improvising: it read `skills/framework/sst-tester/SKILL.md` from the repo and followed it directly. On a weaker model or a stricter harness that fallback may not happen and the stage would hard-fail. The supervisor cannot run installers (its action surface is verdicts/skill-edits/doc-appends plus one executor dispatch); the canonical fix is to refresh the runtime skill copies. Normally this would be an autonomous `sst-executor` dispatch (Route 1), but this run's retry-0 supervisor attempt was rejected on the org monthly spend limit, so a fresh billable `claude --print` executor spawn is being avoided this cycle in favour of this human-closable request.
   Blocks: none.
   Verify: test -f ~/.claude/skills/sst-tester/SKILL.md
