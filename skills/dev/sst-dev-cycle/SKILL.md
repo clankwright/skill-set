@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.20.1
+version: 1.21.0
 model-floor: fable
 effort-floor: high
 ---
@@ -171,13 +171,7 @@ Emission order at iter start, top to bottom: TodoWrite → `## In flight` line �
 2. After each change, re-run the failing tests. As each goes green, move on.
 3. Always read the target file before editing. Use precise string matches.
 4. For web projects: if you change backend code, restart the local dev server before re-running browser tests.
-5. **Sanitize transferable edits NOW — right after the edit, before §4 (the seam fix, Phase 43/D1).** If this implementation edited any transferable `SKILL.md` (any path matching `skills/<category>/<sst-*>/SKILL.md`), run the sanitize gate at this point — immediately after the edit and BEFORE you run the §4 verification:
-
-   ```
-   /sst-sanitize-transferable <path-to-SKILL.md>
-   ```
-
-   Inline assessment of the change does not satisfy this requirement; the sub-skill must be invoked even if the change appears obviously safe. Read the resulting findings file. Any `must-fix` finding blocks the cycle: rewrite the prose to remove the banned token (or confine the change to a proprietary skill only), then re-run the gate before continuing to §4. Record the verdict for the commit message body as `Sanitize: must-fix=N` (e.g. `Sanitize: must-fix=0`); you will write it in §7. Running the gate **here**, not as the last step before the commit, is the whole point of Phase 43: when the sub-skill returns clean you still have §4 (verify), §6 (spec + TODO), and §7 (commit) ahead of you, so its return can never be mistaken for the end of the cycle. See §5 for the rationale. If no transferable `SKILL.md` was edited, skip this step.
+5. **Sanitize transferable edits NOW -- right after the edit, before §4 (placement: Phase 43/D1; inlined in-session: Phase 67).** If this implementation edited any transferable `SKILL.md` (any path matching `skills/<category>/<sst-*>/SKILL.md`), run the sanitize gate at this point -- immediately after the edit and BEFORE you run the §4 verification. Run the scan IN-SESSION, as a checklist step of THIS cycle: resolve the sanitize skill's own definition (`~/.claude/skills/sst-sanitize-transferable/SKILL.md`, else the base repo's `skills/framework/sst-sanitize-transferable/SKILL.md`), Read it end-to-end, and follow its Process yourself -- read the sanitization-guidance rubric and any per-project banned-terms list it names, walk the edited transferable section by section against them, and write the categorized findings report (`<target>.findings.md`) exactly as that skill specifies. Do NOT run the gate as a Skill-tool sub-invocation: a sub-skill's clean return, wherever it sits in the cycle, was repeatedly mistaken for task-completion and stranded the whole cycle uncommitted (the recurring incomplete-cycle failure); the chain runner's commit re-prompt backstop catches that failure only at full context re-ingest cost, so do not create it. A casual "looks clean" judgment without the rubric walk and the findings file does NOT satisfy this requirement, even if the change appears obviously safe. Any `must-fix` finding blocks the cycle: rewrite the prose to remove the banned token (or confine the change to a proprietary skill only), then re-run the gate before continuing to §4. Record the verdict for the commit message body as `Sanitize: must-fix=N` (e.g. `Sanitize: must-fix=0`); you will write it in §7. Running the gate **here**, not as the last step before the commit, keeps §4 (verify), §6 (spec + TODO), and §7 (commit) ahead of you. See §5 for the rationale. If no transferable `SKILL.md` was edited, skip this step.
 
 ## 4. Verify — fail-loop until green
 
@@ -200,13 +194,13 @@ If the project has known-flaky test files that are separately tracked, explicitl
 
 For UI changes, also verify in a real browser (Playwright MCP against a local dev server). Target zero console errors. Stop the local dev server when you're done verifying.
 
-## 5. Sanitize transferable edits — runs in §3, never here (the seam fix)
+## 5. Sanitize transferable edits — runs in §3, in-session, never here (the seam fix)
 
-The transferable sanitize gate is invoked in **§3 step 5**, immediately after the edit and before §4 verification. It is deliberately NOT a step of its own wedged between test-green and the commit. This is the Phase 43 seam fix.
+The transferable sanitize gate runs in **§3 step 5**, immediately after the edit and before §4 verification -- IN-SESSION (Read the sanitize skill's SKILL.md and follow its Process yourself; no Skill-tool sub-invocation). It is deliberately NOT a step of its own wedged between test-green and the commit.
 
-**Why the relocation matters.** The sanitize sub-skill runs via the Skill tool and returns control to THIS cycle; its findings file is a checkpoint, not the cycle's deliverable. When the sub-invocation was the LAST `/skill` step before the commit, models repeatedly treated its clean `must-fix=0` return as task-completion and stopped their turn before the SPEC-flip / `git commit` + push — leaving a dirty tree that tripped the chain runner's `incomplete-cycle` contract violation and aborted the loop. Running the gate back in §3, with §4 (verify) + §6 (spec + TODO) + §7 (commit) all still ahead of it, removes that seam: no sub-skill return ever sits immediately before the commit.
+**Why the placement AND the inlining matter.** The gate's findings file is a checkpoint, not the cycle's deliverable. When the gate ran as a `/skill` sub-invocation, models repeatedly treated its clean `must-fix=0` return as task-completion and stopped their turn before the SPEC-flip / `git commit` + push -- leaving a dirty tree that tripped the chain runner's `incomplete-cycle` contract violation -- and the Phase 43 relocation alone (running it in §3 with §4/§6/§7 still ahead) did NOT durably stop that: the model ran the sub-skill as its last action anyway. So the sub-invocation itself was removed (Phase 67): the scan is a checklist step INSIDE this cycle's own turn, and no sub-skill return exists anywhere in the cycle to be mistaken for the end of it. The chain runner's incomplete-cycle commit re-prompt remains as the generic backstop for any skill that still strands a cycle uncommitted, but it re-ingests the session's full context when it fires; never rely on it.
 
-By the time you reach this point the gate has already run (or was skipped because no transferable `SKILL.md` was edited). Do not invoke `/sst-sanitize-transferable` here. Carry the `Sanitize: must-fix=N` verdict you recorded in §3 forward into the §7 commit message, then proceed: §6 (flip `SPEC.md`, finalize `TODO.md`) → §7 (single commit + push). The commit is the skill's final action; the cycle is not done until §7 has pushed.
+By the time you reach this point the gate has already run (or was skipped because no transferable `SKILL.md` was edited). Do not run the sanitize scan here. Carry the `Sanitize: must-fix=N` verdict you recorded in §3 forward into the §7 commit message, then proceed: §6 (flip `SPEC.md`, finalize `TODO.md`) → §7 (single commit + push). The commit is the skill's final action; the cycle is not done until §7 has pushed.
 
 ## 6. Update the spec + TODO.md (all updates in a single pass, no SHA in Just-shipped)
 
@@ -227,7 +221,7 @@ By the time you reach this point the gate has already run (or was skipped becaus
 
 ## 7. Commit + push (single commit, no extras)
 
-Stage only the files you changed (by name — no `git add -A`, which sweeps up secrets and noise). Bundle implementation + tests + spec update + TODO.md update + any index-file update in ONE commit. **The `git commit` + `git push` below is the skill's final action** — by Phase 43's seam fix there is no `/skill` sub-invocation (the sanitize gate already ran in §3) between the §4 test-green point and this commit, so nothing here should make you stop short of pushing:
+Stage only the files you changed (by name — no `git add -A`, which sweeps up secrets and noise). Bundle implementation + tests + spec update + TODO.md update + any index-file update in ONE commit. **The `git commit` + `git push` below is the skill's final action** — by the Phase 43/67 seam fix there is no `/skill` sub-invocation anywhere in this cycle (the sanitize gate was read-and-followed in-session back in §3), so nothing between the §4 test-green point and this commit should make you stop short of pushing:
 
 **Commit-message rule (read BEFORE composing the heredoc):** never append a `Co-Authored-By: Claude ... <noreply@anthropic.com>` trailer (or any AI-coauthor trailer variant). Empirical: the prior placement of this rule BELOW the heredoc was being skipped by models that copied the template top-down, and the trailer leaked into the majority of recent cycle commits despite the explicit ban. The heredoc body below ends at `EOF` — nothing else goes after `Test count:`.
 
