@@ -49,14 +49,16 @@ def test_dev_cycle_version_bumped():
 
 
 def test_dev_cycle_sanitize_before_verify_gate():
-    """43.1/43.5: the `/sst-sanitize-transferable` invocation must appear before
-    the §4 verify gate — i.e. the sanitize scan runs right after the transferable
-    edit, not as the last `/skill` step wedged between test-green and the commit.
+    """43.1/43.5: the sst-sanitize-transferable gate must appear before the §4
+    verify gate — i.e. the sanitize scan runs right after the transferable
+    edit, not wedged between test-green and the commit. (Phase 67 changed the
+    MECHANICS to an in-session read-and-follow; the placement contract this
+    test guards is unchanged.)
     """
     text = _DEV_CYCLE.read_text()
     i_san = text.find("/sst-sanitize-transferable")
     i_verify = text.find("## 4. Verify")
-    assert i_san != -1, "sst-dev-cycle must still invoke /sst-sanitize-transferable"
+    assert i_san != -1, "sst-dev-cycle must still reference the sanitize gate"
     assert i_verify != -1, "sst-dev-cycle must retain its §4 Verify section"
     assert i_san < i_verify, (
         "the sanitize gate must be invoked before §4 Verify (right after the "

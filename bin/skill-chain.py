@@ -402,18 +402,28 @@ WIND_DOWN_DIRECTIVE_TEMPLATE = (
 # The recurring Phase-36 failure shape: the dev does ALL of its work (pick,
 # failing tests, implementation, sanitize) then treats a sub-skill's clean
 # return as task-completion and ends its turn WITHOUT staging or committing.
-# Prose-level defenses (the Phase 43 seam relocation) did not durably converge,
-# so this is the runner-level guard the human chose (H43.1 option 2): when the
-# incomplete-cycle signature is detected on the dev skill, re-prompt the SAME
-# session ONCE (via --resume <session_id>) to finish the §6/§7 close: replace
-# the sanitize placeholder, clear In-flight, stage by name, commit, push. If
-# the re-prompt heals the cycle (HEAD advanced + detector clear), no contract
-# violation is recorded and the chain proceeds normally; otherwise the existing
-# Phase 36 path runs unchanged (record the violation, hand to the review's
-# orphaned-cycle recovery, or abort a solo run). Exactly one re-prompt per
-# iteration: a session that ignores an explicit "commit now" directive is not
-# going to converge on a second nudge, and the review recovery is the bounded
-# fallback net.
+# When the incomplete-cycle signature is detected on the first skill of the
+# iteration, re-prompt the SAME session ONCE (via --resume <session_id>) to
+# finish the §6/§7 close: replace the sanitize placeholder, clear In-flight,
+# stage by name, commit, push. If the re-prompt heals the cycle (HEAD advanced
+# + detector clear), no contract violation is recorded and the chain proceeds
+# normally; otherwise the existing Phase 36 path runs unchanged (record the
+# violation, hand to the review's orphaned-cycle recovery, or abort a solo
+# run). Exactly one re-prompt per iteration: a session that ignores an
+# explicit "commit now" directive is not going to converge on a second nudge,
+# and the review recovery is the bounded fallback net.
+#
+# Scope note (Phase 67): the ROOT CAUSE this guard was built for is gone from
+# sst-dev-cycle itself; the sanitize gate is now read-and-followed in-session
+# (H43.1 option 1), so no sub-skill return exists in the dev cycle to be
+# mistaken for completion. This catch stays as the GENERIC backstop: it keys
+# only on the framework-wide handoff contract (the first skill of an iteration
+# leaving an `## In flight` line or a `Sanitize: must-fix=PENDING` placeholder
+# in docs/TODO.md with HEAD unchanged), so any current or future first-of-chain
+# skill that honors that contract is covered automatically -- no per-skill
+# opt-in needed. A resume re-ingests the session's full context when the prompt
+# cache has gone cold, so the catch is the expensive path; skills should close
+# their own cycles.
 COMMIT_REPROMPT_DIRECTIVE = (
     "[runner commit re-prompt] The chain runner detected an INCOMPLETE CYCLE: "
     "this session exited without committing, but the handoff TODO still shows "
