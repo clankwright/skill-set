@@ -8,6 +8,7 @@
 
 ## Just shipped (last cycle)
 
+- 66.1: runner commit re-prompt on incomplete-cycle before review handoff (H43.1 option 2; Sanitize: n/a) — by owner request at 2026-07-17T00:40:07Z
 - 50.4: Widen OVERLOAD_TEXT_RE for resource_exhausted + Server error mid-response (Phase 50 backoff before supervisor) — by owner request at 2026-07-16T07:32:31Z
 - Phase 65.2: gate post-iter `[totals after iter N]` behind `if looping:` (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:28:24Z
 - Phase 65.1: cumulative run totals in MANIFEST `totals:` + `[totals]` stdout (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:22:33Z
@@ -18,7 +19,6 @@
 - Phase 62 (62.1-62.2): Cursor Playwright MCP cold-start + mcp.json discovery (never cursor-ide-browser); suppress Claude fable stdout under `--harness cursor` (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:29:09Z
 - Phase 61.3: brave-web `_resolve_credentials` merges missing keys from env-file (free-in-env + paid-from-file); 3 regression tests (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:20:18Z
 - Phase 61 (61.1-61.2): Cursor Brave web search/fetch (`bin/brave-web.py`, free→paid key) + `--approve-mcps`/`--trust`; Claude Code untouched (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:15:27Z
-- Phase 60.1: estimate Cursor harness $ cost from usage tokens (Grok 4.5 API rates fallback; --max-budget-usd re-enabled; Sanitize: n/a) — by ssp-dev at 2026-07-14T01:09:44Z
 
 <!--
   Append-on-close, newest first. Format:

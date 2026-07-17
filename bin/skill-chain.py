@@ -398,6 +398,38 @@ WIND_DOWN_DIRECTIVE_TEMPLATE = (
     "beats being cut off."
 )
 
+# ---- Incomplete-cycle commit re-prompt (Phase 66 / HUMAN.md H43.1 option 2) -
+# The recurring Phase-36 failure shape: the dev does ALL of its work (pick,
+# failing tests, implementation, sanitize) then treats a sub-skill's clean
+# return as task-completion and ends its turn WITHOUT staging or committing.
+# Prose-level defenses (the Phase 43 seam relocation) did not durably converge,
+# so this is the runner-level guard the human chose (H43.1 option 2): when the
+# incomplete-cycle signature is detected on the dev skill, re-prompt the SAME
+# session ONCE (via --resume <session_id>) to finish the §6/§7 close: replace
+# the sanitize placeholder, clear In-flight, stage by name, commit, push. If
+# the re-prompt heals the cycle (HEAD advanced + detector clear), no contract
+# violation is recorded and the chain proceeds normally; otherwise the existing
+# Phase 36 path runs unchanged (record the violation, hand to the review's
+# orphaned-cycle recovery, or abort a solo run). Exactly one re-prompt per
+# iteration: a session that ignores an explicit "commit now" directive is not
+# going to converge on a second nudge, and the review recovery is the bounded
+# fallback net.
+COMMIT_REPROMPT_DIRECTIVE = (
+    "[runner commit re-prompt] The chain runner detected an INCOMPLETE CYCLE: "
+    "this session exited without committing, but the handoff TODO still shows "
+    "an active `## In flight` line and/or a `Sanitize: must-fix=PENDING` "
+    "placeholder. A sub-skill's clean return is NOT task completion; the "
+    "cycle's deliverable is the commit + push. Finish the close contract you "
+    "already read, NOW: (1) replace any `Sanitize: must-fix=PENDING` "
+    "placeholder with the real verdict; (2) apply the TODO close updates "
+    "(clear `## In flight`, prepend the `## Just shipped` entry) and flip the "
+    "spec checkbox for what you shipped; (3) stage the cycle's files BY NAME "
+    "(code + tests + docs in one commit), commit with the message your skill "
+    "contract prescribes, and push. Do NOT pick new work, do NOT start "
+    "another item, do NOT re-run verification you already ran green. Commit "
+    "and push only, then stop."
+)
+
 PICKED_DIFFICULTY_SENTINEL_RE = re.compile(
     r"^\s*\W*\[picked-difficulty:\s*(easy|medium|hard)\]\W*\s*$",
     re.MULTILINE | re.IGNORECASE,
@@ -2126,8 +2158,15 @@ def run_skill_with_retry(
     notify=None,
     max_overload_retries: int = OVERLOAD_MAX_RETRIES,
     overload_retry_records: list[dict] | None = None,
+    initial_resume_session_id: str | None = None,
 ) -> tuple[int, dict]:
     """Run a skill with rate-limit pause-and-resume and overload exponential-backoff retry.
+
+    `initial_resume_session_id` starts the FIRST attempt as a `--resume` of an
+    existing session instead of a cold start (Phase 66: the incomplete-cycle
+    commit re-prompt resumes the dev's own session to finish its commit). The
+    rate-limit / overload retry paths then re-resume whatever session id the
+    latest attempt reported, exactly as on a cold start.
 
     Rate-limit path: on non-zero exit with a rate_limit_signal (or text
     fallback), sleep until the parsed reset + jitter, archive the failed
@@ -2157,7 +2196,7 @@ def run_skill_with_retry(
     retry_count = 0
     _ol_retry_count = 0
     _archive_idx = 0          # shared monotone index for archive file naming
-    resume_session_id: str | None = None
+    resume_session_id: str | None = initial_resume_session_id
     current_model = model     # Phase 56: mutated on model-unavailable step-down
     model_fallbacks: list[dict] = []
     while True:
@@ -3651,39 +3690,127 @@ def run_iteration(
             and sha_before_skill == sha_after_skill
             and _incomplete_cycle_detected(cwd)
         ):
-            iter_manifest["contract_violation"] = {
-                "skill": skill,
-                "kind": "incomplete-cycle",
-                # Phase 43 (D3/43.4): stamp the dev skill's post-run HEAD so the
-                # loop-level abort can tell whether a follower (sst-dev-review
-                # recovery) later advanced HEAD and healed the cycle.
-                "head_at_violation": sha_after_skill,
-            }
-            # Find the first non-tester, non-supervisor skill after the dev:
-            # that's the recovery-capable follower. A *-tester has no recovery
-            # contract; naming it in the message misleads debugging.
-            recovery_follower = next(
-                (s for s in skills_to_run[i + 1:]
-                 if not s.endswith("-tester") and s != auto_supervisor),
-                None,
-            )
-            if recovery_follower is not None:
+            # Phase 66 (HUMAN.md H43.1 option 2): before recording the
+            # violation and handing off to the review's orphaned-cycle
+            # recovery, re-prompt the SAME dev session ONCE to finish its
+            # commit. The recurring failure is the model treating a sanitize
+            # sub-skill's clean return as task-completion and ending its turn
+            # pre-commit; a resume with an explicit "commit now" directive
+            # lets the original session (which still holds the full cycle
+            # context) close its own cycle, instead of the review authoring
+            # the commit it then reviews (diluting the second-pass) at ~2x
+            # the cost. Requires a captured session_id; without one (harness
+            # emitted none) the pre-existing Phase 36 path runs unchanged.
+            reprompt_session = record.get("session_id") or None
+            healed = False
+            if reprompt_session:
                 print(c(
-                    f"\n[contract-violation: incomplete-cycle] /{skill}: "
-                    f"exited [ok] with no commit but docs/TODO.md indicates "
-                    f"incomplete work; passing to /{recovery_follower} "
-                    f"for orphaned-cycle recovery",
+                    f"\n[incomplete-cycle] /{skill}: exited [ok] with no "
+                    f"commit but docs/TODO.md indicates incomplete work; "
+                    f"re-prompting the dev session once to commit "
+                    f"(H43.1 option 2)",
                     ORANGE,
                 ), flush=True)
-            else:
-                print(c(
-                    f"\n[contract-violation: incomplete-cycle] /{skill}: "
-                    f"exited [ok] with no commit but docs/TODO.md indicates "
-                    f"incomplete work (In-flight non-empty or "
-                    f"Sanitize: must-fix=PENDING); aborting chain",
-                    RED,
-                ), flush=True)
-                break
+                rp_rc, rp_record = run_skill_with_retry(
+                    harness,
+                    skill,
+                    i,
+                    iter_log_dir,
+                    on_rate_limit=on_rate_limit,
+                    max_pause_seconds=max_pause_seconds,
+                    max_pauses=max_pauses,
+                    pause_records=iter_manifest["rate_limit_pauses"],
+                    model=cli_model,
+                    effort=cli_effort,
+                    extra_prompt=COMMIT_REPROMPT_DIRECTIVE,
+                    log_stem_override=f"{i:02d}_{skill}_commit-reprompt",
+                    loop_delay=loop_delay,
+                    loop_delay_random=loop_delay_random,
+                    notify=notify,
+                    max_overload_retries=max_overload_retries,
+                    overload_retry_records=iter_manifest["overload_retry_records"],
+                    initial_resume_session_id=reprompt_session,
+                )
+                rp_record["role"] = "commit_reprompt"
+                iter_manifest["skills"].append(rp_record)
+                sha_after_reprompt = _git_sha(cwd)
+                # Healed = the re-prompt landed a commit AND the incomplete
+                # signature cleared. Both are required: a cleared In-flight
+                # with no commit means work is still stranded in the tree; a
+                # commit that leaves the PENDING placeholder means the close
+                # contract is still unfinished.
+                healed = (
+                    rp_rc == 0
+                    and sha_after_reprompt is not None
+                    and sha_after_reprompt != sha_after_skill
+                    and not _incomplete_cycle_detected(cwd)
+                )
+                iter_manifest["incomplete_cycle_reprompt"] = {
+                    "skill": skill,
+                    "healed": healed,
+                    "exit_code": rp_rc,
+                    "sha_before": sha_after_skill,
+                    "sha_after": sha_after_reprompt,
+                }
+                _snapshot_manifest()
+                if notify is not None:
+                    notify("commit-reprompt", {
+                        "skill": skill,
+                        "healed": healed,
+                        "iteration": iteration,
+                        "at": _utc_iso(),
+                    })
+                if healed:
+                    sha_after_skill = sha_after_reprompt
+                    print(c(
+                        f"\n[incomplete-cycle HEALED] /{skill}: commit "
+                        f"re-prompt landed "
+                        f"{(iter_manifest['incomplete_cycle_reprompt']['sha_before'] or '?')[:7]} "
+                        f"-> {(sha_after_reprompt or '?')[:7]}; no contract "
+                        f"violation recorded, chain continues",
+                        GREEN,
+                    ), flush=True)
+                else:
+                    print(c(
+                        f"\n[incomplete-cycle] /{skill}: commit re-prompt did "
+                        f"NOT heal the cycle (rc={rp_rc}); falling back to "
+                        f"the Phase 36 recovery path",
+                        ORANGE,
+                    ), flush=True)
+            if not healed:
+                iter_manifest["contract_violation"] = {
+                    "skill": skill,
+                    "kind": "incomplete-cycle",
+                    # Phase 43 (D3/43.4): stamp the dev skill's post-run HEAD so the
+                    # loop-level abort can tell whether a follower (sst-dev-review
+                    # recovery) later advanced HEAD and healed the cycle.
+                    "head_at_violation": sha_after_skill,
+                }
+                # Find the first non-tester, non-supervisor skill after the dev:
+                # that's the recovery-capable follower. A *-tester has no recovery
+                # contract; naming it in the message misleads debugging.
+                recovery_follower = next(
+                    (s for s in skills_to_run[i + 1:]
+                     if not s.endswith("-tester") and s != auto_supervisor),
+                    None,
+                )
+                if recovery_follower is not None:
+                    print(c(
+                        f"\n[contract-violation: incomplete-cycle] /{skill}: "
+                        f"exited [ok] with no commit but docs/TODO.md indicates "
+                        f"incomplete work; passing to /{recovery_follower} "
+                        f"for orphaned-cycle recovery",
+                        ORANGE,
+                    ), flush=True)
+                else:
+                    print(c(
+                        f"\n[contract-violation: incomplete-cycle] /{skill}: "
+                        f"exited [ok] with no commit but docs/TODO.md indicates "
+                        f"incomplete work (In-flight non-empty or "
+                        f"Sanitize: must-fix=PENDING); aborting chain",
+                        RED,
+                    ), flush=True)
+                    break
 
     iter_manifest["finished_at"] = _utc_iso()
     iter_manifest["git_sha_after"] = _git_sha(cwd)
@@ -4153,6 +4280,16 @@ def main() -> int:
                 f"skill resumed: /{payload.get('skill')}\n"
                 f"at: {payload.get('resumed_at')}",
                 label="overload-resume",
+            )
+        elif event == "commit-reprompt":
+            outcome = "HEALED (commit landed)" if payload.get("healed") \
+                else "not healed (review recovery next)"
+            telegram.send(
+                f"chain [{label}]: incomplete-cycle commit re-prompt\n"
+                f"skill: /{payload.get('skill')} | iter: {payload.get('iteration')}\n"
+                f"outcome: {outcome}\n"
+                f"at: {payload.get('at')}",
+                label="commit-reprompt",
             )
 
     if telegram_enabled:

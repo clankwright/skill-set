@@ -716,6 +716,182 @@ def test_run_iteration_contract_violation_aborts_when_next_is_auto_supervisor():
         "sst-supervisor must NOT be called when it is the auto-supervisor follower"
 
 
+# ---- Phase 66: incomplete-cycle commit re-prompt (H43.1 option 2) -----------
+
+
+def test_run_iteration_commit_reprompt_heals_incomplete_cycle():
+    """Phase 66: dev exits [ok] with no commit but a captured session_id →
+    the runner re-prompts the SAME session once; when the re-prompt lands the
+    commit and clears the incomplete signature, NO contract violation is
+    recorded, the re-prompt is recorded on the manifest (healed=True, own
+    skill record with role=commit_reprompt), the notify callback fires a
+    commit-reprompt event, and the chain proceeds to the review normally.
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+    events: list = []
+    state = {"sha": "abc1234", "incomplete": True}
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        resume = kwargs.get("initial_resume_session_id")
+        calls.append((skill_name, resume))
+        if resume:
+            # The re-prompted dev session finishes its commit.
+            assert resume == "sess-42"
+            assert sc.COMMIT_REPROMPT_DIRECTIVE in kwargs.get("extra_prompt", ""), \
+                "re-prompt must carry the commit directive as extra_prompt"
+            state["sha"] = "def5678"
+            state["incomplete"] = False
+            return (0, {})
+        if skill_name == "sst-dev-cycle":
+            return (0, {"session_id": "sess-42"})
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", side_effect=lambda _: state["sha"]), \
+         mock.patch.object(sc, "_incomplete_cycle_detected",
+                           side_effect=lambda _: state["incomplete"]):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-dev-review"],
+            None,
+            None,
+            1,
+            1,
+            "/tmp",
+            notify=lambda event, payload: events.append((event, payload)),
+        )
+
+    assert rc == 0
+    assert "contract_violation" not in iter_manifest, \
+        "a healed re-prompt must not record a contract violation"
+    rp = iter_manifest["incomplete_cycle_reprompt"]
+    assert rp["healed"] is True
+    assert rp["skill"] == "sst-dev-cycle"
+    assert rp["sha_before"] == "abc1234"
+    assert rp["sha_after"] == "def5678"
+    assert [name for name, _ in calls] == \
+        ["sst-dev-cycle", "sst-dev-cycle", "sst-dev-review"], \
+        "exactly one re-prompt of the dev, then the review runs normally"
+    assert calls[1][1] == "sess-42", \
+        "the re-prompt must resume the dev's own session"
+    roles = [r.get("role") for r in iter_manifest["skills"]]
+    assert "commit_reprompt" in roles, \
+        "the re-prompt run must be recorded as its own skill record"
+    assert any(e == "commit-reprompt" and p.get("healed") is True
+               for e, p in events), \
+        "notify must fire a commit-reprompt event with healed=True"
+
+
+def test_run_iteration_commit_reprompt_unhealed_falls_back_to_recovery():
+    """Phase 66: the re-prompt runs but lands no commit (signature persists) →
+    exactly ONE re-prompt is attempted, healed=False is recorded, and the
+    pre-existing Phase 36 path runs unchanged (contract_violation recorded,
+    review still called for orphaned-cycle recovery, rc=0).
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append((skill_name, kwargs.get("initial_resume_session_id")))
+        if kwargs.get("initial_resume_session_id"):
+            return (0, {})  # re-prompt ran but committed nothing
+        if skill_name == "sst-dev-cycle":
+            return (0, {"session_id": "sess-42"})
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-dev-review"],
+            None,
+            None,
+            1,
+            1,
+            "/tmp",
+        )
+
+    assert rc == 0
+    assert iter_manifest["incomplete_cycle_reprompt"]["healed"] is False
+    assert iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
+    assert iter_manifest["contract_violation"]["skill"] == "sst-dev-cycle"
+    assert [name for name, _ in calls] == \
+        ["sst-dev-cycle", "sst-dev-cycle", "sst-dev-review"], \
+        "exactly one re-prompt (no retry loop), then recovery handoff"
+
+
+def test_run_iteration_no_session_id_skips_reprompt():
+    """Phase 66: without a captured session_id there is nothing to resume —
+    no re-prompt is attempted and the pre-existing Phase 36 behavior is
+    byte-identical (violation recorded, recovery handoff).
+    """
+    h = ClaudeCodeHarness()
+    calls: list = []
+
+    def fake_rswr(_harness, skill_name, _idx, _log_dir, **kwargs):
+        calls.append(skill_name)
+        return (0, {})
+
+    with mock.patch.object(sc, "run_skill_with_retry", side_effect=fake_rswr), \
+         mock.patch.object(sc, "_resolve_iter_difficulty",
+                           return_value=("medium", "todo-next-up")), \
+         mock.patch.object(sc, "_resolve_skill_route",
+                           return_value=("sonnet", "high", _ROUTE_RECORD)), \
+         mock.patch.object(sc, "_git_sha", return_value="abc1234"), \
+         mock.patch.object(sc, "_incomplete_cycle_detected", return_value=True):
+        rc, iter_manifest = run_iteration(
+            h,
+            ["sst-dev-cycle", "sst-dev-review"],
+            None,
+            None,
+            1,
+            1,
+            "/tmp",
+        )
+
+    assert rc == 0
+    assert "incomplete_cycle_reprompt" not in iter_manifest
+    assert iter_manifest["contract_violation"]["kind"] == "incomplete-cycle"
+    assert calls == ["sst-dev-cycle", "sst-dev-review"]
+
+
+def test_run_skill_with_retry_initial_resume_session_id_reaches_run_skill():
+    """Phase 66: initial_resume_session_id starts the FIRST attempt as a
+    --resume of the given session (run_skill receives it verbatim).
+    """
+    seen: dict = {}
+
+    def fake_run_skill(_harness, _skill_name, _index, _log_dir, **kwargs):
+        seen.update(kwargs)
+        return (0, {"session_id": "s2"})
+
+    with mock.patch.object(sc, "run_skill", side_effect=fake_run_skill):
+        rc, _record = sc.run_skill_with_retry(
+            ClaudeCodeHarness(),
+            "sst-dev-cycle",
+            0,
+            None,
+            on_rate_limit="fail",
+            max_pause_seconds=60,
+            max_pauses=1,
+            pause_records=[],
+            initial_resume_session_id="sess-init",
+        )
+
+    assert rc == 0
+    assert seen["resume_session_id"] == "sess-init"
+
+
 def test_run_iteration_no_contract_violation_when_commit_shipped():
     """Phase 36: no violation when sha changes (real commit shipped).
 
