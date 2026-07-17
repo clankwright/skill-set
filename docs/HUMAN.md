@@ -20,24 +20,6 @@ Each entry is a checkbox bullet whose ID has the form `H<phase>.<n>` (e.g. `H3.1
 
 (Important but not actively blocking the cycle. The dev cycle continues past these unless picked-item gating exists.)
 
-- [x] H43.1 [medium] **Durable fix for recurring `incomplete-cycle`: dev stops after the sanitize sub-skill, before the commit**
-  Two consecutive `dev-cycle-with-review-looped` runs have now ended an iteration with the dev (`sst-dev-cycle`) doing all of its work — pick, failing tests, implementation, `/sst-sanitize-transferable` (must-fix=0) — then exiting WITHOUT staging or committing, so the chain runner records `contract_violation: incomplete-cycle` (run `2026-06-24T01-31-10Z`/iter_03, head 192dca5; run `2026-06-24T23-57-40Z`/iter_03, head 0599e56). Same root cause both times: the model treats the sanitize `/skill` sub-invocation's clean return as task-completion and stops its turn. The Phase 43 "seam fix" (run sanitize in §3, before §4, so no sub-skill return sits immediately before the commit) is being IGNORED — the model runs sanitize as its last action anyway, re-creating the exact seam the relocation was meant to remove. The Phase 36 orphaned-cycle recovery in `sst-dev-review` catches it cleanly each time (no work lost; both cycles shipped correctly), but at a real cost: ~$1.7 (dev) + ~$1.1 (review) per recovered cycle, and the review ends up authoring the commit it then reviews, diluting the independent second-pass. This is NOT durably prose-fixable: the dev's prose already mandates the §3 placement emphatically and the model has ignored it twice, so piling on more prose is unlikely to help. A structural change is needed — pick one: (1) inline the sanitize check into the dev skill instead of a `/skill` sub-invocation, so no sub-skill return ever precedes the commit; (2) add a runner-level guard that, on detecting `incomplete-cycle`, re-prompts the dev to commit before handing off to review; or (3) accept the recovery as the intended design and close this won't-fix (the loop already self-heals). The supervisor cannot make this call — it is a contract/structural decision.
-  Blocks: none.
-  Asks: choose a durable approach for the recurring `incomplete-cycle` (inline sanitize / runner re-prompt / accept recovery as design).
-  Reply: /feedback <token> <your choice + any direction>
-  Filed by: sst-supervisor at 2026-06-25T02:23:16Z.
-  Source: 2026-06-24T23-57-40Z_dev-cycle-with-review-looped/iter_03/supervisor_verdict.md.
-  Resolved: 2026-07-17. Option 2 shipped first as SPEC Phase 66 (`bin/skill-chain.py` resumes the dev session once with a commit directive on the incomplete-cycle signature), then the user redirected to option 1 as the primary fix (Phase 67: the sanitize sub-invocation is eliminated; `sst-dev-cycle` §3 reads the sanitize skill's SKILL.md and follows its Process in-session, so no sub-skill return exists in the cycle to be mistaken for completion). The Phase 66 re-prompt is retained as the generic backstop for any first-of-chain skill (it re-ingests full context when it fires, so it is the expensive rare path); the sst-dev-review orphaned-cycle recovery remains the final net.
-
-- [x] H44.1 [easy] **Install `sst-tester` into `~/.claude/skills/` so the chain can invoke it**
-  The `dev-cycle-with-review-looped` chain runs `sst-tester` as a stage, but the skill is not present in `~/.claude/skills/` (the Skill tool returns `Unknown skill: sst-tester`). In both iter_01 and iter_02 of run `2026-06-16T06-40-57Z` the tester worker only succeeded by improvising: it read `skills/framework/sst-tester/SKILL.md` from the repo and followed it directly. On a weaker model or a stricter harness that fallback may not happen and the stage would hard-fail. The supervisor cannot run installers (its action surface is verdicts/skill-edits/doc-appends plus one executor dispatch); the canonical fix is to refresh the runtime skill copies. Normally this would be an autonomous `sst-executor` dispatch (Route 1), but this run's retry-0 supervisor attempt was rejected on the org monthly spend limit, so a fresh billable `claude --print` executor spawn is being avoided this cycle in favour of this human-closable request.
-  Blocks: none.
-  Verify: test -f ~/.claude/skills/sst-tester/SKILL.md
-  Asks: run the skill installer so `sst-tester` is registered with the harness.
-  Reply: /exec <token> bash bin/install-skills.sh -y --force
-  Filed by: sst-supervisor at 2026-06-16T08:06:28Z.
-  Source: 2026-06-16T06-40-57Z_dev-cycle-with-review-looped/iter_02/supervisor_verdict.md.
-
 ## Medium
 
 ## Low
@@ -46,6 +28,8 @@ Each entry is a checkbox bullet whose ID has the form `H<phase>.<n>` (e.g. `H3.1
 
 (Audit trail of closed entries — newest-first. The supervisor/manager moves items here after `[x]` is set AND the `Verify:` check passes. Entries keep their original H-ID and pick up a `(verified <utc>)` suffix.)
 
+- [x] H43.1 [medium] **Durable fix for recurring `incomplete-cycle`: dev stops after the sanitize sub-skill, before the commit** — user chose option 2 then redirected to option 1 as primary: Phase 66 shipped the runner commit re-prompt (now the generic backstop for any first-of-chain skill); Phase 67 eliminated the sanitize Skill-tool sub-invocation (`sst-dev-cycle` 1.21.0 reads the sanitize skill's SKILL.md and runs the scan in-session, so no sub-skill return exists to be mistaken for completion); the sst-dev-review orphaned-cycle recovery remains the final net. (verified 2026-07-17T01:02:25Z)
+- [x] H44.1 [easy] **Install `sst-tester` into `~/.claude/skills/` so the chain can invoke it** — installed via `bin/install-skills.sh -y --force` (user-authorized); Verify (`test -f ~/.claude/skills/sst-tester/SKILL.md`) passes. (verified 2026-07-17T00:26:00Z)
 - [x] H35.3 [easy] **Promote sst-dev-review sidecar to transferable** — sidecar discarded/applied without a separate promotion (SKILL.patch.md no longer present); discarded-sidecar auto-close on absence check. (verified 2026-05-27T03:43:22Z)
 - [x] H35.4 [easy] **Recover dirty working tree from iter_10 incomplete cycle (35.15 retroactive sanitize)** — skill-set-dev executed forward-complete option: swap PENDING→0 in Just-shipped (findings confirmed must-fix=0, should-fix=0, nit=0), commit SPEC.md + TODO.md + HUMAN.md. (verified 2026-05-25T13:32:53Z)
 - [x] H35.2 [easy] **Recover dirty working tree from iter_06 incomplete cycle (35.14 retroactive sanitize, single-item batch)** — skill-set-dev executed option (b): forward-complete via PENDING→0 swap; findings file confirmed must-fix=0, should-fix=0, nit=1 (pre-existing /home/rob/ path in examples). 35.14 fully committed. (verified 2026-05-25T10:19:02Z)
