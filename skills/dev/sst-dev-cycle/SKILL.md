@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.21.0
+version: 1.22.0
 model-floor: fable
 effort-floor: high
 ---
@@ -146,7 +146,7 @@ Do NOT downgrade `[hard]` to `[easy]` to fit a quota; if the budget feels tight,
 
 Emission order at iter start, top to bottom: TodoWrite → `## In flight` line → `[batch-pick]` block → `[picked-difficulty: <tier>]` → first §2 tool call.
 
-**Known model-behavior gap.** Despite these instructions, models occasionally skip the `[batch-pick]` / `[picked-difficulty]` emission. The runner records `batch_pick_missing = True` in the iteration manifest when the block is absent; downstream review + supervisor fall back gracefully. This is a formally-accepted degradation (root-cause decision 2026-06-18): the emission contract above remains canonical and `batch_pick_missing` is the mitigation.
+**The emission is not optional, and the omission is detected.** The runner records `batch_pick_missing = True` on the iteration manifest whenever the block is absent, and the supervisor reads that flag on every cycle — a skipped emission is attributed, not absorbed. Downstream review and supervisor do carry bracket-parsing fallbacks, but those exist to keep an already-degraded cycle reviewable, NOT to make the emission discretionary. The fallbacks cannot recover what the block alone carries: the batch's stated composition and its rationale. Without them, batch-coherence review silently narrows to whatever the commit diff happens to reveal, and the cycle's window-sizing cannot be checked against the tier the item actually claimed. Emit the block before the first §2 tool call, on every cycle, including single-item picks.
 
 ## 2. Write failing tests
 
