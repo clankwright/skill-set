@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.22.0
+version: 1.22.1
 model-floor: fable
 effort-floor: high
 ---
@@ -108,7 +108,7 @@ Bundling *unrelated* items remains forbidden. The batch must be cohesive (sharin
 
 ### Declare the batch BEFORE §2
 
-After the In flight line is written and BEFORE the `[picked-difficulty]` sentinel below, print one block to stdout on its own lines:
+After the In flight line is written and BEFORE the `[picked-difficulty]` sentinel below, emit one block as **assistant-visible text** on its own lines (write the block directly in your reply — do NOT `echo`/`printf` it via a shell tool). Chain runners on the Cursor harness scan assistant messages only; tool-call stdout is invisible to them, so a Bash-emitted block still records `batch_pick_missing` even when the bytes appear in the transcript's tool args:
 
 ```
 [batch-pick] N items @ <difficulty>; window-target ~XXk; rationale: <one-line>
