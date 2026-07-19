@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.14.9
+version: 1.14.10
 model-floor: opus
 effort-floor: high
 ---
@@ -90,6 +90,8 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` (all 
    - An overall `verdict: degraded` (the tester tried but could not fully exercise the surface — server didn't come up, stale auth, partial reachability) is itself surfaced as a `[should-fix]` noting incomplete runtime coverage.
    - An overall `verdict: skipped` (self-skip no-op, or the dev emitted `[skip-tester]` and the runner never spawned the tester) is a valid non-finding state — do NOT file any finding for it.
    - An overall `verdict: green` is a non-finding state **only when every check has `status: pass`**. Always walk `checks[]` first — the per-check `fail` / `needs-change` rules above win over the overall verdict label. Testers may emit `verdict: green` while still carrying a residual `needs-change` (e.g. a coverage gap the exploratory drive already exercised); that residual MUST still become a `[should-fix]` in §4. Do not treat overall `green` as a blanket skip of `checks[]`.
+
+   **Pre-Clean tester-check disposal (hard gate).** Before emitting the §6 Clean form, enumerate every `checks[]` entry with `status: fail` or `status: needs-change`. For each, either (a) file/strengthen a §4 finding, **or** (b) record an explicit one-line dismissal in the §6 Clean report as `Tester dismissals: <area> — <one-line reason>` (allowed when the residual does not clear the severity bar — e.g. feed-independent coverage already owned by an open e2e item, or a duplicate of a prior-cycle dismissal). Silent omission is forbidden: a Clean report that never mentions a residual `fail`/`needs-change` is a contract violation even when the dismissal would have been correct. Observed failure mode: overall-`green` reviews skip walking `checks[]` and emit Clean without disposing the residual.
 
    Include the tester verdict in the §6 report regardless of whether findings were escalated (see §6 template below).
 
