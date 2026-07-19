@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.22.1
+version: 1.23.0
 model-floor: fable
 effort-floor: high
 ---
@@ -250,7 +250,7 @@ Never commit `.env` files, credentials, or local scratch files. If the project g
 
 After `git push origin <branch>` completes, write the tester guidance or pre-empt the tester. This step is the dev skill's contribution to the `dev → tester → review` chain: the tester reads the guidance to prioritize the highest-value checks rather than re-deriving everything from the diff; a pre-empt saves the tester from being spawned at all for non-UI cycles.
 
-**If the cycle touched a front-end/UI surface** (any changed file under a front-end directory, a changed route, a changed component, a changed e2e spec, or new UI-visible behavior from the SPEC item): write a brief `tester-guidance.md` to the chain run-log dir. Find the run-log dir by scanning `.skill-runs/` for the most recently-created directory, or by reading the `[log-dir] <path>` line printed by the chain runner before any skill started. Template:
+**If the cycle touched a front-end/UI surface** (any changed file under a front-end directory, a changed route, a changed component, a changed e2e spec, or new UI-visible behavior from the SPEC item): write a brief `tester-guidance.md` to the chain run-log dir. Resolve that dir in this order: the `[log-dir] <path>` line printed by the chain runner before any skill started, when present; otherwise the most recently-created `.skill-runs/<run-dir>/` — and **when that run dir contains `iter_NN/` subdirectories, write into the highest-numbered one**, never the run dir itself. A `--loop N` run shares one run dir across every iteration, so a `tester-guidance.md` sitting directly in it belongs to an EARLIER iteration; finding a stale guidance file there is evidence you are running INSIDE a looped chain, not evidence that you were invoked standalone. **Never `mkdir` a new `.skill-runs/` directory** — the runner owns that tree, and a dir you create is indistinguishable from a real run to every downstream reader. If no `.skill-runs/` tree exists at all, skip the guidance file and say so in your final output rather than fabricating a destination. (Observed: a dev inside iteration 4 of a looped run read the run-dir-level guidance file left by iteration 3, concluded "this invocation was run directly, not by the chain runner", and created a `.skill-runs/<ts>_dev-cycle-standalone/` dir to write into. The tester followed the guidance there and wrote its findings to the same fabricated dir; the review then resolved that dir as the most recent run dir, found neither a MANIFEST nor a dev transcript in it, fell back to `## Just shipped` for batch coherence, and reported `axis skipped: iter MANIFEST absent` — losing the iteration's batch-sizing datapoint from the supervisor's trailing-window aggregation.) Template:
 
 ```
 # Tester guidance for <scope-tag>: <description>
