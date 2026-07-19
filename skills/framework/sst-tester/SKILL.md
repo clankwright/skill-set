@@ -17,7 +17,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.10.2
+version: 1.11.0
 model-floor: opus
 effort-floor: high
 ---
@@ -293,8 +293,8 @@ Field rules:
 - **`summary`** — a single line; the reviewer surfaces it verbatim in its `Tester:` report line.
 - **`checks[].status`** — one of:
   - `pass` — the surface behaved correctly.
-  - `fail` — the surface is broken (console error, failed assertion, broken interaction); becomes a review `[blocker]`.
-  - `needs-change` — the surface works but something should change (a missing committed spec for a changed surface, a UX rough edge, a coverage gap); becomes (or strengthens) a review `[should-fix]`.
+  - `fail` — the surface is broken (console error, failed assertion, broken interaction), **or it completes mechanically but produces materially wrong output** — a page, export, or rendered artifact whose content misstates the underlying data (a zero-row period rendered as a populated all-zeros table, a stale or wrong total, a document stamped with a status its contents contradict); becomes a review `[blocker]`. "It rendered without an error" is NOT the bar: judge the OUTPUT against what the data says it should be, and weigh where that output GOES — an artifact that leaves the app for a third party (an emailed report, an invoice, a statement an auditor or lender reads) is `fail` when it is wrong, never a `needs-change` polish item. A correct-but-improvable surface is the only `needs-change`.
+  - `needs-change` — the surface works AND its output is correct, but something should still change (a missing committed spec for a changed surface, a UX rough edge, a coverage gap); becomes (or strengthens) a review `[should-fix]`.
 
   The enum above is CLOSED, and the array key is `checks`, never `findings`. Do not invent per-check statuses: `skipped`, `partial`, `info`, `not-exercisable`, and `known-preexisting` have all been observed in real runs, and every off-enum status (or a renamed array key) silently drops its record from the reviewer's escalation path, because the reviewer machine-parses `checks[]` and acts only on `fail` / `needs-change`. Map the tempting cases back into the enum: a mapped spec you could NOT run this session (an environment or data restriction, a missing fixture, stale auth) is `needs-change` with the can't-run reason and the unlock named in `recommendation` (step 6a's uncovered-gaps rule: the reviewer needs visibility precisely because you could not exercise it); a known, already-filed issue reproduced in passing is a `pass` whose `recommendation` cites the existing backlog item ("already filed as <id>; do not re-file"); a pure FYI belongs in `summary`. Only the top-level `verdict` may be `skipped`; a per-check `skipped` is not a legal value.
 - **`checks[].evidence`** — a path under the out-of-tree state dir, never a repo path. Empty is allowed only for a `pass` with nothing worth capturing.
