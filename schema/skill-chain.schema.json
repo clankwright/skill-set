@@ -82,10 +82,15 @@
       "default": 3,
       "description": "Hard cap on rate-limit pauses per skill within one chain invocation. Repeated pauses on the same skill suggest a quota-burning loop, not a genuine quota crossing — abort the chain after this many. Default 3. CLI flag --max-pauses-per-session overrides this field."
     },
+    "playwright-headless": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, force every chain skill to launch Playwright / the browser MCP headless even if DISPLAY is set. Covers tester sweeps, in-cycle e2e, and any other browser work — does not change which surfaces are exercised, only suppresses the visible window. CLI flag --playwright-headless overrides this field when the flag is passed."
+    },
     "tester-headless": {
       "type": "boolean",
       "default": false,
-      "description": "When true, force *-tester skills to launch Playwright / the browser MCP headless even if DISPLAY is set. Does not change which surfaces are exercised — only suppresses the visible browser window. CLI flag --tester-headless overrides this field when the flag is passed."
+      "description": "Deprecated alias for playwright-headless. Accepted for back-compat; prefer playwright-headless / --playwright-headless."
     }
   },
   "allOf": [

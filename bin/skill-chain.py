@@ -8,7 +8,7 @@ Usage:
                    [--on-rate-limit <fail|pause|pause-with-cap>]
                    [--max-rate-limit-pause-seconds <N>]
                    [--max-pauses-per-session <N>]
-                   [--tester-headless]
+                   [--playwright-headless]
                    <skill> [<skill> ...]
 
 Each skill runs as its own subprocess of the configured agent harness.
@@ -399,19 +399,24 @@ WIND_DOWN_DIRECTIVE_TEMPLATE = (
     "beats being cut off."
 )
 
-# Injected ONLY for `*-tester` skills when `--tester-headless` (or chain YAML
-# `tester-headless: true`) is set. Overrides the default headed-when-DISPLAY
-# policy so overnight / WSL / remote runs never pop a visible browser window.
-TESTER_HEADLESS_DIRECTIVE = (
+# Injected on every cold start when `--playwright-headless` (or chain YAML
+# `playwright-headless: true`; `--tester-headless` / `tester-headless` are
+# accepted aliases) is set. Overrides the default headed-when-DISPLAY policy
+# so overnight / WSL / remote runs never pop a visible browser window — covers
+# tester, dev-cycle e2e verification, and any other chain browser work.
+PLAYWRIGHT_HEADLESS_DIRECTIVE = (
     "## Browser mode (chain-runner override)\n"
     "\n"
-    "This run was started with `--tester-headless` (or chain YAML "
-    "`tester-headless: true`). Launch Playwright / the browser MCP in "
+    "This run was started with `--playwright-headless` (or chain YAML "
+    "`playwright-headless: true`). Launch Playwright / the browser MCP in "
     "**headless** mode only — do not open a visible window even if DISPLAY "
     "is set. Prefer headless launch args (`--headless`, `headless: true`, "
-    "etc.) when the MCP or spec runner offers them. Surfaces exercised are "
-    "unchanged; only visibility is forced off."
+    "etc.) when the MCP or spec runner offers them. Applies to every browser "
+    "session this skill opens (tester sweeps, in-cycle e2e, exploratory "
+    "checks). Surfaces exercised are unchanged; only visibility is forced off."
 )
+# Back-compat alias used by tests / older call sites.
+TESTER_HEADLESS_DIRECTIVE = PLAYWRIGHT_HEADLESS_DIRECTIVE
 
 # ---- Incomplete-cycle commit re-prompt (Phase 66 / HUMAN.md H43.1 option 2) -
 # The recurring Phase-36 failure shape: the dev does ALL of its work (pick,
@@ -877,9 +882,18 @@ class Harness:
     # Hard per-agent turn ceiling. Overridable per-run (main sets it from
     # --max-turns). Harnesses that honor a turn cap read this; others ignore it.
     max_turns: int = DEFAULT_MAX_TURNS
-    # When True, `*-tester` cold starts force Playwright headless even if
-    # DISPLAY is set (main sets it from --tester-headless / chain YAML).
-    tester_headless: bool = False
+    # When True, every cold start forces Playwright headless even if DISPLAY
+    # is set (main sets it from --playwright-headless / chain YAML).
+    playwright_headless: bool = False
+
+    @property
+    def tester_headless(self) -> bool:
+        """Back-compat alias for playwright_headless."""
+        return self.playwright_headless
+
+    @tester_headless.setter
+    def tester_headless(self, value: bool) -> None:
+        self.playwright_headless = bool(value)
 
     def build_command(
         self,
@@ -991,8 +1005,8 @@ class ClaudeCodeHarness(Harness):
             prompt = prompt + "\n\n" + WIND_DOWN_DIRECTIVE_TEMPLATE.format(
                 hard=hard_turns, soft=soft_turns
             )
-            if self.tester_headless:
-                prompt = prompt + "\n\n" + TESTER_HEADLESS_DIRECTIVE
+        if not resume_session_id and self.playwright_headless:
+            prompt = prompt + "\n\n" + PLAYWRIGHT_HEADLESS_DIRECTIVE
         # Phase 19 (4): model and effort are resolved by the runner from
         # max(item_difficulty_tier, skill_floor) and passed in. Fall back to
         # the conservative framework defaults (opus / high) when either is
@@ -1387,8 +1401,9 @@ def _cursor_playwright_directive(
 ) -> str:
     """Build the Playwright MCP cold-start directive for the current workspace.
 
-    When `force_headless` is True (tester + `--tester-headless`), the headed/
-    headless hint ignores DISPLAY and requires headless Playwright.
+    When `force_headless` is True (`--playwright-headless`), the headed/
+    headless hint ignores DISPLAY and requires headless Playwright for every
+    browser session the skill opens.
     """
     servers = _discover_playwright_mcp_servers(cwd)
     if servers:
@@ -1406,10 +1421,10 @@ def _cursor_playwright_directive(
     display = os.environ.get("DISPLAY", "").strip()
     if force_headless:
         display_hint = (
-            "FORCE HEADLESS for this run (--tester-headless / chain "
-            "tester-headless: true) — do not open a visible browser window "
+            "FORCE HEADLESS for this run (--playwright-headless / chain "
+            "playwright-headless: true) — do not open a visible browser window "
             "even if DISPLAY is set; use headless Playwright MCP / headless "
-            "launch args."
+            "launch args for every browser session."
         )
     elif display:
         display_hint = (
@@ -1458,7 +1473,7 @@ class CursorHarness(Harness):
          (Phase 62): discover servers from `.cursor/mcp.json` /
          `~/.cursor/mcp.json`, never use `cursor-ide-browser` (IDE-only),
          headed when DISPLAY is set / headless otherwise (or always headless
-         for `*-tester` when `--tester-headless` / chain `tester-headless`).
+         when `--playwright-headless` / chain `playwright-headless`).
 
     Cursor's stream-json envelope is Anthropic-compatible for system/init and
     assistant/text frames, so session-id capture, --resume, and the chain's text
@@ -1569,7 +1584,7 @@ class CursorHarness(Harness):
         # Also steer browser work to Playwright MCP (never cursor-ide-browser).
         # Nested /sst-* calls: Read+follow resolved SKILL.md (no Skill tool).
         helper = str(REPO_ROOT / "bin" / "brave-web.py")
-        force_headless = bool(self.tester_headless) and skill_name.endswith("-tester")
+        force_headless = bool(self.playwright_headless)
         prompt = (
             prompt + "\n\n"
             + CURSOR_NESTED_SKILL_DIRECTIVE_TEMPLATE.format(repo=str(REPO_ROOT))
@@ -1587,8 +1602,8 @@ class CursorHarness(Harness):
             prompt = prompt + "\n\n" + WIND_DOWN_DIRECTIVE_TEMPLATE.format(
                 hard=self.max_turns, soft=soft
             )
-            if force_headless:
-                prompt = prompt + "\n\n" + TESTER_HEADLESS_DIRECTIVE
+        if force_headless:
+            prompt = prompt + "\n\n" + PLAYWRIGHT_HEADLESS_DIRECTIVE
         cmd.append(prompt)
         return cmd
 
@@ -3230,14 +3245,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              f"they wrap up + hand off cleanly before the hard chop.",
     )
     p.add_argument(
-        "--tester-headless",
+        "--playwright-headless",
+        "--tester-headless",  # back-compat alias
         action="store_true",
-        help="Force `*-tester` skills to launch Playwright / the browser MCP "
+        dest="playwright_headless",
+        help="Force every chain skill to launch Playwright / the browser MCP "
              "headless even when DISPLAY is set (WSLg, local X11, etc.). "
-             "Does not change which surfaces are exercised — only suppresses "
-             "the visible browser window. Overrides the chain YAML's "
-             "`tester-headless:` field when both are set (CLI wins when true; "
-             "omit the flag to honor YAML).",
+             "Covers tester sweeps, in-cycle e2e verification, and any other "
+             "browser work — does not change which surfaces are exercised, "
+             "only suppresses the visible window. Overrides the chain YAML's "
+             "`playwright-headless:` field when the flag is passed "
+             "(`--tester-headless` and YAML `tester-headless:` remain aliases).",
     )
     # ---- Native wrapper flags (Phase 42; inert when unset) ------------------
     p.add_argument(
@@ -4146,15 +4164,19 @@ def main() -> int:
         chain_name = args.chain_name or skills_arg[0]
     args.skills = skills_arg  # for downstream code that references args.skills
 
-    # Tester headless: CLI --tester-headless wins when set; else chain YAML.
-    tester_headless = bool(args.tester_headless)
-    if not tester_headless and chain_def is not None:
-        tester_headless = bool(chain_def.get("tester-headless", False))
-    harness.tester_headless = tester_headless
-    if tester_headless:
+    # Playwright headless: CLI --playwright-headless wins when set; else chain
+    # YAML (`playwright-headless` or legacy `tester-headless`).
+    playwright_headless = bool(getattr(args, "playwright_headless", False))
+    if not playwright_headless and chain_def is not None:
+        playwright_headless = bool(
+            chain_def.get("playwright-headless", False)
+            or chain_def.get("tester-headless", False)
+        )
+    harness.playwright_headless = playwright_headless
+    if playwright_headless:
         print(c(
-            "[tester] headless Playwright forced for *-tester skills "
-            "(--tester-headless / chain tester-headless)",
+            "[browser] headless Playwright forced for all chain skills "
+            "(--playwright-headless / chain playwright-headless)",
             GRAY,
         ), flush=True)
 
