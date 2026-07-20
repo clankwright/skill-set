@@ -3,7 +3,7 @@ name: sst-executor
 description: |
   The framework's "hands": the one skill authorized to CARRY OUT framework-maintenance actions (sync runtime skill copies, reconcile a drifted ssp-* wrapper, run a version-sync check, edit + push a base-repo skill) rather than only observe or route them. It exists so the supervisor can delegate routine follow-ups that do not need human attention, minimizing human involvement, while every action stays legibly auditable. Two entry modes. Supervisor-request execution (--process-supervisor-request <queue-file>) runs an autonomous batch the supervisor handed off. Command execution (--process-command <queue-file>) completes a human approval (/approve <token> <id>) of a previously-asked action, or runs a fresh human instruction (/exec <token> <action>). Every candidate action is classified into one of three authority tiers: tier-1 reversible/local actions run unattended; tier-2 outward/irreversible actions (any git push, any deploy) are prepared then gated behind a one-line Telegram approval; tier-3 actions (production deploy, watched-project git, push to main, sanitize bypass, secret exposure) are always refused. Every action — done, asked, or refused — is reported to the human immediately over Telegram in a fixed succinct audit format; an unaudited action is a contract violation. Never edits watched-project code, never deploys, never spawns another harness. The supervisor (sst-supervisor) dispatches to it; the bot (manager-bot.py) spawns it for /approve and /exec; the manager (sst-manager) stays read-only and is unaffected.
 user-invocable: true
-version: 1.0.1
+version: 1.1.0
 model-floor: fable
 effort-floor: high
 ---
@@ -117,7 +117,7 @@ Read `<queue-file>`. Expected JSON shape:
 }
 ```
 
-If the file is malformed, missing, or already in `processed/`, send one Telegram line (`Already processed (or request file missing); ignoring.`) if a channel exists and exit 0. Source the Telegram env (§Config). Then move the queue file to `processed/<basename>` so a retry does not double-process it.
+If the file is malformed, missing, or already in `processed/`, send one Telegram line (`Already processed (or request file missing); ignoring.`) if a channel exists and exit 0 — a malformed file still moves to `processed/<basename>` so a retry does not re-read it. A well-formed file stays IN PLACE until §A3: archival happens at close-out, after the batch executed, never before. The queue file sitting in the main dir is the crash-safety marker — if this session dies mid-batch (rate-limit, crash), a re-dispatch of the same path re-runs the batch instead of finding it falsely "processed". (Observed: a spawn died instantly on "You've hit your session limit" and the early-moved file reported a three-request batch as done with zero requests run.)
 
 ### A2. Execute each request
 
@@ -132,11 +132,11 @@ A request that throws mid-execution is audited as `Refused: <error one-line>`; t
 
 ### A3. Close out
 
-Append ONE summary line to `~/.claude/state/manager-notes.md` so the next supervisor run sees what happened: `echo "<!-- executor: supervisor-request <run_dir basename> → <n> did, <n> asked, <n> refused @ <utc-iso> -->" | bin/manager-write-state.py --source observation` (fall back to a direct prepend if the helper is absent). Stdout: `executor: supervisor-request <basename> → <n> did, <n> asked, <n> refused`. Exit 0 when every request was handled; exit non-zero only when no Telegram channel was reachable (per §Mandatory audit).
+Move the queue file to `processed/<basename>` NOW — only after every request was classified and handled (did/asked/refused). Then append ONE summary line to `~/.claude/state/manager-notes.md` so the next supervisor run sees what happened: `echo "<!-- executor: supervisor-request <run_dir basename> → <n> did, <n> asked, <n> refused @ <utc-iso> -->" | bin/manager-write-state.py --source observation` (fall back to a direct prepend if the helper is absent). Stdout: `executor: supervisor-request <basename> → <n> did, <n> asked, <n> refused`. Exit 0 when every request was handled; exit non-zero only when no Telegram channel was reachable (per §Mandatory audit).
 
 ## Mode B — command execution (`--process-command <queue-file>`)
 
-Spawned by the bot when the human sends `/approve <token> <id>` or `/exec <token> <action...>`: `claude --print --permission-mode bypassPermissions "/sst-executor --process-command <queue-file>"` (cwd = the resolved project path). Expected JSON shape:
+Spawned by the bot when the human sends `/approve <token> <id>` or `/exec <token> <action...>`: `bin/skill-chain.py sst-executor --skill-args "--process-command <queue-file>" --no-supervisor --no-log --on-rate-limit pause` (cwd = the resolved project path). The skill-chain wrapper supplies rate-limit pause-and-resume — a session-limit hit sleeps until the advertised reset and resumes this same session, so behave normally after a resume gap. Expected JSON shape:
 
 ```json
 {
@@ -149,7 +149,7 @@ Spawned by the bot when the human sends `/approve <token> <id>` or `/exec <token
 }
 ```
 
-Read the file (idempotency: if missing/processed, reply `Already processed; ignoring.` and exit 0), source the Telegram env, then move it to `processed/<basename>`.
+Read the file (idempotency: if missing/processed, reply `Already processed; ignoring.` and exit 0) and source the Telegram env. Leave the file IN PLACE until §B3 — same archive-at-close rule as Mode A: the un-archived file is what makes a crashed or rate-limited run safely re-dispatchable.
 
 ### B1. `approve <token> <id>` — complete a pending tier-2 action
 
@@ -161,7 +161,7 @@ Treat the action text as a single candidate action. Classify per §Authority env
 
 ### B3. Close out
 
-Stdout: `executor: command <verb> for <token> → <did|asked|refused>`. Exit 0 (a Telegram send failure after retries writes a `.error` sibling and exits non-zero, but no state is corrupted).
+Move the queue file to `processed/<basename>` NOW (after the verb completed). Stdout: `executor: command <verb> for <token> → <did|asked|refused>`. Exit 0 (a Telegram send failure after retries writes a `.error` sibling and exits non-zero, but no state is corrupted).
 
 ## Pending actions
 

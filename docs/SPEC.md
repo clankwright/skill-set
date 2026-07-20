@@ -117,4 +117,21 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 
 > Completed phases live in [docs/SPEC-DONE.md](SPEC-DONE.md); deferred phases live in [docs/FUTURE-WORK.md](FUTURE-WORK.md). Active phases live below.
 
-*(No active phases — all phases through 67 are complete and archived in SPEC-DONE.md. New work enters via `TODO.md > Next up` or a new phase section here.)*
+### Phase 68 — log-dir prompt handoff + rate-limit-safe executor spawns (2026-07-20, owner-directed)
+
+Root cause of three consecutive supervisor escalations: the runner's `[log-dir]` startup print goes
+to its own stdout, which no skill subprocess can see, so every skill guessed its run dir via
+`ls -dt .skill-runs/*/` (iter-4 dev fabricated a standalone run dir; tester followed; review lost
+the MANIFEST). Separately, executor spawns were bare `claude --print` — a session-limit hit killed
+the batch instantly and an early queue-file archive reported it falsely processed.
+
+- [x] 68.1 `run_iteration` injects `[log-dir]` / `[iter-dir]` / `[iteration]` into every skill's
+  invocation prompt via `extra_prompt` (prompt is the only channel into a skill).
+- [x] 68.2 `--skill-args` passthrough (single-skill runs): argument-taking skills run under the
+  wrapper's rate-limit pause-and-resume. `manager-bot.py spawn_executor` and `sst-supervisor` §5c
+  (2.10.0) both spawn the executor via `skill-chain.py … --skill-args … --on-rate-limit pause`
+  (supervisor detached with `nohup … &`).
+- [x] 68.3 `sst-executor` (1.1.0) archives its queue file at close-out only, both modes — the
+  un-archived file is the crash-safety marker that keeps a dead batch re-dispatchable.
+
+Tests: `tests/test_phase68.py` (8).

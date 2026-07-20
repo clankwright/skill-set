@@ -8,6 +8,7 @@
 
 ## Just shipped (last cycle)
 
+- Phase 68 (68.1-68.3): [log-dir]/[iter-dir]/[iteration] injected into every skill prompt; --skill-args passthrough; executor spawns via skill-chain wrapper w/ rate-limit pause-resume (manager-bot spawn_executor, sst-supervisor 2.10.0 §5c); sst-executor 1.1.0 archives queue file at close-out only (Sanitize: must-fix=0) — by owner request at 2026-07-20T01:30:00Z
 - docs: archive completed SPEC phases 46-67 to SPEC-DONE.md (SPEC.md has no active phases); move HUMAN.md H43.1 + H44.1 to ## Done (Sanitize: n/a) — by owner request at 2026-07-17T01:14:12Z
 - 67.1: inline sanitize gate into sst-dev-cycle in-session (H43.1 option 1; Phase 66 catch reframed as generic backstop; mirrors reconciled to base 1.21.0; Sanitize: must-fix=0) — by owner request at 2026-07-17T01:02:25Z
 - 66.1: runner commit re-prompt on incomplete-cycle before review handoff (H43.1 option 2; Sanitize: n/a) — by owner request at 2026-07-17T00:40:07Z
@@ -17,7 +18,6 @@
 - Phase 63.2: comment out CURSOR_MODEL in `.env.example` (opt-in pin; copy no longer disables Grok ladder) (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:06:08Z
 - Phase 64.3: exclude normalize-synthesized tool_call frames from Cursor `_turn_proxy` / max-turns (tag `_synthetic_from_tool_call`; Phase-49 gates unchanged) (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:58:59Z
 - Phase 64 (64.1-64.2): Cursor nested-skill Read+follow cold-start directive + runner max-turns watchdog via assistant-frame proxy (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:52:46Z
-- Phase 63.1: Cursor Grok ladder routing — map Phase-19 floors → cursor-grok-4.5-{low,medium,high}; real ids in [route]/MANIFEST/--model (Sanitize: n/a) — by ssp-dev at 2026-07-14T01:45:58Z
 
 <!--
   Append-on-close, newest first. Format:

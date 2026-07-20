@@ -510,10 +510,16 @@ def queue_executor_task(
 
 
 def spawn_executor(project_cwd: str | None, queue_file: Path) -> bool:
-    """Spawn `/<executor> --process-command <queue-file>` in project_cwd.
+    """Spawn the executor via skill-chain.py in project_cwd.
 
     Mirrors spawn_manager_for_command but targets the project-agnostic executor
     skill. Gated by the same MANAGER_SKILL_NAME dispatcher switch.
+
+    Runs through bin/skill-chain.py (--skill-args passthrough) instead of a
+    bare `claude --print` so the executor inherits the chain runner's
+    rate-limit pause-and-resume: a bare spawn dies instantly on "You've hit
+    your session limit" and the batch is silently lost, while the wrapper
+    sleeps until the advertised reset and resumes the same session.
     """
     if not MANAGER_SKILL_NAME:
         return False
@@ -521,11 +527,13 @@ def spawn_executor(project_cwd: str | None, queue_file: Path) -> bool:
     log_path = ON_DEMAND_LOG_DIR / f"{queue_file.stem}.log"
     cwd_str = str(Path(project_cwd).expanduser()) if project_cwd else None
     cmd = [
-        CLAUDE_BIN,
-        "--print",
-        "--permission-mode",
-        "bypassPermissions",
-        f"/{EXECUTOR_SKILL_NAME} --process-command {queue_file}",
+        sys.executable,
+        str(Path(__file__).resolve().parent / "skill-chain.py"),
+        EXECUTOR_SKILL_NAME,
+        "--skill-args", f"--process-command {queue_file}",
+        "--no-supervisor",
+        "--no-log",
+        "--on-rate-limit", "pause",
     ]
     proc = None
     try:
