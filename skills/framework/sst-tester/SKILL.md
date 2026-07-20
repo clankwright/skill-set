@@ -4,7 +4,8 @@ description: |
   Interactive UI/UX test stage that runs between the dev cycle and the review.
   After the dev skill commits, the tester resolves what changed, starts the
   project's local front+back-end stack, drives the affected surfaces in a real
-  browser (headed when a display exists, headless fallback), writes a structured
+  browser (headed when a display exists, headless fallback, or forced headless
+  via skill-chain `--tester-headless`), writes a structured
   findings artifact for the reviewer, then tears the stack down and exits cleanly
   — never persisting screenshots, traces, or any test-time artifact inside the
   repo tree. Self-skips to a no-op when the project has no local-run/browser path
@@ -17,7 +18,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.11.1
+version: 1.11.2
 model-floor: opus
 effort-floor: high
 ---
@@ -133,7 +134,7 @@ The chain runner reports the run-log directory on every invocation as `[log-dir]
 
 ### Headed vs headless (D2)
 
-Run **headed** when a display is available (e.g. a live `DISPLAY` session), so a human watching the run sees the real interaction; fall back to **headless** when no display exists (CI, a detached cron run, an overnight drain). The headed/headless choice never changes which surfaces are exercised — only whether a window is shown. Headless is the safe default when detection is ambiguous.
+Run **headed** when a display is available (e.g. a live `DISPLAY` session), so a human watching the run sees the real interaction; fall back to **headless** when no display exists (CI, a detached cron run, an overnight drain). **Override:** when the chain runner was started with `--tester-headless` (or the chain YAML sets `tester-headless: true`), the prompt includes a force-headless directive — honor it and stay headless even if `DISPLAY` is set (WSLg, local X11, etc.). The headed/headless choice never changes which surfaces are exercised — only whether a window is shown. Headless is the safe default when detection is ambiguous.
 
 ### Browser hang / unresponsive page (guaranteed recovery)
 

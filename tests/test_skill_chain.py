@@ -1021,12 +1021,38 @@ def test_build_command_non_tester_has_no_wind_down():
         assert "Turn budget" not in prompt
 
 
+def test_build_command_tester_headless_appends_force_directive():
+    """harness.tester_headless injects TESTER_HEADLESS_DIRECTIVE for *-tester."""
+    h = ClaudeCodeHarness()
+    h.tester_headless = True
+    prompt = h.build_command("sst-tester")[-1]
+    assert sc.TESTER_HEADLESS_DIRECTIVE in prompt
+    assert "--tester-headless" in prompt
+    # Non-tester skills must not get the override even when the flag is set.
+    assert sc.TESTER_HEADLESS_DIRECTIVE not in h.build_command("sst-dev-cycle")[-1]
+
+
+def test_build_command_tester_headless_off_by_default():
+    """Without tester_headless, cold-start prompts omit the force-headless directive."""
+    h = ClaudeCodeHarness()
+    assert sc.TESTER_HEADLESS_DIRECTIVE not in h.build_command("sst-tester")[-1]
+
+
+def test_parse_args_tester_headless_flag():
+    """--tester-headless is accepted; default is False."""
+    assert sc.parse_args(["sst-tester"]).tester_headless is False
+    assert sc.parse_args(["sst-tester", "--tester-headless"]).tester_headless is True
+
+
 def test_build_command_tester_resume_keeps_bare_continue():
     """A resumed tester (post rate-limit pause) keeps the bare 'continue' prompt."""
     h = ClaudeCodeHarness()
     prompt = h.build_command("sst-tester", resume_session_id="sess_abc123")[-1]
     assert prompt == "continue"
     assert "Turn budget" not in prompt
+    # Resume must not re-inject headless either (keeps bare continue).
+    h.tester_headless = True
+    assert h.build_command("sst-tester", resume_session_id="sess_abc123")[-1] == "continue"
 
 
 def test_build_command_custom_max_turns_tracks_soft_budget():
