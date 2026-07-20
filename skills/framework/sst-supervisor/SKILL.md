@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.9.0
+version: 2.10.0
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -416,9 +416,13 @@ After the append, run the §5b write-then-notify helper (`bash bin/notify-human-
 #   ~/.claude/state/executor-queue/<utc>_supervisor-request.json
 # Shape: { command:"supervisor-request", token, project, project_path, from:"sst-supervisor",
 #          run_dir, received_at, requests:[ {id, action, rationale, tier_hint, detail}, ... ] }
-claude --print --permission-mode bypassPermissions \
-  "/sst-executor --process-supervisor-request <queue-file>"
+nohup ~/Dev/skill-set/bin/skill-chain.py sst-executor \
+  --skill-args "--process-supervisor-request <queue-file>" \
+  --no-supervisor --no-log --on-rate-limit pause \
+  > ~/.claude/state/executor-queue/<queue-file-basename>.log 2>&1 &
 ```
+
+The skill-chain wrapper (never a bare `claude --print`) is mandatory: it gives the executor the chain runner's rate-limit pause-and-resume, so a "You've hit your session limit" death becomes a sleep-until-reset + `--resume` of the same session instead of a silently lost batch. It runs detached (`nohup … &`) because that pause can last hours and the supervisor must not block on it — which also means the spawn returning says NOTHING about completion (the batch may still be pausing). The end-state `Verify:` rules below are the only confirmation; the executor leaves the queue file un-archived until close-out, so a dead batch stays visibly in the queue dir.
 
 The executor classifies each request into its own authority tiers, runs tier-1 work, asks the human about any tier-2 (outward/irreversible) step it discovers, refuses tier-3, and audits every action over Telegram (`sst-executor` §Authority envelope + §Mandatory audit). **At most ONE executor spawn per supervisor session** — batch, never loop. The supervisor does not wait on or parse the executor's result; the executor owns its own audit and exit. Record "dispatched N requests to the executor (<queue-file>)" in the verdict.
 
@@ -530,7 +534,7 @@ Manual supervisor runs outside the chain runner inherit the user's interactive p
 
 - **Write paths are limited to:** (a) the run-dir (verdict, sanitize drafts, findings files); (b) `<cwd>/.claude/skills/<skill>/SKILL.md` for proprietary edits (in place, including a wrapper's `base-version:` reconcile per §3b); (c) `~/Dev/skill-set/skills/<cat>/<skill>/SKILL.md` for transferable edits (base-repo source, committed + pushed per §3a); (d) `docs/TODO.md` under `## Next up` (rare); (e) `docs/HUMAN.md` — APPEND only, under `## Blocking` or `## High`, for human-only blocker findings and decision-requests that pass §5b's HUMAN.md admission test (see §5b, §5c); (f) `~/.claude/state/manager-notes.md` — PREPEND only, a `## <utc-iso> supervisor observation (stuck-item)` block, exclusively for §3.6.2's stuck-item digest hint; (g) `~/.claude/state/executor-queue/<utc>_supervisor-request.json` — the single executor-request batch file for §5c Route 1 (its own queue dir, never the manager's bot queue). Never elsewhere.
 - **Git is scoped to base-repo transferable edits only.** The supervisor commits + pushes a transferable `SKILL.md` edit from `~/Dev/skill-set/` (§3a) and does nothing else with git: never commits the consuming project's repo (the dev cycle owns that), never touches a proprietary `.claude/skills/` path with git (gitignored), never force-pushes, never creates branches.
-- **Never deploy.** No SSH, no service restarts, no curl against a live site. **Two narrow exceptions, neither a deploy:** (1) invoking `bin/notify-human-md.sh` (which curls the Telegram API) immediately after a `docs/HUMAN.md` write in §5b/§5c; (2) spawning `sst-executor` exactly once per session for a §5c Route-1 batch (`claude --print --permission-mode bypassPermissions "/sst-executor --process-supervisor-request <queue-file>"`). The executor delegation is bounded to one spawn, carries only tier-1/tier-2 framework-maintenance requests, and the executor enforces its own perimeters + audit; it is a hand-off, not a production mutation. Both exceptions run through the `Bash` tool; everything else with SSH/curl/restart remains forbidden.
+- **Never deploy.** No SSH, no service restarts, no curl against a live site. **Two narrow exceptions, neither a deploy:** (1) invoking `bin/notify-human-md.sh` (which curls the Telegram API) immediately after a `docs/HUMAN.md` write in §5b/§5c; (2) spawning `sst-executor` exactly once per session for a §5c Route-1 batch (detached via the skill-chain wrapper: `nohup ~/Dev/skill-set/bin/skill-chain.py sst-executor --skill-args "--process-supervisor-request <queue-file>" --no-supervisor --no-log --on-rate-limit pause > <queue-file>.log 2>&1 &`). The executor delegation is bounded to one spawn, carries only tier-1/tier-2 framework-maintenance requests, and the executor enforces its own perimeters + audit; it is a hand-off, not a production mutation. Both exceptions run through the `Bash` tool; everything else with SSH/curl/restart remains forbidden.
 
 ## When invoked with no run-log dir argument
 

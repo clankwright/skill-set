@@ -3086,6 +3086,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              "(<cwd>/.claude/skills/*-supervisor/). On by default when a supervisor exists.",
     )
     p.add_argument(
+        "--skill-args",
+        default=None,
+        help="Arguments to pass through to the skill invocation (single-skill "
+             "runs only, e.g. sst-executor --skill-args '--process-command "
+             "<queue-file>'). Lets argument-taking skills run under this "
+             "wrapper's rate-limit pause-and-resume instead of a bare "
+             "`claude --print` that dies on a session limit.",
+    )
+    p.add_argument(
         "--chain",
         default=None,
         help="Run a named chain definition instead of an inline skill list. "
@@ -3357,8 +3366,13 @@ def run_iteration(
     loop_delay_random: tuple[float, float] | None = None,
     notify=None,
     max_overload_retries: int = OVERLOAD_MAX_RETRIES,
+    skill_args: str | None = None,
 ) -> tuple[int, dict]:
     """Run one pass of the chain. Returns (exit_code, iteration_manifest).
+
+    `skill_args` (Phase 68, single-skill runs only) is a passthrough argument
+    string for the skill itself (e.g. sst-executor's `--process-command
+    <queue-file>`), delivered in the invocation prompt.
 
     `chain_meta` carries chain-level fields (chain_name, chain_definition,
     harness, etc.) that the iteration manifest doesn't own. After every skill
@@ -3437,6 +3451,36 @@ def run_iteration(
     # chain metadata + an empty skills list.
     _snapshot_manifest()
 
+    # Phase 68: hand the run/iteration log dirs to every skill IN ITS PROMPT.
+    # The `[log-dir]` line printed at startup goes to the runner's own stdout,
+    # which no skill subprocess can ever see; every skill was falling back to
+    # `ls -dt .skill-runs/*/` and re-deriving its iteration path by hand.
+    # (Observed across three consecutive supervisor escalations: a dev inside
+    # iter 4 of a looped run fabricated a standalone run dir, the tester
+    # followed it, and the review lost the MANIFEST.) The prompt is the only
+    # channel into a skill, so the paths ride in as extra_prompt on every
+    # invocation. Format is load-bearing: skills grep for the bracketed tags.
+    log_context = ""
+    if iter_log_dir is not None:
+        run_log_dir = (iter_log_dir.parent
+                       if iter_log_dir.name == f"iter_{iteration:02d}"
+                       else iter_log_dir)
+        log_context = (
+            f"[log-dir] {run_log_dir}\n"
+            f"[iter-dir] {iter_log_dir}\n"
+            f"[iteration] {iteration}/{total_iterations or '?'}\n"
+            "Chain-runner context: [log-dir] is this run's log directory and "
+            "[iter-dir] is THIS iteration's subdir (identical on a non-looped "
+            "run). Read and write all run artifacts (MANIFEST.json, "
+            "tester-guidance.md, tester-findings.*) under [iter-dir]. Do not "
+            "resolve run dirs by scanning .skill-runs/, and never create one."
+        )
+    if skill_args:
+        arg_directive = ("Invoke the skill with exactly these arguments: "
+                         f"{skill_args}")
+        log_context = (log_context + "\n\n" + arg_directive) if log_context \
+            else arg_directive
+
     rc = 0
     for i, skill in enumerate(skills_to_run):
         sha_before_skill = _git_sha(cwd)
@@ -3474,6 +3518,7 @@ def run_iteration(
             pause_records=iter_manifest["rate_limit_pauses"],
             model=cli_model,
             effort=cli_effort,
+            extra_prompt=log_context,
             loop_delay=loop_delay,
             loop_delay_random=loop_delay_random,
             notify=notify,
@@ -4050,6 +4095,11 @@ def main() -> int:
         chain_name = args.chain_name or skills_arg[0]
     args.skills = skills_arg  # for downstream code that references args.skills
 
+    # Phase 68: --skill-args is single-skill only. A multi-skill chain has no
+    # way to know which skill the arguments belong to.
+    if args.skill_args and len(skills_arg) != 1:
+        raise SystemExit("--skill-args requires exactly one skill")
+
     # Resolve loop parameters (CLI wins over chain YAML).
     if args.loop is not None:
         loop_count = args.loop
@@ -4359,6 +4409,7 @@ def main() -> int:
                 loop_delay_random=loop_delay_random,
                 notify=_notify,
                 max_overload_retries=max_overload_retries,
+                skill_args=args.skill_args,
             )
             iterations_collected.append(iter_manifest)
 
