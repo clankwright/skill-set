@@ -667,28 +667,26 @@ def test_cursor_playwright_directive_no_display_expects_headless(tmp_path, monke
 
 
 def test_cursor_playwright_directive_force_headless_ignores_display(tmp_path, monkeypatch):
-    """--tester-headless must force headless even when DISPLAY is set."""
+    """--playwright-headless must force headless even when DISPLAY is set."""
     monkeypatch.setattr(sc.Path, "home", lambda: tmp_path / "nohome")
     monkeypatch.setenv("DISPLAY", ":0")
     text = sc._cursor_playwright_directive(tmp_path, force_headless=True)
     assert "FORCE HEADLESS" in text
     assert "prefer headed" not in text
-    assert "--tester-headless" in text
+    assert "--playwright-headless" in text
 
 
-def test_cursor_tester_headless_flag_forces_headless_in_prompt(tmp_path, monkeypatch):
-    """CursorHarness.tester_headless injects force-headless for *-tester only."""
+def test_cursor_playwright_headless_flag_forces_headless_for_all_skills(tmp_path, monkeypatch):
+    """CursorHarness.playwright_headless injects force-headless for every skill."""
     monkeypatch.setattr(sc.Path, "home", lambda: tmp_path / "nohome")
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.chdir(tmp_path)
     h = CursorHarness()
-    h.tester_headless = True
-    tester_prompt = h.build_command("sst-tester")[-1]
-    assert "FORCE HEADLESS" in tester_prompt
-    assert sc.TESTER_HEADLESS_DIRECTIVE in tester_prompt
-    other_prompt = h.build_command("sst-translator")[-1]
-    assert "FORCE HEADLESS" not in other_prompt
-    assert sc.TESTER_HEADLESS_DIRECTIVE not in other_prompt
+    h.playwright_headless = True
+    for skill in ("sst-tester", "sst-translator", "sst-dev-cycle"):
+        prompt = h.build_command(skill)[-1]
+        assert "FORCE HEADLESS" in prompt, skill
+        assert sc.PLAYWRIGHT_HEADLESS_DIRECTIVE in prompt, skill
 
 
 def test_cursor_cold_start_embeds_discovered_playwright(tmp_path, monkeypatch):
