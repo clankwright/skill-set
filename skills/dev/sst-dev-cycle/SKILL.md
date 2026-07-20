@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.25.0
+version: 1.25.1
 model-floor: fable
 effort-floor: high
 ---
@@ -225,7 +225,7 @@ By the time you reach this point the gate has already run (or was skipped becaus
 
 Stage only the files you changed (by name — no `git add -A`, which sweeps up secrets and noise). Bundle implementation + tests + spec update + TODO.md update + any index-file update in ONE commit. **The `git commit` + `git push` below is the skill's final action** — by the Phase 43/67 seam fix there is no `/skill` sub-invocation anywhere in this cycle (the sanitize gate was read-and-followed in-session back in §3), so nothing between the §4 test-green point and this commit should make you stop short of pushing:
 
-**Commit-message rule (read BEFORE composing the heredoc):** never append a `Co-Authored-By: Claude ... <noreply@anthropic.com>` trailer (or any AI-coauthor trailer variant). Empirical: the prior placement of this rule BELOW the heredoc was being skipped by models that copied the template top-down, and the trailer leaked into the majority of recent cycle commits despite the explicit ban. The heredoc body below ends at `EOF` — nothing else goes after `Test count:`.
+**Commit-message rule (read BEFORE composing the heredoc):** never append a `Co-Authored-By: Claude ... <noreply@anthropic.com>` trailer (or any AI-coauthor trailer variant — Cursor, Claude Code, or any other agent identity). Do NOT pass `git commit --trailer ...` either: the `--trailer` flag is the same ban, not a loophole around the heredoc. Empirical: the prior placement of this rule BELOW the heredoc was being skipped by models that copied the template top-down, and the trailer leaked into the majority of recent cycle commits despite the explicit ban; a later Cursor-harness cycle then reintroduced it via `--trailer "Co-authored-by: Cursor ..."` while keeping the heredoc otherwise clean. The heredoc body below ends at `EOF` — nothing else goes after `Test count:`. The `git commit` invocation is exactly the template below — no extra flags.
 
 ```bash
 git add <code-files> <test-files> <spec-file> docs/TODO.md <index-file>
