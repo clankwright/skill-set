@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.24.1
+version: 1.25.0
 model-floor: fable
 effort-floor: high
 ---
@@ -280,11 +280,31 @@ Where `<reason>` briefly names why the tester stage should be skipped (e.g. `no 
 
 ## 8. Deploy
 
-If the project has a deploy path (SSH to a VPS, CI workflow, `deploy/` script, container rebuild), run it. The specific command is project-specific and should be documented in the project's `CLAUDE.md`, `README.md`, or a deploy script — read it there, don't guess.
+If the project has a deploy path (SSH to a VPS, CI workflow, `deploy/` script, container rebuild), run it. Skip this section entirely when the project has no deploy path.
 
-Prefer the project's documented deploy script over inventing an ad-hoc `rsync`/`scp`. When a tree sync is unavoidable (no script, or the script is broken), always exclude secret files (`.env`, credential stores, local key material) so a local stub or placeholder cannot overwrite production secrets on the remote host.
+### 8.1 Resolve the deploy recipe before the first remote command
+
+1. Read the project's harness-instructions file (`CLAUDE.md` / `AGENTS.md` / equivalent), `README.md`, and any `deploy/` script. Prefer a documented deploy script over inventing an ad-hoc `rsync`/`scp`.
+2. Look for an explicit remote checkout line: `Deploy path: <absolute-path>` (preferred) or the absolute path named in the deploy section / script. Use that path — **do not invent** `/var/www/…`, `/opt/…`, `/home/<user>/<guess>`, or any other guessed layout.
+3. If no absolute remote path is documented and the deploy is SSH-based: run **one** discovery probe (e.g. `ssh <host> 'ls -d ~/Dev/<project-slug> /var/www/<project-slug> 2>/dev/null'`), then stop. If the probe does not uniquely identify the checkout, escalate — do **not** burn a retry loop of guessed paths.
+4. When a tree sync is unavoidable (no script, or the script is broken), always exclude secret files (`.env`, credential stores, local key material) so a local stub or placeholder cannot overwrite production secrets on the remote host.
+
+### 8.2 cd-free remote commands (harness contract)
+
+Some local harnesses strip `cd <path> &&` from shell command strings before execution — from **any** position in the string, not only the leading token. A remote command that depended on `cd` therefore lands in `$HOME` and fails (`not a git repository`, wrong binary, etc.), and byte-identical retries fail the same way.
+
+**Never put `cd` anywhere in an `ssh` command string.** Write every remote command `cd`-free:
+- Git: `git -C <abs-remote-path> <subcommand>`
+- Binaries that need a CWD: `env -C <abs-remote-path> <abs-binary> …`
+- Everything else: absolute binary path (`<abs-remote-path>/.venv/bin/…`, `/usr/bin/…`)
+
+If a command still behaves as if it ran in `$HOME`, append `; pwd` once to see where it landed — then rewrite it `cd`-free. Do not retry a byte-identical failing command.
+
+### 8.3 Migrations, restarts, health
 
 If the change involves a schema migration or new config, run that first before restarting the service. Never use `kill -9` / `pkill -9` on a managed service; use the service's own stop/start or graceful-reload command.
+
+Prefer separate SSH invocations for pull vs restart so a failed pull cannot still bounce the service on old code.
 
 After the deploy completes, confirm:
 - The service health check returns OK.
@@ -295,7 +315,7 @@ After the deploy completes, confirm:
 
 "Verify" means exercising the change against the **real systems it touches**. There are two independent surfaces, and a cycle must cover whichever ones apply:
 
-1. **The environment you deployed to** (§8). Skip this when the project has no deploy path — a local-only artifact correctly has nothing to verify here.
+1. **The environment you deployed to** (§8). Skip this when the project has no deploy path — a local-only artifact correctly has nothing to verify here. Any `ssh` used here obeys §8.2 (cd-free; absolute remote paths from §8.1).
 2. **Any external service or API your code consumes.** This surface is independent of deployment: a project can have no deploy path of its own yet rest its entire correctness on an external API contract. **"No deployment" never implies "no live verification."** Whenever the change's correctness depends on an external contract, you MUST make at least one real call to that service and assert that the actual response shape matches what your code — and the test mocks — assume. Tests that pass only against mocks you authored prove the code is self-consistent, not that it matches reality: a mock encoding a wrong schema produces green tests over broken code. Do NOT collapse this into "deployment is N/A, so verification is N/A" — that conflation ships code that cannot work against the real service.
 
 Exercise the specific thing you changed against the live environment:
