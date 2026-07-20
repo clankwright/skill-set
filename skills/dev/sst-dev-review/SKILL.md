@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.16.0
+version: 1.16.1
 model-floor: opus
 effort-floor: high
 ---
@@ -321,7 +321,7 @@ Order: blockers first, then should-fix, then any pre-existing entries (push pre-
 
 ## 5. Commit + push (only if step 4 actually added items)
 
-**Commit-message rule (read BEFORE composing the heredoc):** never append a `Co-Authored-By: Claude ... <noreply@anthropic.com>` trailer (or any AI-coauthor trailer variant). The heredoc body below ends at `EOF` — nothing else goes after the closing paragraph. Empirical placement-below-heredoc was being skipped by models reading top-down, so the rule lives ABOVE the template now.
+**Commit-message rule (read BEFORE composing the heredoc):** never append a `Co-Authored-By: Claude ... <noreply@anthropic.com>` trailer (or any AI-coauthor trailer variant — Cursor, Claude Code, or any other agent identity). Do NOT pass `git commit --trailer ...` either: the `--trailer` flag is the same ban, not a loophole around the heredoc. The heredoc body below ends at `EOF` — nothing else goes after the closing paragraph. Empirical: placement-below-heredoc was being skipped by models reading top-down, so the rule lives ABOVE the template now; a later Cursor-harness cycle then reintroduced the trailer via `--trailer "Co-authored-by: Cursor ..."` while keeping the heredoc clean. The `git commit` invocation is exactly the template below — no extra flags.
 
 ```bash
 git add <spec-file> docs/TODO.md docs/FUTURE-WORK.md  # TODO.md only if you wrote a Next-up entry; FUTURE-WORK.md only if §4 routed findings there; plus any status-index file you corrected
