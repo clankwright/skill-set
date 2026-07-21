@@ -1,0 +1,6 @@
+name: contact-research-and-write
+description: LLM-only contact research and outreach email draft in one skill session via fixed latest.* artifacts. Mere data transfer (seed/claim/apply) belongs in project drivers, not this chain.
+version: 2.0.0
+user-invocable: true
+skills:
+  - sst-outreach-research-and-write
