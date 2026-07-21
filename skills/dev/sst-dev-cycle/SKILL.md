@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.25.1
+version: 1.26.0
 model-floor: fable
 effort-floor: high
 ---
@@ -147,6 +147,8 @@ Do NOT downgrade `[hard]` to `[easy]` to fit a quota; if the budget feels tight,
 Emission order at iter start, top to bottom: TodoWrite → `## In flight` line → `[batch-pick]` block → `[picked-difficulty: <tier>]` → first §2 tool call.
 
 **The emission is not optional, and the omission is detected.** The runner records `batch_pick_missing = True` on the iteration manifest whenever the block is absent, and the supervisor reads that flag on every cycle — a skipped emission is attributed, not absorbed. Downstream review and supervisor do carry bracket-parsing fallbacks, but those exist to keep an already-degraded cycle reviewable, NOT to make the emission discretionary. The fallbacks cannot recover what the block alone carries: the batch's stated composition and its rationale. Without them, batch-coherence review silently narrows to whatever the commit diff happens to reveal, and the cycle's window-sizing cannot be checked against the tier the item actually claimed. Emit the block before the first §2 tool call, on every cycle, including single-item picks.
+
+**Cycle-end backstop — late beats never.** The observed omission signature is not format confusion: the dev narrates the intent ("now the batch declaration"), is pulled into §2's file reads, and the block never lands — and by the final report it is forgotten for good. So run one self-check at §10's report: if no `[batch-pick]` block has appeared as assistant-visible text anywhere in this cycle, emit it (and the `[picked-difficulty: <tier>]` sentinel, if that was also skipped) at the TOP of the final report, before the summary lines. Chain runners scan the whole session's assistant messages, and downstream skills (review, supervisor) read the transcript only after this skill exits, so a late emission still delivers the batch composition + rationale they key on. The at-start emission order above remains the contract; the backstop converts "never" into "late" — it does not license deferring the block.
 
 ## 2. Write failing tests
 
