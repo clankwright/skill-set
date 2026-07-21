@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.10.0
+version: 2.11.0
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -401,6 +401,8 @@ This is a **human-only** handoff (only the human can merge the completed branch 
 - **Idempotent:** if an open `## Blocking` entry already names the same phase-completion key (same `<N>` / branch), do NOT duplicate.
 
 After the append, run the §5b write-then-notify helper (`bash bin/notify-human-md.sh <cwd> docs/HUMAN.md`). This keeps every HUMAN.md write, including the phase-completion handoff, in the oversight layer (supervisor + manager) only, per the Phase 54 invariant.
+
+**Backfill for run-ending bails (the sentinel iteration never gets a supervisor pass).** The chain runner's empty-queue bail skips every remaining skill in the iteration, including the auto-appended supervisor, and then aborts the loop; the iteration that emits the phase-complete sentinel therefore produces no supervisor session, and the entry above is never filed on that iteration (observed: a phase-completion bail whose run ended with only a dev transcript + MANIFEST on disk, no verdict and no HUMAN.md entry, leaving the chain driver's session-end message as the only signal to the human). Every supervisor session therefore also checks backward: locate the most recent PRIOR run's final iter (the same `.skill-runs/` walk §3.5.1 defines); if its MANIFEST records a `no_work_bail` whose reason matches the phase-complete sentinel AND that iter has no `supervisor_verdict.md` AND no `docs/HUMAN.md` entry (open or closed) names that phase-completion key, file the §5b.1 entry now, exactly as above (idempotency and write-then-notify included). Mootness check first: when the current session's own run shows the branch setup already happened (the current run is shipping work on a successor phase's branch), do NOT file; record the backfilled handoff as moot in the verdict instead. The backfill closes the gap with one-run latency; the runner's bail-time notification remains the immediate signal.
 
 ### 5c. Autonomous follow-up dispatch + human decision-requests
 
