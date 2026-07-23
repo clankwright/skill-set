@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/toadlyBroodle/skill-set/schema/skill-chain.schema.json",
+  "$id": "https://github.com/clankwright/skill-set/schema/skill-chain.schema.json",
   "title": "Skill-chain definition",
   "description": "Validates a chain definition file. Transferable chains live at <repo>/chains/<name>.yaml; proprietary chains live at <project>/.claude/chains/<name>.yaml.",
   "type": "object",

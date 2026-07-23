@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/toadlyBroodle/skill-set/schema/skill-set.schema.json",
+  "$id": "https://github.com/clankwright/skill-set/schema/skill-set.schema.json",
   "title": "Skill-set frontmatter",
   "description": "Validates the YAML frontmatter at the top of every SKILL.md, both transferable (in this repo) and proprietary (in a project's harness skills dir).",
   "type": "object",
