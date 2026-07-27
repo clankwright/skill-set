@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.17.0
+version: 1.18.0
 model-floor: opus
 effort-floor: high
 ---
@@ -144,6 +144,8 @@ For every new or modified public function, endpoint, handler, or exported symbol
 - **Architectural gotchas:** any rule the project's CLAUDE.md / README calls out (e.g. "never import X at module scope in Y", "new columns need an ALTER in migrate()", "service restart uses Z not Y") — did the cycle honor them? Grep for the specific symbol/pattern the rule names.
 
 ### 2.3 Test coverage
+
+**A docs-only cycle with no new tests is not a coverage finding.** When every changed file is prose, "shipped without tests" and a flat pass count are the correct outcome — do not file it, and do not propose a guard that reads the document and asserts on its wording. Documentation is not a behavioural contract: a test that greps a `.md` file for a phrase, heading, or checkbox exercises no code path and goes red whenever someone rewords a paragraph. If a documented claim is worth guarding, file the guard against what the document describes (the flag the CLI exposes, the field the endpoint returns), never against the text. Equally, treat an EXISTING prose-asserting test in the diff as a finding in its own right, and propose deleting it rather than repairing it.
 
 For each new test file or modified test file:
 
