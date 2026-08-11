@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.29.0
+version: 1.30.0
 model-floor: fable
 effort-floor: high
 ---
@@ -247,6 +247,8 @@ EOF
 
 git push origin <branch>
 ```
+
+**Before `git commit`, verify the staged set.** Run `git diff --cached --name-status` and confirm it lists every file the cycle changed. This catches a `git add` that aborted partway: when the cycle deleted files with `git rm`, those deletions are ALREADY staged, so do NOT re-list the deleted paths in the `git add` above — `git add <a-path-that-no-longer-exists>` fails the WHOLE invocation atomically (`fatal: pathspec '...' did not match any files`) and stages none of the other pathspecs, leaving only the pre-staged deletions for `git commit` to capture. An incomplete commit caught here is a cheap `git reset --soft HEAD~1` + re-add; the same commit caught only after `git push` forces a history-rewriting force-push over the remote branch. Verify before committing so the incomplete commit never leaves your machine.
 
 **Never make a separate "docs: record <sha> in TODO" commit, and never `git commit --amend` to rewrite a Just-shipped SHA**. The Just-shipped line intentionally omits the SHA for exactly this reason — a commit cannot contain its own hash, and amend-based workarounds produce dangling references that confuse forensic work. The one-line summary + utc-iso is sufficient to locate the commit in `git log`.
 
