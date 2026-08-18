@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.18.0
+version: 1.19.0
 model-floor: opus
 effort-floor: high
 ---
@@ -52,7 +52,7 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` (all 
    a. Run `git status --porcelain`. If empty (clean tree → no **dirty tree**), skip to step 3 (nothing to recover).
    b. Read `docs/TODO.md`'s `## In flight` section (strip HTML comments). If it contains no `- [` bullet (no **In-flight line**), skip to step 3 (dirty tree is unrelated noise — see step 3).
    c. **Both signals present (dirty tree + live In-flight line); HEAD unchanged is established by the runner's routing.** Recovery path — note the **sanitize clean** gate (sub-step 4) runs BEFORE staging + commit so it is never the step immediately before the commit (Phase 43/D2 seam fix):
-      1. Run the project's full test suite (`pytest tests/ -q` or equivalent). If **any** test fails (**tests green** signal absent): print `[incomplete-cycle] tests failing in dirty tree; cannot auto-commit`, surface the failure detail to the user, and **exit**. Do NOT commit or push.
+      1. Run the project's full test suite (`pytest tests/ -q` or equivalent) **in the foreground**: a single blocking command with the tool timeout raised for a slow suite; never launch this recovery gate as a detached/background job and then poll its output file. This mirrors `sst-dev-cycle` §4's foreground-gate rule and exists for the same reason: a single-shot review invocation is not re-invoked after its turn ends, so pausing to poll a backgrounded suite ends the turn with the recovery commit still pending and re-strands the very cycle this step exists to heal. Note that a foreground command left at the default tool timeout can itself be auto-backgrounded by the harness when it overruns, landing you in the same poll trap, so raise the timeout explicitly rather than relying on the default; and if the suite genuinely exceeds even the raised foreground timeout, run it as foreground shards you block on sequentially. If **any** test fails (**tests green** signal absent): print `[incomplete-cycle] tests failing in dirty tree; cannot auto-commit`, surface the failure detail to the user, and **exit**. Do NOT commit or push.
       2. Tests pass. Extract the scope + description from the In-flight line (format: `- [<skill> @ <utc>] <description>`).
       3. Inspect changed files: `git diff --name-only` and `git ls-files --others --exclude-standard`.
       4. **Sanitize gate for transferable edits (runs BEFORE staging — the seam fix).** From the changed-file list in step 3, check for any transferable skill path matching `skills/**/sst-*/SKILL.md`. If any match, invoke `/sst-sanitize-transferable` on each affected `SKILL.md` now — before the spec-flip, the TODO finalize, the staging, and the commit:
