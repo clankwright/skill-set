@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.30.0
+version: 1.31.0
 model-floor: fable
 effort-floor: high
 ---
@@ -186,6 +186,8 @@ Emission order at iter start, top to bottom: TodoWrite → `## In flight` line �
 <test-runner> <relevant-tests> -v     # fast iteration
 <test-runner> <full-suite>            # final gate
 ```
+
+**Run the final gate in the foreground; never background-and-poll it.** Run the `<full-suite>` gate as a foreground command that blocks until it returns the pass/fail counts in-band (raise the tool's timeout for a slow suite). Do NOT launch the gating suite as a detached/background job and then poll its output file: a piped background run commonly flushes only at completion, so the poll never converges, and a single-shot cycle invocation is not re-invoked after its turn ends, so "pausing to wait" for a background gate ends the turn with the cycle still uncommitted and strands the whole run (the chain runner's incomplete-cycle recovery then has to re-run the entire suite to heal it). If a suite genuinely exceeds the foreground tool timeout, run it as foreground shards you block on sequentially rather than backgrounding the gate.
 
 Record the full-suite pass count before your change. After, it must be `old_count + <new_tests>` (or higher, if you incidentally fixed a flake). If it drops, you broke something — fix before continuing.
 
