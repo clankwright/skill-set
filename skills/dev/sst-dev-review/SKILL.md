@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.19.0
+version: 1.20.0
 model-floor: opus
 effort-floor: high
 ---
@@ -218,9 +218,9 @@ Parse the block's stated items and compare against the actual commit:
 - `## Just shipped` additions in the diff — each stated item should have a corresponding entry.
 - `git show HEAD --stat` — files touched should be explained by the batch items; two or more items that touch disjoint files with no shared SPEC phase, concept, or mechanical pattern signal incoherent bundling.
 
-**File a `[should-fix]` tagged `[batch-coherence]`** when any of: (a) a stated item has no `[x]` flip and no Just-shipped entry; (b) the diff contains `[x]` flips absent from the stated batch; (c) batch items touch disjoint files with no discernible shared relation axis.
+**File a `[should-fix]` tagged `[batch-coherence]`** when any of: (a) a stated item has no `[x]` flip and no Just-shipped entry; (b) the diff contains `[x]` flips absent from the stated batch; (c) batch items touch disjoint files with no discernible shared relation axis; (d) a **shipped** item — one present in the commit's code diff AND named in a fresh `## Just shipped` entry — has no corresponding SPEC `- [ ]`→`- [x]` flip in the commit, so its checkbox is left `[ ]` though the work landed (SPEC↔TODO drift; in a branch-per-phase project a falsely-open `- [ ]` also blocks the §0/§7 phase-completion bail, which fires only when every `- [ ]` under the phase is `- [x]`). Case (d) most often bites items that live in a SPEC subsection away from the main phase list (e.g. a **Review follow-ups** block): the dev updates `## Just shipped` but overlooks the checkbox in the other block.
 
-Do **not** file for a single-item batch (trivially coherent) or when the multi-file reach is a uniform mechanical change (e.g. tagging the same frontmatter field in N SKILL.md files = one concept, one axis).
+Do **not** file (a)–(c) for a single-item batch (trivially coherent) or when the multi-file reach is a uniform mechanical change (e.g. tagging the same frontmatter field in N SKILL.md files = one concept, one axis). **Case (d) is exempt from that exemption:** the shipped-but-unflipped check fires on a single-item commit too, and — because it keys on the code diff + `## Just shipped`, not on the stated batch — it is checked even when the dev emitted no `[batch-pick]` block (the `batch_pick_missing` / Just-shipped-proxy fallback path above). Confirm it directly: `git show HEAD -- docs/SPEC.md | grep '^\+.*\[x\]'` and check every shipped item appears among the flips; a `## Just shipped` entry with a code change but no matching `[x]` flip is drift.
 
 ### 2.10 Batch sizing
 
