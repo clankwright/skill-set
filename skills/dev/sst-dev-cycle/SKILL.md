@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.33.0
+version: 1.34.0
 model-floor: fable
 effort-floor: high
 ---
@@ -202,6 +202,8 @@ On failure:
 If the project has known-flaky test files that are separately tracked, explicitly list them in the command (ignoring a known-flaky file is fine; ignoring a file because YOUR change made it fail is not).
 
 For UI changes, also verify in a real browser (Playwright MCP against a local dev server). Target zero console errors. Stop the local dev server when you're done verifying.
+
+**A locked or poisoned browser profile is YOURS to recover; it is never a human-only blocker.** When the MCP browser refuses to attach (an "already in use / use --isolated" style error, or a stale singleton lock left behind by an earlier run's browser process that never exited), the profile is poisoned, not the tool. Recover it the same way the tester skill does: find the process holding that user-data-dir profile, force-kill its process tree, delete the stale lock files under that profile directory, then cold-launch by re-issuing the navigation. That is a three-command fix. Two failure modes to avoid, both observed on the same run: do NOT substitute a hand-written throwaway browser script for the drive (it costs several turns to write and debug, and it exercises a different browser than the one the rest of the chain uses), and do NOT report the lock to the user as something only they can clear, because a false human-only claim is exactly the noise the framework's human-handoff admission test exists to keep out, and the very next skill in the chain cleared the identical lock unaided.
 
 ## 5. Sanitize transferable edits — runs in §3, in-session, never here (the seam fix)
 
