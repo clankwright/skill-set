@@ -966,10 +966,34 @@ class Harness:
         return False
 
 
+# Phase 69: pin lagging Claude CLI model aliases to explicit ids. The runner
+# routes on TIER names ("haiku"/"sonnet"/"opus"/"fable"); the Claude CLI
+# resolves most tier aliases to the newest model in that band, but the `opus`
+# alias currently resolves to Opus 4.8 while Opus 5 is the intended default
+# for [medium] items and the DEFAULT_MODEL_FLOOR. Map any tier listed here to
+# an explicit model id at the harness boundary (routing, floors, ceilings, and
+# the Cursor band mapping all stay tier-based). Unlisted tiers pass through as
+# aliases so they keep tracking the CLI's newest-in-band resolution.
+CLAUDE_TIER_MODEL_IDS = {
+    "opus": "claude-opus-5",
+}
+
+
 class ClaudeCodeHarness(Harness):
     """Anthropic Claude Code CLI as the agent harness."""
 
     name = "claude-code"
+
+    def resolve_cli_route(
+        self,
+        model: str | None,
+        effort: str | None,
+    ) -> tuple[str, str | None]:
+        tier = model or DEFAULT_MODEL_FLOOR
+        return (
+            CLAUDE_TIER_MODEL_IDS.get(tier, tier),
+            effort or DEFAULT_EFFORT_FLOOR,
+        )
 
     def build_command(
         self,
@@ -1033,7 +1057,9 @@ class ClaudeCodeHarness(Harness):
             # the chop. Default DEFAULT_MAX_TURNS (250); override with
             # --max-turns. See github.com/anthropics/claude-code/issues/16963.
             "--max-turns", str(hard_turns),
-            "--model",  model  or DEFAULT_MODEL_FLOOR,
+            # Phase 69: tier -> explicit model id (opus pinned to Opus 5; the
+            # CLI's bare `opus` alias still resolves to 4.8).
+            "--model",  self.resolve_cli_route(model, effort)[0],
             "--effort", effort or DEFAULT_EFFORT_FLOOR,
         ]
         if resume_session_id:
