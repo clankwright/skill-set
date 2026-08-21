@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.21.0
+version: 1.21.1
 model-floor: opus
 effort-floor: high
 ---
@@ -248,7 +248,7 @@ Also read the `[batch-pick]` block's `window-target ~XXk` and verify it falls wi
 
 **File a `[should-fix]` tagged `[batch-sizing]`** when:
 - **Undersized**: actual input tokens < the undersize threshold AND the pre-commit queue (read from `git show HEAD -- docs/TODO.md | grep '^\-.*\[' | head -20`) offered ≥1 item of compatible difficulty + related concept that the dev did not batch.
-- **Oversized**: actual input tokens exceed the upper band edge, OR MANIFEST records `terminated_by == "max_turns"`, OR the diff shows no SPEC `[x]` flips despite a stated batch pick (§6+§7 of the dev cycle did not land cleanly).
+- **Oversized**: actual input tokens exceed the upper band edge, OR MANIFEST records `terminated_by == "max_turns"`, OR the diff shows no SPEC `[x]` flips despite a stated batch pick (§6+§7 of the dev cycle did not land cleanly). **"Exceed" is judged at whole-`k` granularity, and an exact tie with an edge is INSIDE the band:** round the computed total to the nearest `k` and fire only when the rounded value lands strictly outside the rounded band. The machine line states both `actual` and the band edges in whole `k`, so that is the granularity the comparison is defined at; a raw total a few hundred tokens past an edge rounds ONTO it and is not an oversize. Firing there emits a line whose own numbers show no overshoot (`actual=200k band=100-200k`), which is the same self-contradictory receipt this section already rejects in the other direction, and it hands the supervisor's hard-counted M-total trigger a sub-0.1% measurement artifact as if it were signal. (Observed: a two-item `[easy]` batch that hit its declared ~180k window-target summed to 200,164 against the 200k upper edge; the review called it in-band, which was right, but nothing in this rule said it could.)
 
 Include the actual token count, difficulty, and band edges in the finding text. The `[batch-sizing]` tag allows the supervisor to aggregate findings across iters and trigger window-target refinement.
 
