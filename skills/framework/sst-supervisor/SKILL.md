@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.14.2
+version: 2.14.3
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -352,7 +352,7 @@ Trigger: the run dir has a `tester-findings.json` AND no `*-dev-review` transcri
 - an overall `verdict: degraded` (tester tried but could not fully exercise the surface) -> a `[should-fix]` noting the incomplete runtime coverage;
 - `verdict: green` / `skipped`, or an absent findings file -> nothing to file.
 
-File each as a `## Next up` line in `docs/TODO.md` using §5's format and **bounded-item rule** (and mirror it to a `## Review follow-ups` entry in `docs/SPEC.md` when the project keeps that section), citing the tester check's recommendation and evidence path. **Dedup first:** read `docs/SPEC.md` / `docs/TODO.md` before filing -- if a finding already maps to an existing SPEC `[ ]` item, cite that ID in the verdict instead of adding a duplicate line. A finding whose fix needs a human (an auth/secret/credential, or a genuine product/UX decision the tester only flagged, not an agent-fixable bug) routes to `docs/HUMAN.md` per §5b, not `## Next up`. Record what was filed (and what was deduped) under `## Edits written`; only the residual that genuinely needs a human goes in `## Notes for the manager`. The principle: nothing an autonomous dev cycle can act on is left only in the manager notes.
+File each as a `## Next up` line in `docs/TODO.md` using §5's format and **bounded-item rule** (and mirror it under the **phase of the work that was tested** in `docs/SPEC.md` — the shipped pick's `<phase>.<n>`, next unused `n` in that phase only, never a different phase's dump; same association rule as `sst-dev-review` §4), citing the tester check's recommendation and evidence path. **Dedup first:** read `docs/SPEC.md` / `docs/TODO.md` before filing -- if a finding already maps to an existing SPEC `[ ]` item, cite that ID in the verdict instead of adding a duplicate line. A finding whose fix needs a human (an auth/secret/credential, or a genuine product/UX decision the tester only flagged, not an agent-fixable bug) routes to `docs/HUMAN.md` per §5b, not `## Next up`. Record what was filed (and what was deduped) under `## Edits written`; only the residual that genuinely needs a human goes in `## Notes for the manager`. The principle: nothing an autonomous dev cycle can act on is left only in the manager notes.
 
 ### 5b. Route to HUMAN.md for human-only blockers (when applicable)
 
@@ -371,7 +371,7 @@ Placement: default to `## Blocking` for items that actively stop a SPEC item fro
   Source: <run-dir-name>/supervisor_verdict.md.
 ```
 
-Assign the next unused `H<phase>.<n>` ID where `<phase>` matches the SPEC phase the action is gating. IDs are stable once assigned; gaps are valid.
+Assign the next unused `H<phase>.<n>` ID where `<phase>` matches the SPEC phase the action is gating (the phase being reviewed when this is a follow-up of a cycle). IDs are stable once assigned; gaps are valid.
 
 Note: a skill-prose improvement is NOT a HUMAN.md item. The supervisor edits skill source directly (§3) and, for transferables, commits and pushes it (§3a) — there is no human promotion step. `docs/HUMAN.md` is only for actions that genuinely require a human with out-of-band credentials.
 
