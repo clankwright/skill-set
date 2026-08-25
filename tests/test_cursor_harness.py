@@ -14,6 +14,8 @@ CursorHarness = sc.CursorHarness
 ClaudeCodeHarness = sc.ClaudeCodeHarness
 _cursor_tool_call_fields = sc._cursor_tool_call_fields
 DEFAULT_CURSOR_MODEL = sc.DEFAULT_CURSOR_MODEL
+CURSOR_GROK_FAMILY = sc.CURSOR_GROK_FAMILY
+DEFAULT_CURSOR_GROK_BAND = sc.DEFAULT_CURSOR_GROK_BAND
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cursor-stream-sample.jsonl"
 
@@ -316,7 +318,7 @@ def test_turn_proxy_counts_native_assistant_not_synthetic_tool_calls():
                 "cacheReadTokens": 0,
                 "cacheWriteTokens": 0,
             },
-            "model": "cursor-grok-4.5-high",
+            "model": DEFAULT_CURSOR_MODEL,
         },
     ]
     for e in stream:
@@ -327,36 +329,37 @@ def test_turn_proxy_counts_native_assistant_not_synthetic_tool_calls():
 
 def test_default_cursor_model_is_valid_grok_id():
     """DEFAULT_CURSOR_MODEL must be a real cursor-agent --model id, not bare 'grok'."""
-    assert DEFAULT_CURSOR_MODEL == "cursor-grok-4.5-high"
+    assert DEFAULT_CURSOR_MODEL == f"{CURSOR_GROK_FAMILY}-{DEFAULT_CURSOR_GROK_BAND}"
+    assert DEFAULT_CURSOR_MODEL.startswith("cursor-grok-")
     assert DEFAULT_CURSOR_MODEL != "grok"
 
 
 # ---- Phase 63: Grok ladder routing ------------------------------------------
 
 def test_cursor_grok_id_maps_effort_and_model_floors(monkeypatch):
-    """max(model-band, effort-band) → cursor-grok-4.5-{low,medium,high}."""
+    """max(model-band, effort-band) → CURSOR_GROK_FAMILY-{low,medium,high}."""
     monkeypatch.delenv("CURSOR_MODEL", raising=False)
-    assert sc._cursor_grok_id_for_route("haiku", "low") == "cursor-grok-4.5-low"
-    assert sc._cursor_grok_id_for_route("sonnet", "low") == "cursor-grok-4.5-medium"
-    assert sc._cursor_grok_id_for_route("sonnet", "medium") == "cursor-grok-4.5-medium"
-    assert sc._cursor_grok_id_for_route("opus", "medium") == "cursor-grok-4.5-high"
-    assert sc._cursor_grok_id_for_route("opus", "high") == "cursor-grok-4.5-high"
-    assert sc._cursor_grok_id_for_route("fable", "xhigh") == "cursor-grok-4.5-high"
-    assert sc._cursor_grok_id_for_route("haiku", "high") == "cursor-grok-4.5-high"
+    assert sc._cursor_grok_id_for_route("haiku", "low") == f"{CURSOR_GROK_FAMILY}-low"
+    assert sc._cursor_grok_id_for_route("sonnet", "low") == f"{CURSOR_GROK_FAMILY}-medium"
+    assert sc._cursor_grok_id_for_route("sonnet", "medium") == f"{CURSOR_GROK_FAMILY}-medium"
+    assert sc._cursor_grok_id_for_route("opus", "medium") == f"{CURSOR_GROK_FAMILY}-high"
+    assert sc._cursor_grok_id_for_route("opus", "high") == f"{CURSOR_GROK_FAMILY}-high"
+    assert sc._cursor_grok_id_for_route("fable", "xhigh") == f"{CURSOR_GROK_FAMILY}-high"
+    assert sc._cursor_grok_id_for_route("haiku", "high") == f"{CURSOR_GROK_FAMILY}-high"
     # Neither → default high
     assert sc._cursor_grok_id_for_route(None, None) == DEFAULT_CURSOR_MODEL
 
 
 def test_cursor_grok_id_env_pin_overrides_ladder(monkeypatch):
-    monkeypatch.setenv("CURSOR_MODEL", "cursor-grok-4.5-low")
-    assert sc._cursor_grok_id_for_route("opus", "xhigh") == "cursor-grok-4.5-low"
+    pin = f"{CURSOR_GROK_FAMILY}-low"
+    monkeypatch.setenv("CURSOR_MODEL", pin)
+    assert sc._cursor_grok_id_for_route("opus", "xhigh") == pin
 
 
 def test_cursor_grok_id_passes_through_concrete_ids(monkeypatch):
     monkeypatch.delenv("CURSOR_MODEL", raising=False)
-    assert sc._cursor_grok_id_for_route("cursor-grok-4.5-medium-fast", None) == (
-        "cursor-grok-4.5-medium-fast"
-    )
+    fast = f"{CURSOR_GROK_FAMILY}-medium-fast"
+    assert sc._cursor_grok_id_for_route(fast, None) == fast
     assert sc._cursor_grok_id_for_route("composer-2.5", "high") == "composer-2.5"
 
 
@@ -364,10 +367,10 @@ def test_cursor_resolve_cli_route_and_build_command_honor_ladder(monkeypatch):
     monkeypatch.delenv("CURSOR_MODEL", raising=False)
     h = CursorHarness()
     cli_model, cli_effort = h.resolve_cli_route("sonnet", "low")
-    assert cli_model == "cursor-grok-4.5-medium"
+    assert cli_model == f"{CURSOR_GROK_FAMILY}-medium"
     assert cli_effort is None
     cmd = h.build_command("sst-translator", model="sonnet", effort="low")
-    assert cmd[cmd.index("--model") + 1] == "cursor-grok-4.5-medium"
+    assert cmd[cmd.index("--model") + 1] == f"{CURSOR_GROK_FAMILY}-medium"
     # Claude harness still passes tiers through.
     ch = ClaudeCodeHarness()
     cm, ce = ch.resolve_cli_route("sonnet", "low")
@@ -378,8 +381,9 @@ def test_cursor_build_command_uses_passed_cli_model(monkeypatch):
     """run_iteration may pass an already-resolved Grok id."""
     monkeypatch.delenv("CURSOR_MODEL", raising=False)
     h = CursorHarness()
-    cmd = h.build_command("sst-translator", model="cursor-grok-4.5-low", effort=None)
-    assert cmd[cmd.index("--model") + 1] == "cursor-grok-4.5-low"
+    grok_low = f"{CURSOR_GROK_FAMILY}-low"
+    cmd = h.build_command("sst-translator", model=grok_low, effort=None)
+    assert cmd[cmd.index("--model") + 1] == grok_low
 
 
 # ---- Cursor telemetry (usage → modelUsage + budget loud-skip) ---------------
@@ -391,14 +395,14 @@ def test_cursor_usage_to_model_usage_renames_cache_keys():
         "cacheReadTokens": 34048,
         "cacheWriteTokens": 0,
     }
-    out = sc._cursor_usage_to_model_usage(usage, "cursor-grok-4.5-high")
-    assert "cursor-grok-4.5-high" in out
-    u = out["cursor-grok-4.5-high"]
+    out = sc._cursor_usage_to_model_usage(usage, DEFAULT_CURSOR_MODEL)
+    assert DEFAULT_CURSOR_MODEL in out
+    u = out[DEFAULT_CURSOR_MODEL]
     assert u["inputTokens"] == 21442
     assert u["outputTokens"] == 134
     assert u["cacheReadInputTokens"] == 34048
     assert u["cacheCreationInputTokens"] == 0
-    # Grok 4.5 rates: $2/M in + $0.50/M cache-read + $6/M out
+    # Grok family rates: $2/M in + $0.50/M cache-read + $6/M out
     expected = (21442 * 2.0 + 134 * 6.0 + 34048 * 0.50) / 1_000_000
     assert abs(u["costUSD"] - expected) < 1e-9
 
@@ -411,6 +415,8 @@ def test_estimate_cursor_cost_usd_grok_rates():
         "cacheWriteTokens": 100_000,
     }
     # 1M*$2 + 0.5M*$6 + 2M*$0.50 + 0.1M*$2 = 2 + 3 + 1 + 0.2 = 6.2
+    assert sc._estimate_cursor_cost_usd(usage, DEFAULT_CURSOR_MODEL) == 6.2
+    # Pinned 4.5 ids still meter at the same list price.
     assert sc._estimate_cursor_cost_usd(usage, "cursor-grok-4.5-high") == 6.2
 
 
@@ -438,7 +444,7 @@ def test_normalize_result_maps_usage_to_model_usage():
     assert u["inputTokens"] == result["usage"]["inputTokens"]
     assert u["cacheReadInputTokens"] == result["usage"]["cacheReadTokens"]
     expected = sc._estimate_cursor_cost_usd(
-        result["usage"], "cursor-grok-4.5-high"
+        result["usage"], DEFAULT_CURSOR_MODEL
     )
     assert abs(out.get("total_cost_usd") - expected) < 1e-9
     assert abs(u["costUSD"] - expected) < 1e-9
@@ -457,7 +463,7 @@ def test_handle_event_cursor_result_fills_model_usage_and_turn_proxy():
         sc.handle_event(sink, ev, rec)
     expected = sc._estimate_cursor_cost_usd(
         next(e for e in _fixture_events() if e.get("type") == "result")["usage"],
-        "cursor-grok-4.5-high",
+        DEFAULT_CURSOR_MODEL,
     )
     assert abs(rec["total_cost_usd"] - expected) < 1e-9
     assert rec["num_turns"] >= 1  # native assistant text only (tool_call frames excluded, 64.3)
