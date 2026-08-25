@@ -357,6 +357,22 @@ DEFAULT_MODEL_FLOOR  = "opus"
 DEFAULT_EFFORT_FLOOR = "high"
 DEFAULT_DIFFICULTY   = "medium"
 
+# ---- Default model pins (change here) --------------------------------------
+# Cursor Grok generation + default band. The Phase-63 ladder emits
+# `{CURSOR_GROK_FAMILY}-{low,medium,high}`; ad-hoc (no model/effort) uses
+# DEFAULT_CURSOR_MODEL. CURSOR_MODEL env still pins every skill to one id.
+CURSOR_GROK_FAMILY = "cursor-grok-4.6"
+DEFAULT_CURSOR_GROK_BAND = "high"
+DEFAULT_CURSOR_MODEL = f"{CURSOR_GROK_FAMILY}-{DEFAULT_CURSOR_GROK_BAND}"
+
+# Claude: pin lagging CLI aliases to explicit ids (Phase 69). The runner
+# routes on TIER names; the CLI's bare `opus` alias still resolves to Opus
+# 4.8, so we map it to Opus 5 at the harness boundary. Unlisted tiers pass
+# through so they keep tracking the CLI's newest-in-band resolution.
+CLAUDE_TIER_MODEL_IDS = {
+    "opus": "claude-opus-5",
+}
+
 # Per-agent turn budget. The harness enforces a HARD ceiling (`--max-turns`)
 # below which the Claude Code CLI cuts an agent off mid-task with no chance to
 # finish. WIND_DOWN_TURN_HEADROOM turns are reserved below that ceiling and
@@ -966,19 +982,6 @@ class Harness:
         return False
 
 
-# Phase 69: pin lagging Claude CLI model aliases to explicit ids. The runner
-# routes on TIER names ("haiku"/"sonnet"/"opus"/"fable"); the Claude CLI
-# resolves most tier aliases to the newest model in that band, but the `opus`
-# alias currently resolves to Opus 4.8 while Opus 5 is the intended default
-# for [medium] items and the DEFAULT_MODEL_FLOOR. Map any tier listed here to
-# an explicit model id at the harness boundary (routing, floors, ceilings, and
-# the Cursor band mapping all stay tier-based). Unlisted tiers pass through as
-# aliases so they keep tracking the CLI's newest-in-band resolution.
-CLAUDE_TIER_MODEL_IDS = {
-    "opus": "claude-opus-5",
-}
-
-
 class ClaudeCodeHarness(Harness):
     """Anthropic Claude Code CLI as the agent harness."""
 
@@ -1068,17 +1071,11 @@ class ClaudeCodeHarness(Harness):
         return cmd
 
 
-# Default model for the Cursor harness when no Phase-19 route is available
-# (ad-hoc invocation with neither model nor effort). Override with CURSOR_MODEL
-# to pin a specific id for EVERY skill (disables per-skill Grok-ladder routing).
-# Valid Grok ids (cursor-agent --list-models): cursor-grok-4.5-{low,medium,high}
-# [-fast]. Other providers' ids are also accepted. "grok" alone is NOT valid.
-DEFAULT_CURSOR_MODEL = "cursor-grok-4.5-high"
-
 # Phase 63: map Claude Phase-19 (model, effort) tiers onto the Cursor Grok
 # effort ladder. Cursor has no separate --effort flag — effort is baked into
 # the --model id. Take the max of the model-floor band and the effort band so
 # an opus/fable floor still lifts an otherwise-low effort to high.
+# Family + default band live in the Default model pins block above.
 CURSOR_GROK_BANDS = ["low", "medium", "high"]
 MODEL_TO_CURSOR_BAND = {
     "haiku": "low",
@@ -1096,16 +1093,21 @@ EFFORT_TO_CURSOR_BAND = {
 
 # USD per 1M tokens: (input, cache_write, cache_read, output).
 # Prefer Cursor-published model API rates (cursor.com/docs/models-and-pricing)
-# when known; otherwise fall back to Grok 4.5 public API list price
-# (docs.x.ai: $2 / $0.50 cached / $6 — Cursor first-party Grok is charged at
-# API price and is exempt from the Cursor Token Rate). Cache-write for Grok
-# is not separately published by xAI; use the input rate.
-_GROK_45_RATES = (2.0, 2.0, 0.50, 6.0)
+# when known; otherwise fall back to the current Grok family public API list
+# price (docs.x.ai: $2 / $0.50 cached / $6 — Cursor first-party Grok is charged
+# at API price and is exempt from the Cursor Token Rate). Cache-write for Grok
+# is not separately published; use the input rate. Older Grok generations keep
+# the same list price so pinned runs still meter.
+_GROK_RATES = (2.0, 2.0, 0.50, 6.0)
+_GROK_SHORT = CURSOR_GROK_FAMILY.removeprefix("cursor-")  # e.g. grok-4.6
 _CURSOR_MODEL_RATES: dict[str, tuple[float, float, float, float]] = {
-    # Grok 4.5 family (default CURSOR_MODEL + aliases)
-    "cursor-grok-4.5": _GROK_45_RATES,
-    "grok-4.5": _GROK_45_RATES,
-    "grok-4.5-latest": _GROK_45_RATES,
+    CURSOR_GROK_FAMILY: _GROK_RATES,
+    _GROK_SHORT: _GROK_RATES,
+    f"{_GROK_SHORT}-latest": _GROK_RATES,
+    # Prior Grok generation (same list price; still meter CURSOR_MODEL pins)
+    "cursor-grok-4.5": _GROK_RATES,
+    "grok-4.5": _GROK_RATES,
+    "grok-4.5-latest": _GROK_RATES,
     # Cursor docs API-pool rates (2026-07) for common non-Grok ids
     "claude-4.5-haiku": (1.0, 1.25, 0.1, 5.0),
     "claude-4.5-sonnet": (3.0, 3.75, 0.3, 15.0),
@@ -1133,13 +1135,13 @@ def _cursor_band_index(band: str) -> int:
 
 
 def _cursor_grok_id_for_route(model: str | None, effort: str | None) -> str:
-    """Map Phase-19 Claude (model, effort) tiers to a cursor-grok-4.5-* id.
+    """Map Phase-19 Claude (model, effort) tiers to a CURSOR_GROK_FAMILY-* id.
 
     Precedence:
       1. CURSOR_MODEL env pin (forces one id for every skill; no per-skill ladder)
       2. `model` already a concrete Cursor id (not a Phase-19 tier name) → as-is
       3. max(MODEL_TO_CURSOR_BAND[model], EFFORT_TO_CURSOR_BAND[effort])
-         → cursor-grok-4.5-{low|medium|high}
+         → CURSOR_GROK_FAMILY-{low|medium|high}
       4. Neither model nor effort → DEFAULT_CURSOR_MODEL
     """
     pin = os.environ.get("CURSOR_MODEL")
@@ -1152,19 +1154,19 @@ def _cursor_grok_id_for_route(model: str | None, effort: str | None) -> str:
     m_band = MODEL_TO_CURSOR_BAND.get(model or "", "medium")
     e_band = EFFORT_TO_CURSOR_BAND.get(effort or "", "medium")
     band = CURSOR_GROK_BANDS[max(_cursor_band_index(m_band), _cursor_band_index(e_band))]
-    return f"cursor-grok-4.5-{band}"
+    return f"{CURSOR_GROK_FAMILY}-{band}"
 
 
 def _resolve_cursor_rates(model: str | None) -> tuple[float, float, float, float]:
     """Return (input, cache_write, cache_read, output) USD/1M for a Cursor model.
 
     Match longest known prefix against the model id (case-insensitive). Unknown
-    models fall back to Grok 4.5 public API rates so the default harness still
+    models fall back to the current Grok family public API rates so the default harness still
     meters `--max-budget-usd`.
     """
     m = (model or _cursor_model()).lower()
     best_key = ""
-    best_rates = _GROK_45_RATES
+    best_rates = _GROK_RATES
     for key, rates in _CURSOR_MODEL_RATES.items():
         if m.startswith(key) and len(key) > len(best_key):
             best_key = key
@@ -1482,7 +1484,7 @@ class CursorHarness(Harness):
          Nested `/sst-*` calls (sanitize etc.) get a cold-start directive to
          Read+follow the resolved SKILL.md in-session (Phase 64).
       2. No separate --effort flag. Phase 19 (model, effort) routing maps onto
-         the Grok effort ladder via resolve_cli_route → cursor-grok-4.5-
+         the Grok effort ladder via resolve_cli_route → CURSOR_GROK_FAMILY-
          {low,medium,high} (max of model-floor band and effort band). Set
          CURSOR_MODEL to pin one id for every skill (disables the ladder).
       3. No CLI --max-turns flag. Phase 64: run_skill enforces the hard cap by
@@ -1522,7 +1524,7 @@ class CursorHarness(Harness):
         model: str | None,
         effort: str | None,
     ) -> tuple[str, str | None]:
-        """Map Phase-19 tiers onto a cursor-grok-4.5-* id; no separate effort."""
+        """Map Phase-19 tiers onto a CURSOR_GROK_FAMILY-* id; no separate effort."""
         return (_cursor_grok_id_for_route(model, effort), None)
 
     def apply_budget_constraints(
