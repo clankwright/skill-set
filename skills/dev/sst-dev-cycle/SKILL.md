@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.38.0
+version: 1.39.0
 model-floor: fable
 effort-floor: high
 ---
@@ -235,7 +235,7 @@ By the time you reach this point the gate has already run (or was skipped becaus
 1. Clear the `## In flight` line you wrote in §1 (delete it entirely; the "Just shipped" entry replaces it).
 2. Prepend a new entry at the top of `## Just shipped (last cycle)` in format: `- <one-line summary> — by <this-skill-name> at <utc-iso>`. **No SHA.** A commit cannot contain its own hash — any SHA you write would either be a placeholder requiring amend-rewrite (the SHA goes stale the instant you amend) or a fake/dangling reference. Downstream consumers (sst-dev-review, sst-supervisor, sst-manager, human readers) correlate Just-shipped entries to commits via the one-line summary and `git log --oneline --grep`; git log is the ledger, TODO is the summary. **Stamp `<utc-iso>` from the clock, not from memory: run `date -u +%Y-%m-%dT%H:%M:%SZ` and paste its output.** A composed stamp is reliably wrong (an observed cycle wrote a Just-shipped time ~22 hours in the future of its real finish), and since the summary + utc-iso pair is the commit-correlation key, a fabricated time corrupts the ledger's chronology for every downstream reader.
 3. **Remove every shipped item's line from `## Next up`.** Delete the `- ` entry (or entries, for a multi-item batch) this cycle picked and closed — match by SPEC ID when present. Leaving a shipped item queued makes the next cycle re-pick work already marked `[x]` in the spec. Step 4's new follow-ups are unrelated; do not confuse the two.
-4. If you uncovered new work that doesn't merit a spec edit (small follow-ups, adjacent fixes, deferred polish), append each to `## Next up (queued for next cycle)` with format `- <one-line> — <reason/source>`.
+4. If you uncovered new work that doesn't merit a spec edit (small follow-ups, adjacent fixes, deferred polish), append each to `## Next up (queued for next cycle)` with format `- <one-line> — <reason/source>`. If you assign a `<phase>.<n>` ID, `<phase>` MUST be the phase of the item this cycle just shipped (the pick), and `<n>` the next unused number in that phase only — never a different phase's high-water mark. A numbered line also needs a matching SPEC `- [ ]` under that phase. Or file free-form with no ID.
 5. Trim `## Just shipped (last cycle)` to the most recent 10 entries; older entries are reflected in `SPEC.md` checkboxes and `git log` already.
 
 ## 7. Commit + push (single commit, no extras)

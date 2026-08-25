@@ -3,7 +3,7 @@ name: sst-manager
 description: |
   Four modes. Periodic oversight (default) walks watched projects' .skill-runs/, scores progress against the persona's objectives.md, reads docs/HUMAN.md for active blockers (fires immediate Telegram alerts for new Blocking entries and auto-verifies Verify: lines on closed items), sends a status digest (or escalation) over Telegram, drains inbound bot commands queued by the user, and prepends source-tagged entries to ~/.claude/state/manager-notes.md that the supervisor reads on its next run. On-demand feedback routing (--process-feedback <queue-file>) reads one /feedback message plus objectives plus the project's docs/SPEC.md plus docs/TODO.md plus docs/HUMAN.md plus the most recent run log, decides one of five outcomes (queueable TODO Next-up item, SPEC addition, manager-translated entry in manager-notes.md, HUMAN.md blocker entry, or refusal/clarification reply via Telegram), and replies to the user with where the change landed. On-demand command routing (--process-command <queue-file>) reads one project-scoped bot command from a queue file, dispatches to a per-verb handler (status, objectives, pause, resume, ping), executes in the context of the target project, and replies via the project's notify-telegram.sh; each handler appends a one-line outcome to manager-notes.md. Planner mode (--plan, or auto-triggered by periodic mode when Next up is empty AND every SPEC [ ] is [x] for ≥1 prior tick) scores gap on each measurable objective, picks the 1-3 highest-gap criteria, and drafts [unconfirmed:<id>] candidate items into Next up that the user clears manually before the dev cycle picks them. MAY edit base-repo (~/Dev/skill-set/) skill source directly and commit+push when the user requests it OR it deems it necessary (sanitize-gated for transferables); never commits or deploys in the watched projects themselves. The proprietary counterpart (e.g. <persona>-manager) supplies the watched-projects list, objectives.md path, and Telegram chat allowlist.
 user-invocable: true
-version: 2.4.1
+version: 2.4.2
 model-floor: fable
 effort-floor: high
 ---
@@ -538,7 +538,7 @@ The helper prepends `## <utc-iso> manager-translated user feedback (chat <id>)` 
   Source: /feedback chat <id>.
 ```
 
-Assign the next unused H-ID where `<phase>` is the SPEC phase being gated (or `0` if orthogonal to any open phase). Anti-fork: NEVER flip `[ ]` → `[x]` here; closure is human-initiated. After appending, invoke the notification helper: `bash bin/notify-human-md.sh <project-path> <project-path>/docs/HUMAN.md`. Missing Telegram env → graceful skip (exit 0).
+Assign the next unused H-ID where `<phase>` is the SPEC phase being gated (the phase being reviewed when this is a cycle follow-up; or `0` if orthogonal to any open phase). Anti-fork: NEVER flip `[ ]` → `[x]` here; closure is human-initiated. After appending, invoke the notification helper: `bash bin/notify-human-md.sh <project-path> <project-path>/docs/HUMAN.md`. Missing Telegram env → graceful skip (exit 0).
 
 ### C. Reply via Telegram
 
