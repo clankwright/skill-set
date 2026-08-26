@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.45.0
+version: 1.46.0
 model-floor: fable
 effort-floor: high
 ---
@@ -270,6 +270,13 @@ git push origin <branch>
 ```
 
 **Before `git commit`, verify the staged set.** Run `git diff --cached --name-status` and confirm it lists every file the cycle changed. This catches a `git add` that aborted partway: when the cycle deleted files with `git rm`, those deletions are ALREADY staged, so do NOT re-list the deleted paths in the `git add` above — `git add <a-path-that-no-longer-exists>` fails the WHOLE invocation atomically (`fatal: pathspec '...' did not match any files`) and stages none of the other pathspecs, leaving only the pre-staged deletions for `git commit` to capture. An incomplete commit caught here is a cheap `git reset --soft HEAD~1` + re-add; the same commit caught only after `git push` forces a history-rewriting force-push over the remote branch. Verify before committing so the incomplete commit never leaves your machine.
+
+**Before `git commit`, re-measure every figure the commit BAKES INTO a durable artifact.** The staged-set check above verifies *which* files ship; this one verifies the *numbers inside them*. A count, ratio, or "measured to be exactly N" claim that lands in a shipped source docstring, a config comment, or the commit body becomes a durable assertion every later reader trusts, and the cycle's own subsequent edits routinely invalidate it, because the measurement is taken mid-implementation while the artifact is written at the end. Re-run the measuring command against the FINAL tree and reconcile every baked figure against it, including figures you are only quoting forward from earlier in this session. Two shapes to check for by name:
+
+- **(a) True when taken, stale at HEAD.** The tell is that the same session's own closing report carries the corrected value its committed artifact contradicts, so the commit and the report disagree about the same number. Observed: a shipped docstring asserted `N statically-visible candidates against M collected` as the current state while the same session's report line read `Test count: M -> M+5`, i.e. the docstring published the number its own author had already identified as the OLD count.
+- **(b) Never matched any reading of the code.** A hand-maintained list justified as "measured to be exactly the N definitions in `<dir>`" where the list's own length, the count of definition sites, and the count of distinct names are three DIFFERENT numbers, so the stated justification reconciles with none of them. Observed: a four-element exclusion set whose commit body called it "exactly the directory's six definitions", against a directory holding ten definition sites over six modules and four distinct names.
+
+Both shapes matter more than ordinary prose drift when the figure IS the artifact's soundness argument: an anti-drift instrument whose hand-written exclusion list carries a wrong completeness claim reads as *verified* to every later reader while resting on nothing, and the next cycle extends the list on the strength of that claim. This is separate from the `Test count: <old> → <new>` line in the template above, which is a delta the template already forces you to compute at commit time; the rule here covers every OTHER number the commit asserts as current.
 
 **Never make a separate "docs: record <sha> in TODO" commit, and never `git commit --amend` to rewrite a Just-shipped SHA**. The Just-shipped line intentionally omits the SHA for exactly this reason — a commit cannot contain its own hash, and amend-based workarounds produce dangling references that confuse forensic work. The one-line summary + utc-iso is sufficient to locate the commit in `git log`.
 
