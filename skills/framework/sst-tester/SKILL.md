@@ -18,7 +18,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.12.0
+version: 1.12.1
 model-floor: opus
 effort-floor: high
 ---
@@ -288,7 +288,7 @@ The tester writes two files to the run-log dir on every run that is not a dev pr
 Field rules:
 
 - **`verdict`** — one of:
-  - `green` — every check passed; the changed surfaces work at runtime.
+  - `green` — no check is `fail`; the changed surfaces work at runtime. `needs-change` checks do NOT demote the verdict: `needs-change` is defined below as a surface that works and whose output is correct, so a run carrying them is still a green run, and the reviewer escalates each one out of `checks[]` on its own regardless of the verdict token. Read this bullet as "no check failed", never as "no check has anything to say": a run of all-`pass` checks is the rare shape, not the normal one, and a tester that reads the stricter sense has only two places to go, both of which assert something false. Demoting to `degraded` claims coverage was incomplete when it was not, which makes the reviewer treat exercised surfaces as unexercised; demoting to `red` claims a surface is broken. If a green run also raised improvements, that belongs in `summary`, which the reviewer surfaces verbatim, and in the `needs-change` records themselves.
   - `red` — at least one check is `fail` (a changed surface is broken at runtime).
   - `degraded` — the tester could not fully exercise the intended surface (server didn't come up, stale auth session, partial reachability); the reviewer should treat coverage as incomplete, not as "passed."
   - `skipped` — self-skip no-op (no local-run path, or no front-end surface in the change set); a valid non-finding state, distinct from `degraded`. A `skipped` record carries an empty or single explanatory `checks` entry and the reason in `summary`.
