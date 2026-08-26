@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.43.0
+version: 1.44.0
 model-floor: fable
 effort-floor: high
 ---
@@ -101,8 +101,11 @@ Don't ship just the primary if related siblings fit. Walk the rest of `Next up` 
 - **Related** by at least one of: same files touched, same SPEC phase, same skill target, same concept, OR a similar small mechanical change repeated across files (e.g. tagging N skills, hoisting one rule across N siblings, fixing the same typo across N spec entries).
 - **Combined estimated context fits the primary's band.** Target input-token windows by difficulty (judgment-estimated from chunk shapes you know; these are this skill's own tokens — the review's §2.10 check fires on the same number, not the full-chain sum): `[easy]` 100-200k, `[medium]` 200-300k, `[hard]` 400-500k. Reference chunk-shape sizes — bugfix + unit test(s) on existing module ~20-40k, existing-app UI/FE multi-item batch (tests + static/templates + deploy verify) ~30-50k, prose patch ~30-60k, schema field + runner support + spec entry ~50-100k, new bin/ helper ~60-120k, existing-app backend feature (ORM model + migration + API handler + unit tests + deploy verify) ~200-350k, full new transferable skill ~150-250k.
 - **One coherent commit.** No merge-conflict risk between batched items; no contradictory acceptance criteria; the change-set still tells one story in the commit message.
+- **Not sequenced after the primary.** An otherwise-eligible item that declares a dependency on the primary (its own spec text says to land the primary first, or its acceptance is written against code the primary is about to move) is NOT batch-eligible this cycle. Its text was written against the pre-primary shape, so batching it means editing the same code twice inside one window and treating the sibling's now-stale premise as an acceptance criterion. Ship the primary, then let the next cycle re-read the sibling against reality.
 
 If only the primary is actionable across both surfaces, ship it alone (the primary IS the entire batch). If zero items are actionable across both surfaces, exit via the `[no-work]` bail in §0 step 6 — do NOT pad the batch with speculative work or invent a `Next up` entry to consume.
+
+**When the primary ships alone because nothing else was batch-eligible, the declared `window-target` is the honest estimate for that solo item, even when it falls below the primary band's lower edge**, and the rationale must name which eligibility bullet above excluded the remaining candidates (difficulty, relatedness, band fit, commit coherence, or sequencing). Never inflate the declared target to reach the band's floor. The band sizes a BATCH, so a sole actionable item smaller than its tier's floor cannot be padded up to it without adding exactly the speculative work this paragraph forbids, and an inflated declaration licenses the over-packing that earns an `oversized` finding on some later cycle. Without the exclusion reason on the line, a solo-forced undershoot is indistinguishable from under-packing, which is the one thing the declaration exists to let a reviewer tell apart. (Observed: a `[hard]` solo pick whose only related queue item was a lower tier, in the same file, and declared a dependency on the shipped one, declared a `window-target` well under its tier's band floor and measured lower still; the review confirmed the solo pick was correct and not under-batching, yet had to report the declared target as out-of-band because no rule authorized it.)
 
 Bundling *unrelated* items remains forbidden. The batch must be cohesive (sharing files / phase / concept / mechanical pattern), not just adjacent in the queue.
 
