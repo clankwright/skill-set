@@ -18,7 +18,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.12.1
+version: 1.13.0
 model-floor: opus
 effort-floor: high
 ---
@@ -131,6 +131,8 @@ The chain runner reports the run-log directory on every invocation as `[log-dir]
 7. **Collect findings + compute the verdict.** Aggregate all per-check records (the dev's named surfaces from step 6, the self-derived adjacent-surface cases from step 6a, the anti-pattern flags from step 6b, the rendered-artifact inspections from step 6c, AND the idle render-loop probes from step 6d) into the overall verdict (see **Findings contract** for the green/red/degraded/skipped rule) and a one-line summary.
 8. **Tear down.** See **Teardown** — stop both servers and close the browser (unless the wrapper opts into browser reuse); assert the documented ports are free and no orphan server processes remain.
 9. **Write findings + exit.** Write `tester-findings.md` and `tester-findings.json` to **this iteration's** log dir, then exit. In a looped run that is `<run-dir>/iter_NN/` (the dir holding this iteration's `MANIFEST.json`), NOT the run dir itself; only a flat, non-looped run writes them directly to the run dir. The run dir is one slot shared by every iteration, so writing there makes each iteration's findings overwrite the last and leaves a stale copy for the reviewer to find. The reviewer reads them on its next turn.
+
+**Flush a partial record as you go; the terminal write must not be the FIRST write.** Steps 7-9 are the only place the in-chain path touches disk, so until they run there is nothing to find: an abrupt death before them (a harness-level tool-call / serialization error, an agent crash, a context blowout, a hard turn chop) erases the entire stage, including checks that were already established with evidence in hand. The wind-down rule in **Operating principles** does not cover this; that one fires on an approach you can see coming, and an abrupt death has no approach. Nor is the loss confined to this stage: a chain runner that flags a non-zero skill exit skips the REMAINING stages too, so one empty artifact can also cost the iteration its review pass, on a commit that already shipped and is now covered by nothing. So write `tester-findings.{md,json}` to the iteration's log dir as soon as the FIRST check is verdicted, and rewrite both files (same paths, whole-file overwrite) after each subsequent check, with the verdict recomputed over the records written so far and the summary naming the sweep as still in progress. Step 9 then lands the final state over a file that already exists, and its behavior on a run that completes normally is unchanged. One small write per check buys the guarantee that whatever the run established survives the run; this is the in-chain analogue of the per-target flush the looped-standalone drain already mandates.
 
 ### Headed vs headless (D2)
 
