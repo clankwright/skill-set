@@ -18,7 +18,7 @@ description: |
   queue one target per iteration, self-terminating on `[no-test-work]` when the
   queue is exhausted.
 user-invocable: true
-version: 1.15.0
+version: 1.16.0
 model-floor: opus
 effort-floor: high
 ---
@@ -295,7 +295,7 @@ Field rules:
   - `red` — at least one check is `fail` (a changed surface is broken at runtime).
   - `degraded` — the tester could not fully exercise the intended surface (server didn't come up, stale auth session, partial reachability); the reviewer should treat coverage as incomplete, not as "passed."
   - `skipped` — self-skip no-op (no local-run path, or no front-end surface in the change set); a valid non-finding state, distinct from `degraded`. A `skipped` record carries an empty or single explanatory `checks` entry and the reason in `summary`.
-- **`summary`** — a single line; the reviewer surfaces it verbatim in its `Tester:` report line.
+- **`summary`** — a single line; the reviewer surfaces it verbatim in its `Tester:` report line. **Any count or enumeration it carries must be re-derived from `checks[]` at the terminal write, never written from memory.** Being the one field consumed verbatim is exactly what makes it the one place a recorded check can go missing with no consumer able to tell: a tally reads authoritative, so a reader who trusts it never walks the array to discover the shortfall. Before the terminal write, re-count the array and confirm that the summary's numbers, and any "N needs-change: <a>, <b>, ..." list, name every non-`pass` record. Uncovered-gap checks (the step-6a case: a surface you identified but could NOT exercise) drop out of that line first, because they were never driven and so are the least present in mind as it is written, and they are also the records the contract most wants surfaced, since such a gap exists in the record only because you put it there. (Observed: a green run whose `checks[]` held four `needs-change` records opened its summary "Three needs-change:" and enumerated three, omitting precisely the not-exercised one, while the companion `tester-findings.md` verdict header, whose counts are written separately from the summary line, carried the correct total, so two artifacts of the same run disagreed about the same sweep. The review stage re-counted and caught it, but it is not a guaranteed backstop: in a review-less chain the summary routes straight to the oversight stage, and a human-facing digest reads the line rather than the array.)
 - **`checks[].status`** — one of:
   - `pass` — the surface behaved correctly.
   - `fail` — the surface is broken (console error, failed assertion, broken interaction), **or it completes mechanically but produces materially wrong output** — a page, export, or rendered artifact whose content misstates the underlying data (a zero-row period rendered as a populated all-zeros table, a stale or wrong total, a document stamped with a status its contents contradict); becomes a review `[blocker]`. "It rendered without an error" is NOT the bar: judge the OUTPUT against what the data says it should be, and weigh where that output GOES — an artifact that leaves the app for a third party (an emailed report, an invoice, a statement an auditor or lender reads) is `fail` when it is wrong, never a `needs-change` polish item. A correct-but-improvable surface is the only `needs-change`.
