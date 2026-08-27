@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.48.0
+version: 1.49.0
 model-floor: fable
 effort-floor: high
 ---
@@ -300,6 +300,8 @@ Surfaces to exercise (in priority order):
 ```
 
 Keep the list short (3-5 items max), ordered by user-facing impact. Each entry ties a changed file or SPEC item to the specific browser interaction worth exercising. Do NOT write committed spec files — that is the dev cycle's TDD job, not the tester's.
+
+**On a merge or integration commit, the tester-relevant surface is the INCOMING delta, not just what your branch authored.** When the cycle's commit brings another branch's work into this one, a `git diff <merge-base> HEAD` shows only YOUR side, and will report "nothing changed" for whole directories the merge just repopulated. Those incoming files are new *to this tree*: they were green where they were written, in a combination that never included your branch's changes, and no run in this working tree has ever executed them. So scope the guidance off the incoming delta (`git diff --name-only HEAD MERGE_HEAD`, or `git diff --name-only <merge-base> <other-parent>`) as well as your own, and never write a "nothing here changed, not worth checking" line about a directory on the strength of a branch-side-only diff. Incoming e2e specs are the sharpest case: a spec you did not touch, arriving with the merge, has never run against this tree, so running it is frequently the single highest-value check of the whole cycle, and a guidance line that pre-emptively excuses it costs exactly that check. (Observed: an integration cycle ran `git diff --name-only <merge-base> HEAD -- <e2e-dir>`, got an empty result, and wrote "no e2e spec changed on the branch side, so there is no assertion desync from this merge" under a **Not worth your time** heading; the merge had in fact delivered two never-run specs from the other side, and the tester choosing to run them anyway is what surfaced the only failing check of the iteration.)
 
 **If the cycle touched NO front-end/UI surface** (a pure backend, CLI, schema, prose, or framework-internal change with no visible browser surface): emit exactly one line as the final line of this skill's output:
 
