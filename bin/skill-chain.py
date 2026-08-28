@@ -71,6 +71,7 @@ import json
 import os
 import random
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -1363,6 +1364,14 @@ Config discovery (Cursor loads these automatically; `--approve-mcps` is already 
 Headed vs headless for this run: {display_hint}
 If the Playwright MCP is missing or fails to connect, report the error and
 degrade — do not invent browser snapshots or navigation results.
+
+Close every Playwright browser this session opened before you exit
+(`playwright_close` on `@executeautomation/playwright-mcp-server`, or
+`browser_close` / the server's close tool otherwise). Each `cursor-agent`
+process starts a fresh MCP and cannot reattach to a prior window — leaving
+one open leaks a new Chromium per iteration. The spec runner
+(`npx playwright test`) closes its own browser when that process exits; if
+a headed spec window is still up after the process exits, kill it.
 """
 
 _PLAYWRIGHT_HINT_RE = re.compile(r"playwright", re.I)
@@ -1470,6 +1479,79 @@ def _cursor_playwright_directive(
     )
 
 
+_PLAYWRIGHT_BROWSER_CMDLINE_RE = re.compile(
+    r"ms-playwright|playwright_chromiumdev_profile|playwright-mcp",
+    re.I,
+)
+
+
+def _cmdline_looks_like_playwright_browser(cmdline: str) -> bool:
+    """True for Playwright-managed Chromium, not the user's daily Chrome."""
+    return bool(_PLAYWRIGHT_BROWSER_CMDLINE_RE.search(cmdline))
+
+
+def _playwright_managed_browser_pids() -> set[int]:
+    """PIDs whose /proc cmdline is a Playwright-managed browser."""
+    pids: set[int] = set()
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return pids
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            raw = (entry / "cmdline").read_bytes()
+        except (OSError, PermissionError):
+            continue
+        cmdline = raw.replace(b"\x00", b" ").decode("utf-8", "replace")
+        if _cmdline_looks_like_playwright_browser(cmdline):
+            pids.add(int(entry.name))
+    return pids
+
+
+def _reap_playwright_browsers(pids: set[int] | None = None) -> list[int]:
+    """SIGTERM, then SIGKILL, leftover Playwright-managed Chromium processes.
+
+    Cursor harness testers were leaking one headed window per iteration:
+    wrapper reuse said never-close, but each `cursor-agent` starts a fresh
+    Playwright MCP and cannot reattach. This is the runner backstop for
+    when the skill forgets `playwright_close` or is killed mid-teardown.
+    """
+    targets = set(pids) if pids is not None else _playwright_managed_browser_pids()
+    reaped: list[int] = []
+    for pid in sorted(targets):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            continue
+        reaped.append(pid)
+    if reaped:
+        deadline = time.monotonic() + 0.5
+        survivors: list[int] = []
+        for pid in reaped:
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            else:
+                survivors.append(pid)
+        for pid in survivors:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+    return reaped
+
+
+def _cursor_should_reap_playwright_browsers(skill_name: str) -> bool:
+    """Reap leftover Playwright Chromium after Cursor tester skills."""
+    return skill_name.endswith("-tester")
+
+
 class CursorHarness(Harness):
     """Cursor Agent CLI (`cursor-agent`) as the agent harness.
 
@@ -1501,7 +1583,9 @@ class CursorHarness(Harness):
          (Phase 62): discover servers from `.cursor/mcp.json` /
          `~/.cursor/mcp.json`, never use `cursor-ide-browser` (IDE-only),
          headed when DISPLAY is set / headless otherwise (or always headless
-         when `--playwright-headless` / chain `playwright-headless`).
+         when `--playwright-headless` / chain `playwright-headless`). After a
+         `*-tester` skill exits, reap leftover Playwright-managed Chromium
+         (each `cursor-agent` process cannot reattach to a prior window).
 
     Cursor's stream-json envelope is Anthropic-compatible for system/init and
     assistant/text frames, so session-id capture, --resume, and the chain's text
@@ -2225,6 +2309,20 @@ def run_skill(
     skill_record["finished_at"] = _utc_iso()
     skill_record["wall_seconds"] = round(elapsed, 1)
     skill_record["exit_code"] = rc
+
+    if (
+        harness.name == "cursor"
+        and _cursor_should_reap_playwright_browsers(skill_name)
+    ):
+        leftover = _reap_playwright_browsers()
+        if leftover:
+            sink.write("")
+            sink.write(c(
+                f"[browser-reap] closed leftover Playwright Chromium "
+                f"pid(s): {', '.join(str(p) for p in leftover)}",
+                ORANGE,
+            ))
+            skill_record["playwright_browsers_reaped"] = leftover
 
     sink.close()
     if jsonl_fh is not None:
