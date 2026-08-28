@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.59.0
+version: 1.60.0
 model-floor: fable
 effort-floor: high
 ---
@@ -111,7 +111,13 @@ Bundling *unrelated* items remains forbidden. The batch must be cohesive (sharin
 
 ### Declare the batch BEFORE §2
 
-After the In flight line is written and BEFORE the `[picked-difficulty]` sentinel below, emit one block as **assistant-visible text** on its own lines (write the block directly in your reply — do NOT `echo`/`printf` it via a shell tool). Chain runners on the Cursor harness scan assistant messages only; tool-call stdout is invisible to them, so a Bash-emitted block still records `batch_pick_missing` even when the bytes appear in the transcript's tool args:
+After the In flight line is written and BEFORE the `[picked-difficulty]` sentinel below, emit one block as **assistant-visible text** on its own lines: write it directly in your reply, never through a tool call.
+
+**EVERY chain runner scans assistant text only, on every harness.** The sentinel regexes run against `block.type == "text"`; tool inputs and tool results are deliberately excluded, mirroring the `[no-work]` sentinel's discipline. A block that reaches the transcript inside a tool ARGUMENT therefore records `batch_pick_missing` exactly as if you had never written it. The forbidden thing is the TOOL, not any particular command: `echo` and `printf` are the obvious cases, but a heredoc (`cat <<'EOF'`), a `python3 -c "print(...)"`, a `tee`, or a file written for the runner to find are the identical miss. Do not read the two named builtins as the whole list, and do not read a harness name attached to this rule as a carve-out for yours: no runner on any harness reads tool arguments for sentinels.
+
+This failure mode also disarms the §10 cycle-end backstop below, which is the one guard positioned to catch it. That self-check asks whether each emission "has appeared as assistant-visible text anywhere in this cycle", and having composed the bytes yourself, you will remember emitting the block and answer yes. Judge the self-check on the CHANNEL you used, not on your memory of the content. (Observed: a cycle wrote a complete, correct three-item block through a `cat <<'EOF'` heredoc at pick time; the iteration recorded `batch_pick_missing`, the manifest fell back to a queue-top difficulty pre-parse instead of the cycle's real pick, and the backstop re-emitted nothing.)
+
+The block:
 
 ```
 [batch-pick] N items @ <difficulty>; window-target ~XXk; rationale: <one-line>
