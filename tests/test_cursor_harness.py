@@ -661,6 +661,8 @@ def test_cursor_playwright_directive_names_servers_and_display(tmp_path, monkeyp
     assert "cursor-ide-browser" in text
     assert "DISPLAY is set" in text
     assert "prefer headed" in text
+    assert "playwright_close" in text
+    assert "cannot reattach" in text
 
 
 def test_cursor_playwright_directive_no_display_expects_headless(tmp_path, monkeypatch):
@@ -864,4 +866,145 @@ def test_run_skill_claude_does_not_runner_kill(tmp_path, monkeypatch):
     assert not rec.get("turn_limit_killed")
     assert rec.get("num_turns") == 4
     assert rc == 0
+
+
+def test_cmdline_looks_like_playwright_browser_only():
+    assert sc._cmdline_looks_like_playwright_browser(
+        "/home/rob/.cache/ms-playwright/chromium-1187/chrome-linux/chrome --type=gpu"
+    )
+    assert sc._cmdline_looks_like_playwright_browser(
+        "chrome --user-data-dir=/tmp/playwright_chromiumdev_profile-XXXX"
+    )
+    assert not sc._cmdline_looks_like_playwright_browser(
+        "/opt/google/chrome/chrome --type=gpu"
+    )
+    assert not sc._cmdline_looks_like_playwright_browser(
+        "/usr/bin/cursor --type=renderer"
+    )
+
+
+def test_cursor_should_reap_only_tester_skills():
+    assert sc._cursor_should_reap_playwright_browsers("ssp-cm-tester") is True
+    assert sc._cursor_should_reap_playwright_browsers("sst-tester") is True
+    assert sc._cursor_should_reap_playwright_browsers("ssp-cm-dev") is False
+    assert sc._cursor_should_reap_playwright_browsers("ssp-cm-dev-review") is False
+
+
+def test_run_skill_cursor_tester_reaps_playwright_browsers(tmp_path, monkeypatch, capsys):
+    """After a Cursor tester skill, reap leftover Playwright Chromium."""
+    import io
+
+    h = CursorHarness()
+    stream = io.StringIO(json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "session_id": "sess_reap",
+    }) + "\n")
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = stream
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(sc.subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(
+        CursorHarness, "build_command",
+        lambda self, *a, **k: ["cursor-agent", "-p", "noop"],
+    )
+    reaped = []
+    monkeypatch.setattr(
+        sc, "_reap_playwright_browsers",
+        lambda pids=None: reaped.append(True) or [4242],
+    )
+
+    rc, rec = sc.run_skill(h, "ssp-cm-tester", 1, tmp_path)
+    assert rc == 0
+    assert reaped == [True]
+    assert rec.get("playwright_browsers_reaped") == [4242]
+    assert "[browser-reap]" in capsys.readouterr().out
+
+
+def test_run_skill_cursor_non_tester_does_not_reap(tmp_path, monkeypatch):
+    import io
+
+    h = CursorHarness()
+    stream = io.StringIO(json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+    }) + "\n")
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = stream
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(sc.subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(
+        CursorHarness, "build_command",
+        lambda self, *a, **k: ["cursor-agent", "-p", "noop"],
+    )
+    called = []
+    monkeypatch.setattr(
+        sc, "_reap_playwright_browsers",
+        lambda pids=None: called.append(True) or [],
+    )
+
+    sc.run_skill(h, "ssp-cm-dev", 0, tmp_path)
+    assert called == []
+
+
+def test_run_skill_claude_tester_does_not_reap(tmp_path, monkeypatch):
+    import io
+
+    h = ClaudeCodeHarness()
+    stream = io.StringIO(json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+    }) + "\n")
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = stream
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(sc.subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "build_command",
+        lambda self, *a, **k: ["claude", "-p", "noop"],
+    )
+    called = []
+    monkeypatch.setattr(
+        sc, "_reap_playwright_browsers",
+        lambda pids=None: called.append(True) or [],
+    )
+
+    sc.run_skill(h, "ssp-cm-tester", 0, tmp_path)
+    assert called == []
 
