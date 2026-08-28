@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.18.0
+version: 2.19.0
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -23,6 +23,7 @@ The supervisor never fixes code or files spec items. Those belong to the skills 
 - **Sanitize is a hard gate on every transferable edit.** Before editing any transferable `SKILL.md`, run `sst-sanitize-transferable` on the proposed body. A `must-fix` finding ABORTS the edit — the lesson stays as a proprietary-only edit, and the verdict records the block. This is the one perimeter that is never crossed: the transferable layer is open-source, and a leak there can never be retracted from clones.
 - **Every line change cites a transcript line. No citation, no change.** This is the anti-scope-creep gate. Before editing, enumerate every line-level addition, deletion, or rewrite you intend to make, and map each one to a specific run-log line (`<i>_<skill>.txt:<line>`) that motivates it. Drop any change that can't be mapped; it's speculative improvement, not a finding. §3's editing step enforces this explicitly — the mapping is a hard gate, not a courtesy. "While I was in here I also fixed X" is the exact failure mode to reject: X needs its own motivating transcript line, or it waits for a future cycle where something actually goes wrong with X.
 - **Clean is the default.** A run where every skill behaved well produces zero edits and a one-line verdict. Don't manufacture findings to justify the invocation. A cycle that articulates N findings must not produce an edit with >N changes — extra changes are scope creep.
+- **Generalize, then stop.** A cited finding is permission to fix the rule that failed, not to append an anecdote. One incident is not a new bullet, a new closed-list slot, or an `(Observed: ...)` paragraph. Prefer rewriting the existing rule so the next similar miss is already covered.
 - **The proprietary skill is allowed to know everything.** Proprietary edits can include any project nouns, paths, secrets-as-references-not-values. Don't water them down; they exist precisely to hold proprietary detail.
 - **A session that edited a skill but wrote no verdict file is a contract violation, not a clean exit.** §8's exit gate enforces this: the verdict file (§6) MUST exist before returning, even on a clean run, and it MUST name every `SKILL.md` edited this session (transferable edits with their commit, proprietary edits in place). Silently exiting after an edit with no verdict is the failure mode the exit gate closes.
 
@@ -165,7 +166,15 @@ Skip nitpicks (style, wording, "could be clearer", "what if"). If after honest e
 
 **Count check.** If your change-intent table has more rows than the findings you enumerated in §1, stop and reconcile: either (a) you elided a finding in §1 that should have been listed separately — add it, or (b) one of the table rows is scope creep — drop it. Exactly one of those is true. An edit that makes 3 changes from 2 findings is the failure mode the framework is trying to prevent.
 
-Once the change-intent table passes both gates (every row cited, row-count ≤ finding-count), edit the canonical `SKILL.md` directly. Bump `version:` per SemVer in the same edit: patch for prose clarification, minor for added behavior, major for changed contract.
+**Prefer a general rule over a new case.** A miss on one input shape means the EXISTING rule is too narrow or too enumerated, not that the shape needs its own paragraph. Rewrite the rule so it covers this shape and the next one like it. Do not append an `(Observed: ...)` anecdote, a numbered "Nth form", or a new closed-list slot. "The review had to hand-write a receipt outside the enumeration" means collapse the enumeration, not add form N+1.
+
+**Refuse closed-list growth.** If the target section is an "Exactly one of" / "one of N shapes" list and the transcript shows a legal state with no slot, replace the list with a generative rule (state the inputs, the comparison, the fire condition). Adding a slot is forbidden even when you can cite the miss.
+
+**Growth cap.** After the rewrite, the edited paragraph or bullet MUST NOT be more than 1.5× its pre-edit character count, and SHOULD stay under ~1200 characters. If the honest fix would bust that, compress first (drop anecdotes, merge stacked restatements of the same rule) and then apply the generalized rule. An edit that doubles a paragraph to encode one incident is the failure this cap exists to stop.
+
+**Wrapper reconcile is a pin, not a changelog.** When bumping a proprietary wrapper after a base edit (§3b), set `base-version:` to the new base and adjust only the wrapper's standing deltas (project facts that actually change). Do NOT append a `**Reconcile (base X -> Y).**` paragraph restating the base change in project dialect. The base SKILL.md is the contract; a running commentary of every bump is how wrappers outgrow argv limits.
+
+Once the change-intent table passes the citation, count, generalize, list, and growth gates, edit the canonical `SKILL.md` directly. Bump `version:` per SemVer in the same edit: patch for prose clarification, minor for added behavior, major for changed contract.
 
 **Where each skill's canonical source lives:**
 
