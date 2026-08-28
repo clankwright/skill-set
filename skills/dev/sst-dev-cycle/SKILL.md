@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.60.0
+version: 1.61.0
 model-floor: fable
 effort-floor: high
 ---
@@ -203,6 +203,10 @@ Emission order at iter start, top to bottom: TodoWrite → `## In flight` line �
 ```
 
 **Run the final gate in the foreground; never background-and-poll it.** Run the `<full-suite>` gate as a foreground command that blocks until it returns the pass/fail counts in-band (raise the tool's timeout for a slow suite). Do NOT launch the gating suite as a detached/background job and then poll its output file: a piped background run commonly flushes only at completion, so the poll never converges, and a single-shot cycle invocation is not re-invoked after its turn ends, so "pausing to wait" for a background gate ends the turn with the cycle still uncommitted and strands the whole run (the chain runner's incomplete-cycle recovery then has to re-run the entire suite to heal it). If a suite genuinely exceeds the foreground tool timeout, run it as foreground shards you block on sequentially rather than backgrounding the gate.
+
+**The rule is scoped by DEPENDENCE, not by section number: it binds every run whose RESULT the cycle needs before it can commit, and the picked item's OWN acceptance evidence is such a run.** An item whose acceptance is itself a measurement campaign (repeat the suite N times to hunt an intermittent failure, sweep a parameter, soak a long path) produces the evidence that licenses flipping its `[ ]` to `[x]`, so the cycle depends on it exactly as it depends on the regression gate, even though it runs back in the implementation phase rather than at this one. Reading the paragraph above as "the §4 regression suite only" is precisely how the campaign gets backgrounded, and backgrounding it is worse than backgrounding the suite rather than safer: the campaign is usually the LONGEST run of the cycle, its partial output is worthless (a summary file that never got a line written is indistinguishable from a campaign that was never launched), and the sibling work already finished sits uncommitted behind it. So the turn ends with the evidence unmeasured AND the finished code stranded, from one decision. If the campaign cannot fit in the foreground, shrink it to the repetitions you can actually block on and re-scope the item's acceptance to that number, or split it into its own cycle; never launch it detached and promise to pick it up when it exits, because nothing re-invokes you. (Observed: a cycle finished a one-line fix for its second item, left it uncommitted, launched its primary item's mandated eight-run campaign as a background job, and closed its turn saying it would pick up when the job exited. The campaign was chopped partway through run 1 with a zero-byte summary and none of the eight runs recorded, and the finished fix survived only because the next stage copied it out of the working tree by hand.)
+
+**Terminal check before you end the turn:** no background job you launched may still be running, and no output file you were polling may still be unread. If either is true, block on it now, or kill it and say plainly in your final report which measurement you did not take.
 
 Record the full-suite pass count before your change. After, it must be `old_count + <new_tests>` (or higher, if you incidentally fixed a flake). If it drops, you broke something — fix before continuing.
 
