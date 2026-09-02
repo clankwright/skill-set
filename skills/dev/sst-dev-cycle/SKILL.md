@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.64.3
+version: 1.64.4
 model-floor: fable
 effort-floor: high
 ---
@@ -221,7 +221,7 @@ On failure:
 
 If the project has known-flaky test files that are separately tracked, explicitly list them in the command (ignoring a known-flaky file is fine; ignoring a file because YOUR change made it fail is not).
 
-For UI changes, also verify in a real browser (Playwright MCP against a local dev server). Target zero console errors. Stop the local dev server when you're done verifying.
+For UI changes, also verify in a real browser (Playwright MCP, local dev server): screenshot it and read the WHOLE frame; console errors and predicted-property reads miss what renders cleanly and wrong. Stop the local dev server when you're done verifying.
 
 **Verification scope is set by the change's blast radius, not by the item's surface.** Whenever the change reaches consumers beyond the one you designed it against, whether you edited a shared definition (a style rule, a base class, a default, a config key) or RELAXED a condition so an existing path now admits inputs it used to reject, the item's own surface is the *least* likely place it breaks: it is the one your new tests already cover. So before the gate counts as passed, enumerate what the change now reaches and DRIVE at least one consumer outside the item's own surface. Naming an unverified consumer in a downstream stage's handoff does not discharge that. The substitution is easy to miss: disclosure is the honest move and feels like the responsible one, but it is not evidence, and it gets chosen precisely where the check is cheapest, the drive you just ran with one argument changed or the render call already sitting in your own test harness. Whatever the downstream stage finds is a regression your commit already shipped. Two traps make this non-optional. First, a change that NARROWS a shared definition can still WIDEN its precedence: adding a guard so the definition stops applying in one case can raise its override rank above the more specific per-consumer definitions that were previously winning, so the guard lands correctly where you were looking and silently takes over everywhere else. Second, a unit test that hand-models the resolution order for the two consumers you care about cannot go red on that: the model is structurally blind to consumers it does not enumerate, so a fully green suite is not evidence here; only a rendered or executed consumer is, and an assertion on the payload you hand the next layer stops one boundary short of rendering it.
 
