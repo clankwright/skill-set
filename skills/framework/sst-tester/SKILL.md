@@ -18,7 +18,7 @@ description: |
  queue one target per iteration, self-terminating on `[no-test-work]` when the
  queue is exhausted.
 user-invocable: true
-version: 1.20.0
+version: 1.21.0
 model-floor: opus
 effort-floor: high
 ---
@@ -153,7 +153,7 @@ A driven surface can hang or crash the BROWSER itself, not just fail a check. An
 
 ### Teardown (guaranteed)
 
-All server-starting and browser-driving steps run inside a `finally`/trap path so teardown ALWAYS fires — on success, on a thrown exception, on a readiness timeout, on a browser hang, or on Ctrl-C. Teardown:
+Teardown fires on every path where you still get a turn (success, a thrown exception, a readiness timeout, a browser hang, Ctrl-C), and on none where you do not: an agent holds no real `finally`, so a harness death mid-turn skips it. Give anything you spawn that outlives one turn its own bound. Teardown:
 
 - gracefully stops the back-end and front-end servers (never `kill -9` a server that has a graceful stop);
 - closes the browser context (`playwright_close` / `browser_close` / the MCP's close tool). Same-session reuse is allowed only while THIS invocation can still attach; it is VOID when the harness starts a fresh MCP per invocation (Cursor `cursor-agent -p`). A hung or crashed browser (per **Browser hang / unresponsive page**) is force-killed and its profile lock cleared. Server teardown is never optional;
