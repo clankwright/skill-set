@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.32.2
+version: 1.33.0
 model-floor: opus
 effort-floor: high
 ---
@@ -87,6 +87,11 @@ This skill reads `docs/SPEC.md`, `docs/TODO.md`, and `docs/FUTURE-WORK.md` (all 
  When the findings files ARE present, integrate them:
  - A check with `status: fail` becomes or strengthens a `[blocker]` in §4 (a broken surface at runtime is as serious as a code correctness bug).
  - A check with `status: needs-change` becomes or strengthens a `[should-fix]`.
+ - **"or strengthens" is the DEFAULT, not the fallback: prefer widening an OPEN item over minting a new id.** The two verbs above are written as equals and are not: a backlog grows by ids, not by findings, so a stage that mints one id per finding makes the backlog track this loop's *observation rate* instead of its *defect count*. A real multi-week run measured what that costs: one root cause reached the backlog as **eight separate items**, all "the fix landed at one of several call sites that read the same input", which bought eight picks, eight commits, eight review passes, and eight more chances to fix one call site again, and returned five more items of the same cause. Before allocating an id:
+   1. **Ask what the root cause is, not what the symptom is.** Two findings differing only in which call site, renderer, format, or surface exhibits them are ONE item. Append the new instance to that item's body as an additional measured site and widen its acceptance to enumerate every site; do not allocate a second id.
+   2. **Search the backlog by MECHANISM, not by wording.** Items are keyed by prose, so searching the symptom ("the wrong label", "the blank row") misses a sibling filed under a different symptom of the same cause. Search for the function, the module, or the data path.
+   3. **Report a strengthening as such.** Say `strengthened <id> (+N sites)` in §6 rather than counting it in the `Found <N> items:` clause: that clause counts NEW ids, so a review that strengthens three and mints none is a good review, not an empty one.
+   4. **Honor the tester's filing floor.** Testers on the current contract hold consequence-free polish below the filing bar as an `OBSERVATION (below filing bar):` line on a `pass` check. Do not promote one on your own initiative unless you can name the user-visible consequence the tester could not; and if you can, name it. A `pass` check is not an invitation to re-triage.
  - An overall `verdict: degraded` (the tester tried but could not fully exercise the surface — server didn't come up, stale auth, partial reachability) is itself surfaced as a `[should-fix]` noting incomplete runtime coverage.
  - An overall `verdict: skipped` (self-skip no-op, or the dev emitted `[skip-tester]` and the runner never spawned the tester) is a valid non-finding state — do NOT file any finding for it.
  - An overall `verdict: green` is a non-finding state **only when every check has `status: pass`**. Always walk `checks[]` first — the per-check `fail` / `needs-change` rules above win over the overall verdict label. Testers may emit `verdict: green` while still carrying a residual `needs-change` (e.g. a coverage gap the exploratory drive already exercised); that residual MUST still become a `[should-fix]` in §4. Do not treat overall `green` as a blanket skip of `checks[]`.
