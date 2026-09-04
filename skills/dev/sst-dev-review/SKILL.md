@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.33.0
+version: 1.33.1
 model-floor: opus
 effort-floor: high
 ---
@@ -214,7 +214,7 @@ A missing prod-verify of a migration, auth path, or billing path is **blocker**.
 
 ### 2.9 Batch coherence
 
-**Locating the dev transcript is a mandatory first action of this axis — not a precondition to judge as unmet before looking.** List `.skill-runs/` and open the most recent dev transcript (`.skill-runs/*/iter_NN/00_<dev-skill>.txt` or `.skill-runs/*/00_<dev-skill>.txt`). This axis applies whenever the dev cycle used the batching protocol — i.e. the dev emitted a `[batch-pick]` block to stdout before its first tool call — and you confirm that by reading the transcript, not by assuming. If you genuinely cannot find a dev transcript after running the lookup, fall back to the `## Just shipped` top entries in `docs/TODO.md` as a proxy and note the fallback in §6. Never report this axis as "nothing to flag" without having opened the transcript (or recorded the fallback) — an axis you did not attempt to run is not a clean axis.
+**Locating the dev transcript is a mandatory first action of this axis — not a precondition to judge as unmet before looking.** List `.skill-runs/` and open the most recent dev transcript (`.skill-runs/*/iter_NN/00_<dev-skill>.txt` or `.skill-runs/*/00_<dev-skill>.txt`), plus its own `<i>_<dev-skill>.retry-<n>.txt` siblings whenever the dev's MANIFEST record carries `retry_count > 0`, each read WHOLE rather than tailed: the block precedes the first tool call, so it sits near the top of a long attempt. The runner's sentinel capture scans the FINAL attempt only, so a block found in ANY attempt is the pick and DISCHARGES a `batch_pick_missing` / `picked_difficulty_emitted: false` MANIFEST flag as a capture artifact, here and in §2.10's re-band branch alike; report a dev-compliance miss, or bracket-parse the commit instead, only when NO attempt carries one. The axis applies whenever some attempt used the batching protocol. If no dev transcript exists after the lookup, fall back to the `## Just shipped` top entries in `docs/TODO.md` as a proxy and note the fallback in §6. Never report this axis as "nothing to flag" without having opened the transcript or recorded the fallback.
 
 **Find the `[batch-pick]` block** in the dev transcript located above.
 
