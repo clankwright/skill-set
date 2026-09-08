@@ -18,7 +18,7 @@ description: |
  queue one target per iteration, self-terminating on `[no-test-work]` when the
  queue is exhausted.
 user-invocable: true
-version: 1.21.0
+version: 1.22.0
 model-floor: opus
 effort-floor: high
 ---
@@ -166,7 +166,7 @@ A run that cannot guarantee a clean teardown records that as a `degraded` findin
 - **Zero files under any repo working tree.** After a run, `git status --porcelain` must be empty (modulo files the dev cycle already committed). The tester writes nothing the repo would track.
 - **Binary artifacts** (screenshots, traces, video, server logs) go to a non-repo state dir: `~/.claude/state/sst-tester/<utc>/`. The findings records reference these by path; they are never copied into the repo.
 - **Write each artifact directly to the out-of-tree dir; never rely on a post-hoc move.** When a tool accepts an output-path argument (for example the browser screenshot tool's `filename`), pass the ABSOLUTE out-of-tree path, not a bare filename. A bare filename is resolved relative to the process working directory (the repo root), so it deposits a binary artifact inside the tree and forces a detect-and-move that leaves the tree dirty if anything fails between the write and the move. Passing the absolute path keeps the leave-no-trace invariant true by construction rather than by recovery.
-- **The reviewer-facing findings doc** (`tester-findings.{md,json}`) goes to the chain run-log dir (`<project>/.skill-runs/<run>/`), which is already gitignored, so it is visible to the reviewer without ever entering version control. In a looped run, write it to the ITERATION's subdir (`<run>/iter_NN/`, beside this iteration's `MANIFEST.json`) rather than the run dir — see step 9; the run dir is shared across iterations and a copy left there is stale the moment the next iteration runs.
+- **The reviewer-facing findings doc** (`tester-findings.{md,json}`) goes to the chain run-log dir (`<project>/.skill-runs/<run>/`), which is already gitignored, so it is visible to the reviewer without ever entering version control. In a looped run, write it to the ITERATION's subdir (`<run>/iter_NN/`, beside this iteration's `MANIFEST.json`) rather than the run dir — see step 9; the run dir is shared across iterations and a copy left there is stale the moment the next iteration runs. **Gitignored is not private:** the harness's raw session log lands there too, recording every tool call's ARGUMENTS verbatim -- so never pass a live credential as one, and disclose a leak against that log, not the prettified transcript.
 
 ## Standalone mode (`--phase <id>` / `--todos <ref...>`)
 
