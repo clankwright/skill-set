@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.24.0
+version: 2.25.0
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -83,6 +83,7 @@ Eligibility — all five conditions must hold:
    Any non-`[no-work]` match aborts the fast-path. The keyword list is intentionally noisy: false positives just route to the deep walk, which is the safe direction.
 
 4. **§3.5 batch-window refinement check returns "no refinement needed."** Run §3.5's trigger-evaluation step (3.5.1 only — the cheap trailing-window scan; do NOT yet edit any prose) to decide whether the dev skill's window prose needs adjusting. If the trailing-window thresholds are below the trigger AND stable-termination is engaged OR not yet eligible, return "no refinement needed" and proceed; the cost is one read of `MANIFEST.json` plus a transcript-grep over the trailing iters' `<i>_<dev-review>.txt` files (cheap). If the trigger fires, abort the fast-path: §3.5 will make a refinement edit in the deep walk, and that edit IS the iter's finding. The check is intentionally hoisted into the fast-path eligibility set so refinement keeps firing on otherwise-clean iters; without this condition, a long run of clean iters would let `[batch-sizing]` findings accumulate without ever crossing the deep walk.
+5. **§3.7 backlog-growth check returns "no growth response needed" or "below threshold."** Run §3.7.1 plus §3.7.2 (sample extraction and trigger evaluation only; do NOT yet write any refinement, route any observation, or escalate). If no trigger fires, proceed with the fast-path and still write the §3.7.4 bookkeeping block into the fast-path verdict. If any trigger fires, abort the fast-path: the response IS the iter's finding. Hoisted for exactly §3.5's reason, and more sharply: a backlog grows fastest during a run of iterations that each look clean, so a growth check reachable only from the deep walk would be suppressed by the very condition it exists to detect.
 
 5. **No un-triaged solo-tester findings.** If the chain ran a tester stage but NO dev-review stage (no `*-dev-review` transcript among the run dir's `<i>_<skill>.txt` files), read `tester-findings.json` from the run dir. Abort the fast-path if it is present AND its overall `verdict` is `red` or `degraded`, OR any check carries `status: fail` or `status: needs-change`: those findings have not been triaged into the spec by any review stage, and §5a (deep walk) must file the agent-actionable ones. A `verdict: green`/`skipped`, an absent findings file, or a chain that DID run a dev-review (which already consumed the findings per `sst-dev-review` §4, so re-filing would duplicate) all leave this condition satisfied. This is the tester-only-chain analogue of condition #3: in a solo-tester run no review skill emits the `Found N items:` line that condition #3 keys on, so the structured findings file is the signal instead.
 
@@ -323,6 +324,66 @@ On a stuck item, record a `[stuck-item]` finding in the verdict (severity `shoul
 - The ≥3-iter threshold is a framework constant; do not vary it per cycle.
 - Mitigation is APPEND-only to `docs/HUMAN.md` (never closes an entry — §5b anti-fork) and prepend-only to `manager-notes.md`; the supervisor never decomposes or removes the item itself (that's a human or future-dev-cycle action).
 - One stuck-item finding per distinct key per cycle; the next iter's trailing-window read surfaces any others.
+
+### 3.7. Backlog-growth detection + freeze proposal (self-monitor)
+
+§3.6 catches ONE item that never closes. §3.7 catches the aggregate version, which is invisible from inside any single iteration: the review stage files more queue items than the dev stage closes, so the active phase's open count holds steady or climbs while every individual iteration looks productive. Nobody in the chain can see it, because each stage sees one iteration and the growth is a trend across many. Measured on a real multi-week run before this step existed: 46 new IDs across 21 iterations against ~1.9 closed per iteration, a phase parked at ~60 open items for a week, and about a third of those items describing corrections to earlier items' notes rather than product work. Like §3.5 and §3.6, this step runs UNCONDITIONALLY, reads only trailing-window transcripts plus verdicts plus `docs/SPEC.md`, and never re-analyzes prior iters.
+
+#### 3.7.1. Sample extraction (cheap; runs every iter)
+
+Over the same trailing iter set defined in §3.5.1, grep each iter's authoritative review transcript (the un-suffixed `<i>_<review>.txt`, selected by exact name for the reasons §3.5.1 gives about `.retry-<n>.txt` siblings) for the machine line `sst-dev-review` §2.11 emits:
+
+```
+[queue-delta] closed=<n> filed=<n> blockers=<n> strengthened=<n> parked=<n> phase=<id> phase_open=<n> frozen=<yes|no>
+```
+
+**This line is unconditional at the emitter, so a MISSING sample is a finding, not a zero.** That is the opposite of `[batch-sizing]`, whose absence is the normal no-fire case, and conflating the two is the failure mode to guard against here: scoring a missing line as `filed=0 closed=0` reports a review that skipped the axis as a perfectly balanced iteration, which is exactly the reading that lets a growing backlog look stable. So for an iter with no `[queue-delta]` line, record `sample: absent` in the §3.7.4 bookkeeping, exclude the iter from the ratio arithmetic (do not impute values), and, for the iter under review only, record a `should-fix` finding against the review skill for the skipped receipt. Recompute that one iter's `closed` yourself from its commit (`git show <git_sha_after> -- docs/SPEC.md | grep -c '^+.*- \[x\]'`) so the current iter still contributes a `closed` reading to the trend even when its `filed` is unknowable.
+
+**Audit the CURRENT iter's numbers against its own commit before counting them.** For the iter under review only (each iter audited exactly once, by its own pass), recompute `closed` from the diff as above and compare against the emitted `closed=`. On a mismatch, count the recomputed value, record `corrected sample: closed=<n> (emitted <n>)` in §3.7.4, and record a `should-fix` against the review skill. `filed` is auditable the same way when the spec is tracked (count added `- [ ]` lines under the phase's section in the review commit); when the project's handoff docs are gitignored, as several consuming projects deliberately keep them, `filed` is not recomputable from git at all, so take the emitted value and say so in the bookkeeping rather than treating an unverifiable number as wrong.
+
+#### 3.7.2. Triggers (evaluated every iter; thresholds are framework constants)
+
+Let the trailing samples be ordered newest-first, absent samples excluded.
+
+1. **Net-growth streak (default N=5):** the `N` most recent samples all have `filed - closed > 0`. This is the direct signal that the queue is growing, and a streak rather than a single reading because one heavy review iteration is normal and self-correcting.
+2. **Flat-backlog window (default M=8):** across the `M` most recent samples, `phase_open` at the newest sample is greater than or equal to `phase_open` at the oldest, AND at least `M` iterations shipped commits in that span. A phase absorbing 8 productive iterations without its open count falling is not draining, whatever the per-iter arithmetic says. This catches the regime the streak trigger misses, where `filed` and `closed` alternate around parity.
+3. **Freeze-eligibility (independent of 1 and 2):** the newest sample carries `frozen=no` and `phase_open <= 10`, i.e. the phase has met `sst-dev-review`'s freeze condition and no banner was written.
+4. **Stable-termination override (default K=10):** if the `K` most recent samples all have `filed - closed <= 0` AND `phase_open` strictly decreased across them, suppress triggers 1 and 2 entirely and return `no growth response needed (draining, K=<n>)`, incrementing `<n>` from the most recent trailing verdict's §3.7.4 block exactly as §3.5.1's override does. Trigger 3 still evaluates: a draining phase is precisely the one that becomes freeze-eligible.
+
+Consumption follows §3.5.1's rule: when a trailing verdict records a fired §3.7 response, samples at or before that firing iter are consumed and excluded from trigger 2's window; the streak in trigger 1 is exempt, because a streak surviving a response is fresh evidence the response did not take.
+
+#### 3.7.3. Response (only on a fired trigger)
+
+The response is bounded and differs by trigger. **The supervisor never edits the project's queue: it does not park items, does not delete items, and does not write the freeze banner itself.** Those are the review stage's writes, and taking them here would fork the queue's ownership.
+
+- **Trigger 1 or 2 fired:** record a `[backlog-growth]` finding in the verdict (severity `should-fix`; it is a queue-hygiene gap, not a skill failure) and make ONE prose refinement, under §3's change-intent discipline and §4's sanitize gate, to whichever surface the samples actually implicate. The choice is evidence-driven, not a menu to pick from: a high `filed` with a low `strengthened` says the dedup step is not happening, so the refinement tightens `sst-dev-review`'s dedup receipt; `filed` repeatedly at the cap with a high `parked` says the cap is doing its job and the phase is simply large, so refine nothing and say so; `filed` above the cap with no blocker exemption named says the budget prose is being read as advisory, so tighten it. Bump `version:` in the same edit (patch for a threshold or wording tightening, minor for added behavior) and reconcile the proprietary mirrors per §3b.
+- **Trigger 3 fired:** the freeze belongs to the review stage, so route it rather than write it. Prepend a `## <utc-iso> supervisor observation (freeze-eligible)` block to `~/.claude/state/manager-notes.md` (write-path (g)) naming the phase, its `phase_open`, and the banner text the review should write, so the next iteration's review sees it as an input. Do NOT file it to `docs/HUMAN.md`: freeze is an autonomous stage action with a defined trigger, not a human decision, and the human's own lever (merging the phase) is unaffected.
+- **Any trigger, when the growth has persisted across a prior verdict's fired response for the same phase:** that meets §7's "same blocker in 2+ consecutive runs" bar. Set the outcome to `escalate` and file a `docs/HUMAN.md` `## High` entry per §5b naming the phase, the trend figures, and the decision the human owns: merge the phase as-is, cut its scope, or accept the growth. Whether a phase is worth more cycles is a product call, and it is the one thing in this step that is genuinely not the framework's to make.
+
+#### 3.7.4. Bookkeeping (always written, even when nothing fired)
+
+Append to the verdict, after §3.6's block:
+
+```
+## Backlog growth
+
+- Trailing samples: iters <range>; present <count>, absent <count>
+- Net delta (filed - closed) newest-first: <list>
+- phase_open trend: <oldest> -> <newest> (phase <id>, frozen=<yes|no>)
+- Triggers: streak N=<n>/<N>, flat-window M=<n>/<M>, freeze-eligible <yes|no>
+- Outcome: <no growth response needed (draining, K=<n>) | below threshold | refinement applied to <skill> <version> | freeze routed to manager-notes | escalated>
+- Corrections: <corrected/absent samples, or none>
+```
+
+The next iter's §3.7.1 reads this block from trailing verdicts for the override streak and the consumption boundary; as in §3.5.4, continuity is the contract, and the block is written under the §0.5 fast-path verdict too (a fast-path verdict omitting it breaks the streak for every downstream iter).
+
+#### 3.7.5. Anti-fork constraints summary
+
+- Detection is read-only against transcripts, MANIFESTs, verdicts, and `docs/SPEC.md`.
+- N/M/K and the `phase_open <= 10` freeze threshold are framework constants; do not vary them per cycle. Changing one is a §3 prose edit to the skill that owns it, with the trigger metadata as its citation.
+- The supervisor never edits the project's SPEC, TODO, or FUTURE-WORK; it refines skill prose, routes to manager-notes, or escalates to HUMAN.md.
+- One `[backlog-growth]` finding per cycle, and at most one prose refinement, sharing §3.5's single-row change-intent table discipline.
+- A missing `[queue-delta]` sample is never imputed. It is recorded as absent and, for the current iter, filed as a receipt gap against the review skill.
 
 ### 4. Sanitize before any transferable edit (hard gate)
 

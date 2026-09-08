@@ -117,6 +117,50 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 
 > Completed phases live in [docs/SPEC-DONE.md](SPEC-DONE.md); deferred phases live in [docs/FUTURE-WORK.md](FUTURE-WORK.md). Active phases live below.
 
+### Phase 69 -- backlog-growth control: filing budget, phase freeze, queue-delta telemetry (2026-09-08, owner-directed)
+
+A consuming project measured its own queue and found the review stage filing items faster than the
+dev stage closed them: 46 new IDs across 21 iterations against ~1.9 closed per iteration, an active
+phase parked at ~60 open for a week, a quarter of it polish at a third severity tier, and a third of
+it prose corrections to earlier items' own notes. No individual review was wrong; the severity bar
+gates whether a finding is REAL and nothing gated how many became QUEUE ITEMS, so the backlog tracked
+the loop's observation rate instead of its defect count and the phase could never be finished or merged.
+
+- [x] 69.1 [medium] `sst-dev-review` (1.36.0): filing budget (`filed_non_blocker <= max(1, closed)`,
+  ceiling 3, blockers exempt and uncapped), overflow routed to `docs/FUTURE-WORK.md` with evidence
+  intact, mandatory dedup receipt, and the two-severity bar restated as binding every writer of the
+  queue rather than only this stage.
+- [x] 69.2 [medium] `sst-dev-review` (1.36.0): phase freeze. At `phase_open <= 10` (or on a human
+  declaration) a phase accepts only `[blocker]` items; the banner is written into the phase's
+  `## Next up` subsection so later stages read state instead of re-deriving it. Inert, with a
+  `phase=none` path, in a project whose spec has no phase structure.
+- [x] 69.3 [easy] `sst-dev-review` (1.36.0): a finding whose entire remedy is prose in the three
+  handoff docs is an in-place §5 edit, never a queue item; tracked-source prose stays on the wrong
+  side of that line and is judged against the severity bar as before.
+- [x] 69.4 [medium] `sst-dev-review` (1.36.0) §2.11: `[queue-delta]` machine line, emitted
+  unconditionally every iteration, plus its mandatory §6 receipt clause.
+- [x] 69.5 [medium] `sst-dev-cycle` (1.73.0): the dev's own filing rules reconciled to the same
+  contract (two severities, at most 2 new IDs, freeze honored), because a queue two stages write and
+  only one is rationed on is not rationed at all. A FROZEN phase stays fully pickable.
+- [x] 69.6 [hard] `sst-supervisor` (2.25.0) §3.7: backlog-growth detection. Aggregates
+  `[queue-delta]` samples over §3.5.1's trailing window; net-growth streak (N=5), flat-backlog
+  window (M=8), freeze-eligibility, and a draining override (K=10); responds with one prose
+  refinement, a freeze routed to manager-notes, or escalation to HUMAN.md when the growth survived a
+  prior response. A missing sample is a finding, never an imputed zero. Hoisted into the §0.5
+  fast-path so it keeps firing on clean iters.
+- [x] 69.7 [easy] `sst-manager` (2.5.0): per-project backlog reading in §2 and a mandatory
+  `Backlog:` line in the digest's STANDING section, promoted to `NEEDS YOU` after two consecutive
+  growing ticks (the point at which no autonomous stage can fix it).
+- [x] 69.8 [easy] `templates/SPEC.md` + `templates/FUTURE-WORK.md`: two-severity rule and bounded filing rate documented in the spec template; new `## Deferred review findings` section defined in the FUTURE-WORK template as the overflow destination the review writes to.
+
+Wrappers reconciled in the same pass: `ssp-cm-dev-review` 1.39.0, `ssp-cm-dev` 1.109.0,
+`ssp-cm-supervisor` 2.7.0, `ssp-cm-manager` 1.5.0, `ssp-dahrouge-manager` 1.2.0 (the last two were
+also behind their base before this change). Sanitize gate: 0 must-fix across all four transferables;
+3 should-fix found and applied (undeclared caps, phase-structure assumption).
+
+Tests: none added. Every change is skill prose; `bin/validate-frontmatter.py` and
+`bin/check-ssp-sync.py` both clean.
+
 ### Phase 68 — log-dir prompt handoff + rate-limit-safe executor spawns (2026-07-20, owner-directed)
 
 Root cause of three consecutive supervisor escalations: the runner's `[log-dir]` startup print goes

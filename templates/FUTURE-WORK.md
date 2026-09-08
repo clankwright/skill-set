@@ -22,6 +22,16 @@ Mirror the SPEC item ID where one exists. Group by section. One line per item; c
 
 (Add entries here for phases or sub-items blocked on a prerequisite. State the re-pick condition when you add the entry.)
 
+## Deferred review findings
+
+(Written by the review stage, not by hand. Real findings at the `[blocker]` / `[should-fix]` bar that the
+filing budget or a phase freeze kept out of the queue this iteration, plus anything routed here as polish
+below the two-severity bar. Sub-group by phase: `### Phase <N>`. Each line carries the same evidence a
+queue item would have carried (`file:line`, the mechanism, the proposed fix, the commit reviewed) but no
+`<phase>.<n>` ID and no `## Next up` mirror, so nothing here is pickable until a human or the planner
+flips it back per the section at the bottom of this file. This section growing is normal and healthy: it
+is where the loop's observation rate goes once the queue is bounded.)
+
 ## Future / human-handled
 
 (Add entries here for work the user wants visible but not queued yet.)
