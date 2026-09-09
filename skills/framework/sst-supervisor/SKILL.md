@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.25.0
+version: 2.26.0
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -334,7 +334,7 @@ On a stuck item, record a `[stuck-item]` finding in the verdict (severity `shoul
 Over the same trailing iter set defined in §3.5.1, grep each iter's authoritative review transcript (the un-suffixed `<i>_<review>.txt`, selected by exact name for the reasons §3.5.1 gives about `.retry-<n>.txt` siblings) for the machine line `sst-dev-review` §2.11 emits:
 
 ```
-[queue-delta] closed=<n> filed=<n> blockers=<n> strengthened=<n> parked=<n> phase=<id> phase_open=<n> frozen=<yes|no>
+[queue-delta] closed=<n> filed=<n> dev_filed=<n> blockers=<n> strengthened=<n> parked=<n> phase=<id> phase_open=<n> frozen=<yes|no>
 ```
 
 **This line is unconditional at the emitter, so a MISSING sample is a finding, not a zero.** That is the opposite of `[batch-sizing]`, whose absence is the normal no-fire case, and conflating the two is the failure mode to guard against here: scoring a missing line as `filed=0 closed=0` reports a review that skipped the axis as a perfectly balanced iteration, which is exactly the reading that lets a growing backlog look stable. So for an iter with no `[queue-delta]` line, record `sample: absent` in the §3.7.4 bookkeeping, exclude the iter from the ratio arithmetic (do not impute values), and, for the iter under review only, record a `should-fix` finding against the review skill for the skipped receipt. Recompute that one iter's `closed` yourself from its commit (`git show <git_sha_after> -- docs/SPEC.md | grep -c '^+.*- \[x\]'`) so the current iter still contributes a `closed` reading to the trend even when its `filed` is unknowable.
@@ -345,8 +345,8 @@ Over the same trailing iter set defined in §3.5.1, grep each iter's authoritati
 
 Let the trailing samples be ordered newest-first, absent samples excluded.
 
-1. **Net-growth streak (default N=5):** the `N` most recent samples all have `filed - closed > 0`. This is the direct signal that the queue is growing, and a streak rather than a single reading because one heavy review iteration is normal and self-correcting.
-2. **Flat-backlog window (default M=8):** across the `M` most recent samples, `phase_open` at the newest sample is greater than or equal to `phase_open` at the oldest, AND at least `M` iterations shipped commits in that span. A phase absorbing 8 productive iterations without its open count falling is not draining, whatever the per-iter arithmetic says. This catches the regime the streak trigger misses, where `filed` and `closed` alternate around parity.
+1. **Net-growth streak (default N=5):** the `N` most recent samples all have `filed + dev_filed - closed > 0`. **Both writers count.** The dev stage files under its own cap in the same iteration, so scoring the net on the review's `filed` alone under-reports growth by exactly the dev's contribution and reads a queue that is growing as one that is flat (observed on this step's own first run: three samples carried no dev term at all, and the verdict called the trend below threshold while conceding the metric "samples only the review's filings, not the dev's"). A sample whose `dev_filed=?` is UNRESOLVED, not zero: exclude it from the streak the way an absent sample is excluded, and record it in §3.7.4 as `unresolved dev term`. A sample predating the `dev_filed` field entirely is likewise excluded from the streak rather than read as `dev_filed=0`. This is the direct signal that the queue is growing, and a streak rather than a single reading because one heavy review iteration is normal and self-correcting.
+2. **Flat-backlog window (default M=8):** across the `M` most recent samples, `phase_open` at the newest sample is greater than or equal to `phase_open` at the oldest, AND at least `M` iterations shipped commits in that span. This trigger reads `phase_open` only, which the emitter is required to RE-COUNT from the spec each time rather than carry forward, so treat two identical consecutive readings as data and not as a copy: if a run of identical values coincides with iterations that closed items, the suspicion belongs on the emitter, and the check is one `grep -c` against that phase's section, which you should run for the current iter before counting its sample (a stale `phase_open` is a receipt error of the same class as the `closed` mismatch above, and gets the same `should-fix` against the review skill). A phase absorbing 8 productive iterations without its open count falling is not draining, whatever the per-iter arithmetic says. This catches the regime the streak trigger misses, where `filed` and `closed` alternate around parity.
 3. **Freeze-eligibility (independent of 1 and 2):** the newest sample carries `frozen=no` and `phase_open <= 10`, i.e. the phase has met `sst-dev-review`'s freeze condition and no banner was written.
 4. **Stable-termination override (default K=10):** if the `K` most recent samples all have `filed - closed <= 0` AND `phase_open` strictly decreased across them, suppress triggers 1 and 2 entirely and return `no growth response needed (draining, K=<n>)`, incrementing `<n>` from the most recent trailing verdict's §3.7.4 block exactly as §3.5.1's override does. Trigger 3 still evaluates: a draining phase is precisely the one that becomes freeze-eligible.
 
@@ -368,11 +368,11 @@ Append to the verdict, after §3.6's block:
 ## Backlog growth
 
 - Trailing samples: iters <range>; present <count>, absent <count>
-- Net delta (filed - closed) newest-first: <list>
+- Net delta (filed + dev_filed - closed) newest-first: <list>   [note any `?` dev term as unresolved]
 - phase_open trend: <oldest> -> <newest> (phase <id>, frozen=<yes|no>)
 - Triggers: streak N=<n>/<N>, flat-window M=<n>/<M>, freeze-eligible <yes|no>
 - Outcome: <no growth response needed (draining, K=<n>) | below threshold | refinement applied to <skill> <version> | freeze routed to manager-notes | escalated>
-- Corrections: <corrected/absent samples, or none>
+- Corrections: <corrected/absent samples, unresolved dev terms, stale phase_open readings, or none>
 ```
 
 The next iter's §3.7.1 reads this block from trailing verdicts for the override streak and the consumption boundary; as in §3.5.4, continuity is the contract, and the block is written under the §0.5 fast-path verdict too (a fast-path verdict omitting it breaks the streak for every downstream iter).

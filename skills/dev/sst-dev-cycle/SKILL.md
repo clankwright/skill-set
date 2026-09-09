@@ -2,7 +2,7 @@
 name: sst-dev-cycle
 description: Autonomous test-driven development cycle. Reads the project's spec + handoff TODO, picks the next queued or unchecked item, writes failing tests first, implements until the full test suite is green, commits (code + tests + spec + TODO update in one commit), pushes, deploys if the project has a deploy path, and verifies production. Runs end-to-end without pausing for confirmation.
 user-invocable: true
-version: 1.73.0
+version: 1.74.0
 model-floor: fable
 effort-floor: high
 ---
@@ -272,6 +272,7 @@ By the time you reach this point the gate has already run (or was skipped becaus
 
  - **Two severities only.** A self-discovered follow-up is `[blocker]` or `[should-fix]`, never a third tier. "Deferred polish" above is not a licence to queue polish: a `[nice-to-have]` in a pick queue gets picked, implemented, tested and reviewed at the cost of a defect the moment the items above it close. Polish you noticed while shipping goes to `docs/FUTURE-WORK.md` (one line, with the file:line and what you saw), not to `## Next up`. That file is read on open by every stage and is where a human decides whether it is ever worth a cycle.
  - **At most 2 new IDs per cycle, blockers exempt.** You are one stage of an iteration that also runs a review, and the two budgets are separate; yours is deliberately the smaller, because your findings are a by-product of shipping while the review's are the product of looking. Both numbers are defaults a project's proprietary wrapper may tune (tighten freely; loosen only with the reason written down), and the relation is what matters rather than the digits: keep this cap below the review's, which defaults to 3. Beyond the cap, park the rest in `docs/FUTURE-WORK.md`. Widening an OPEN item's text or acceptance costs no ID and is the preferred move: prefer it whenever the thing you noticed is another site of a cause the backlog already names.
+ - **Say what you filed, in your §6 close report, as a countable line.** The review stage emits the iteration's `[queue-delta]` sample and has to report YOUR new IDs as `dev_filed=` alongside its own, because a queue with two writers that reports one of them under-counts its own growth. So end the close report with a plain line naming them: `filed this cycle: <id>, <id>` (or `filed this cycle: none`), plus `parked: <n>` for anything you routed to `docs/FUTURE-WORK.md`. Put it in assistant-visible text, not inside a tool call: the review reads your transcript, and a line that reaches it only as a tool argument is a line it has to reconstruct by diffing. Naming zero is as load-bearing as naming two, since the alternative to a stated zero is an unresolved sample.
  - **Honor a phase freeze.** When the active phase's `## Next up` subsection carries a `**FROZEN <utc-iso>: ...**` banner, only `[blocker]` may be queued into that phase; a `[should-fix]` goes to `docs/FUTURE-WORK.md` marked `deferred by phase freeze`. The banner is state written by whichever stage first observed the condition, so read it, do not recompute it, and never remove it: only the human lifts a freeze. Its whole purpose is that the phase you are shipping into can actually finish and merge.
 5. Trim `## Just shipped (last cycle)` to the most recent 10 entries; older entries are reflected in `SPEC.md` checkboxes and `git log` already.
 
