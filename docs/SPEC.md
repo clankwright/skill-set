@@ -117,6 +117,37 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 
 > Completed phases live in [docs/SPEC-DONE.md](SPEC-DONE.md); deferred phases live in [docs/FUTURE-WORK.md](FUTURE-WORK.md). Active phases live below.
 
+### Phase 70 -- backlog telemetry counts BOTH queue writers (2026-09-09, owner-directed)
+
+Phase 69's first real run instrumented three iterations and its own supervisor found the metric
+under-counting: `[queue-delta]` sampled the review's filings only, so the dev stage's items were
+invisible to the growth triggers and a growing queue could read as flat. The same run also emitted
+two identical `phase_open` readings across iterations that closed items, i.e. a carried-forward
+value where a fresh count was required.
+
+- [x] 70.1 [medium] `sst-dev-review` (1.37.0): `[queue-delta]` gains `dev_filed=`, with `?` for an
+  unresolvable dev term so a false zero is never recorded; `phase_open` must be RE-COUNTED from the
+  spec at write time, never carried forward and never derived arithmetically from the stage's own
+  deltas, since it is the field the flat-backlog trigger keys on.
+- [x] 70.2 [easy] `sst-dev-cycle` (1.74.0): the dev's close report ends with a countable
+  `filed this cycle: <ids|none>` plus `parked: <n>` line, in assistant-visible text, so the review
+  can populate `dev_filed=` without diffing.
+- [x] 70.3 [medium] `sst-supervisor` (2.26.0): §3.7's net-growth streak scores
+  `filed + dev_filed - closed`; `?` and pre-field samples are unresolved rather than zero; the
+  flat-backlog trigger re-runs the `phase_open` count for the current iter before counting its
+  sample, and a stale reading is a receipt error against the review skill.
+
+Wrappers reconciled: `ssp-cm-dev-review` 1.40.0, `ssp-cm-dev` 1.113.0 (also gained a re-measure rule
+for inherited environmental blockers, after a dev routed around a DB outage the user had fixed inside
+that dev's own run window), `ssp-cm-supervisor` 2.8.0, `ssp-cm-tester` 1.36.0 (saved-session reuse is
+now explicitly the intended design per owner directive; a stale state is re-signed in-stage instead of
+degrading; cookie values may never reach a tool argument, after a run wrote 20 live-cookie references
+into its own raw logs), `ssp-manager` 1.2.0 (this repo's own wrapper, previously missed and behind its
+base). Sanitize gate: 0 must-fix, 0 should-fix, 0 nit across all three transferables.
+
+Tests: none added; all changes are skill prose. `bin/validate-frontmatter.py` and
+`bin/check-ssp-sync.py` clean, the latter across all three consuming trees.
+
 ### Phase 69 -- backlog-growth control: filing budget, phase freeze, queue-delta telemetry (2026-09-08, owner-directed)
 
 A consuming project measured its own queue and found the review stage filing items faster than the
