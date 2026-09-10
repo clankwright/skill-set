@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.26.0
+version: 2.27.0
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -446,7 +446,7 @@ Assign the next unused `H<phase>.<n>` ID where `<phase>` matches the SPEC phase 
 
 Note: a skill-prose improvement is NOT a HUMAN.md item. The supervisor edits skill source directly (§3) and, for transferables, commits and pushes it (§3a) — there is no human promotion step. `docs/HUMAN.md` is only for actions that genuinely require a human with out-of-band credentials.
 
-**Anti-fork constraint.** The supervisor MUST NOT flip `[ ]` → `[x]` on HUMAN.md entries. Closure is human-initiated (or auto-verified by the manager skill). Write APPEND-only; never remove or modify an existing open entry.
+**Anti-fork constraint.** Never flip `[ ]` → `[x]`, remove, or modify an open HUMAN.md entry; writes are APPEND-only, closure human-initiated (or manager-auto-verified). Same-key idempotency blocks a RESTATEMENT, not a supersede: a cycle discharging an open entry's stated precondition appends a superseder citing its ID.
 
 **Write-paths addendum.** The supervisor's write-paths (§Output rules) now include: **(f) `docs/HUMAN.md`** — APPEND only, under `## Blocking` or `## High`. Never close an existing entry; never modify prose outside the appended block.
 
