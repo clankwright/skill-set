@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.27.0
+version: 2.28.0
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -466,7 +466,7 @@ In branch-per-phase projects the dev cycle bails when its active phase is comple
 [no-work] phase <N> complete on <branch>; awaiting human branch setup for phase <N+1>
 ```
 
-This is a **human-only** handoff (only the human can merge the completed branch and open the next phase's `feature/<name>` branch), so it passes §5b's admission test. Phase 54 moved the HUMAN.md write out of the dev skill into this oversight layer: the dev now only prints the sentinel and exits. When this skill's transcript scan finds that `[no-work] phase <N> complete` line, the supervisor files the branch-setup `## Blocking` entry in `docs/HUMAN.md` using §5b's schema (this phase-completion HUMAN.md write is what was re-homed from the dev's old §7a):
+This is a **human-only** handoff (only the human can merge the completed branch and open the next phase's `feature/<name>` branch), so it passes §5b's admission test; the dev only prints the sentinel and exits. **The trigger is the CONDITION, not that one sentinel: file as soon as the active phase is exhausted, on whichever signal reaches you first.** The sentinel is LAST and lands on an iteration that gets no supervisor pass (backfill note below), so keying on it alone costs a run of latency. Two earlier signals reach you every iter: §3.7.1's `[queue-delta]` reading `phase=<N> phase_open=0` with nothing queued to that phase in `docs/TODO.md`, and a chain skill naming the merge in its own transcript (§5b's general rule). On any of them, file the branch-setup `## Blocking` entry in `docs/HUMAN.md` using §5b's schema:
 
 - Assign `H<N>.<n>` for the completed phase `<N>` (next unused `<n>`).
 - Body: state that phase `<N>` is complete on `<branch>` and the human must merge it and open the phase `<N+1>` branch before the cycle can proceed.
