@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.38.0
+version: 1.39.0
 model-floor: opus
 effort-floor: high
 ---
@@ -60,7 +60,7 @@ The absolute cap of 3 is a default, tunable by a project's proprietary wrapper o
 
 The filing budget bounds the RATE; freeze gives the phase an END. Without one, a phase whose own review output lands in its own section is a moving target: every follow-up filed into the active phase is pickable on the same branch next iteration, so the phase's definition and its remaining work grow together and the phase-completion bail (`sst-dev-cycle` §0.6a) can never fire.
 
-**Freeze applies only to a project that organizes its spec into phases.** Phases, a per-phase `## Next up` subsection, and the branch-per-phase mapping are a convention the framework supports rather than requires (`sst-dev-cycle` §0 step 7 makes its own phase bail conditional on the project declaring an `## Operational scope` map). In a project with a flat spec there is no phase to freeze and no scope to stop growing at a boundary, so this whole section is inert: skip it, emit §2.11's line with `phase=none` and `phase_open=` the whole spec's open `- [ ]` count, and let the filing budget do the bounding on its own. Do not invent a phase to have something to freeze.
+**Freeze applies only to a phase that can reach an END**, since freeze is what lets a phase finish. Two shapes fail that test. A FLAT spec has no phase at all (phases and the branch-per-phase mapping are a convention, not a requirement; `sst-dev-cycle` §0 step 7 gates its own phase bail on an `## Operational scope` map): skip this section, emit §2.11's line with `phase=none` and `phase_open=` the whole spec's open `- [ ]` count, and let the filing budget bound on its own. A STANDING BUCKET (a phase whose description keeps receiving work, with no successor and no branch that merges) can never receive the lift named below, so freezing it diverts every non-blocker to `docs/FUTURE-WORK.md` permanently: leave `frozen=no`, write no banner, and record in §6 that it was freeze-eligible by count but unfreezable. A banner already standing on such a phase was written in error; remove it and say so in §6. Do not invent a phase to freeze, and do not freeze one that has nothing to finish.
 
 **Freeze condition (defaults; a project's proprietary wrapper may tighten either number, never loosen them):** a phase is FROZEN once its open `- [ ]` count has fallen to **10 or fewer**, or once the human declares a freeze in that phase's `## Next up` subsection banner. Count exactly as the phase-completion bail does, over the `- [ ]` items under that phase's SPEC section.
 
