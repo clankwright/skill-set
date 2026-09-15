@@ -2,7 +2,7 @@
 name: sst-dev-review
 description: Post-cycle second-pass review of the last `/sst-dev-cycle` commit on any project. Reads what shipped (code + tests + spec + TODO + docs), evaluates it against the spec item it closed along several axes (spec parity, correctness, coverage, discoverability, production verification, security, style, performance), and appends concrete follow-up items to the project's spec AND the handoff TODO's "Next up" if critical, blocking, or medium-to-major gaps are found. If nothing substantive turns up, leaves both unchanged and reports "clean." Does NOT fix issues — only names them and schedules them as spec work for the next `/sst-dev-cycle`. Pair with `/sst-dev-cycle` (chained via `bin/skill-chain.py sst-dev-cycle sst-dev-review`).
 user-invocable: true
-version: 1.39.0
+version: 1.40.0
 model-floor: opus
 effort-floor: high
 ---
@@ -328,7 +328,7 @@ Emit a machine-parseable line to stdout at the end of §4 (or at the end of §3 
 - `closed` / `filed`: as defined in the filing-budget section (`filed` counts NEW IDs only, and only YOURS).
 - `dev_filed`: NEW IDs the DEV stage filed in this same iteration, under its own cap (`sst-dev-cycle` §6 step 4). **This field exists because the queue has two writers and a line that reports only one of them under-counts growth by however much the other filed**, which makes a growing backlog read as flat and silently starves the supervisor's trigger. Read it off the dev's own §6 close report in its transcript, else by diffing the added `- [ ]` lines under the phase between the cycle commit and the review's own edits. When the dev filed none, write `dev_filed=0`; when you genuinely cannot resolve it (no dev transcript, gitignored spec, no way to diff), write `dev_filed=?` rather than `0`, so the supervisor records an unresolved sample instead of a false zero.
 - `blockers`: how many of `filed` were `[blocker]`, i.e. how much of `filed` the budget did not bound.
-- `strengthened`: open items whose text or acceptance you widened without minting an ID.
+- `strengthened`: open items you edited in place instead of minting an ID -- widened, corrected, or qualified alike.
 - `parked`: findings routed to `docs/FUTURE-WORK.md` this review, whether by budget or by freeze.
 - `phase`: the reviewed phase's ID, or the literal `none` in a project with no phase structure (see the freeze section). `phase_open`: that phase's open `- [ ]` count AFTER your edits, or the whole spec's when `phase=none`. `frozen`: whether the freeze banner is in force (`no` whenever `phase=none`).
 
