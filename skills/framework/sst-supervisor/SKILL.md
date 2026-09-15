@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.31.0
+version: 2.31.1
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -350,7 +350,7 @@ Let the trailing samples be ordered newest-first, absent samples excluded.
 3. **Freeze-eligibility (independent of 1 and 2):** the newest sample carries `frozen=no`, `phase_open <= 10`, AND `sst-dev-review`'s freeze section admits that phase. That section holds an unfreezable phase at `frozen=no` at any count by design, so the sample is correct, not a missing banner.
 4. **Stable-termination override (default K=10):** if the `K` most recent samples all have `filed - closed <= 0` AND `phase_open` strictly decreased across them, suppress triggers 1 and 2 entirely and return `no growth response needed (draining, K=<n>)`, incrementing `<n>` from the most recent trailing verdict's §3.7.4 block exactly as §3.5.1's override does. Trigger 3 still evaluates: a draining phase is precisely the one that becomes freeze-eligible.
 
-Consumption follows §3.5.1's rule: when a trailing verdict records a fired §3.7 response, samples at or before that firing iter are consumed and excluded from trigger 2's window; the streak in trigger 1 is exempt, because a streak surviving a response is fresh evidence the response did not take.
+Consumption follows §3.5.1's rule and is PER-TRIGGER: a firing consumes only the evidence that fed the trigger that fired. A trigger-2 response consumes the samples at or before its firing iter from trigger 2's window; a trigger-3 freeze routing, which reads the newest sample alone, consumes nothing. Trigger 1's streak is exempt entirely, because a streak surviving a response is fresh evidence the response did not take.
 
 #### 3.7.3. Response (only on a fired trigger)
 
