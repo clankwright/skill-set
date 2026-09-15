@@ -2,7 +2,7 @@
 name: sst-supervisor
 description: Post-chain meta-review. Reads the run log dir produced by skill-chain.py (MANIFEST.json + per-skill .txt transcripts), evaluates how each skill performed against its job, and edits the canonical skill source directly when a skill's prose needs to change — transferables in the base ~/Dev/skill-set/ repo (sanitize-clean gate, version bump, commit, push), proprietary skills in place under the project's .claude/skills/. Writes a verdict file summarizing findings plus what was edited. Updates docs/TODO.md if any new follow-up work fell out of the analysis. When a follow-up is routine framework maintenance that needs no human (e.g. reconciling a proprietary ssp-* wrapper that drifted behind a bumped base skill, or syncing the runtime skill copies), it batches the work to sst-executor — which carries it out and reports over Telegram — instead of parking it for the human; follow-ups that genuinely need a human decision are filed to docs/HUMAN.md as an answerable decision-request and notified.
 user-invocable: false
-version: 2.29.0
+version: 2.30.0
 model-floor: fable
 effort-floor: xhigh
 ---
@@ -437,7 +437,7 @@ Placement: default to `## Blocking` for items that actively stop a SPEC item fro
 - [ ] H<phase>.<n> [<difficulty>] **<short title>**
   <one-paragraph body: what the human must do, where, why the cycle can't do it.>
   Blocks: <comma-separated SPEC IDs>, or "none".
-  Verify: <optional one-line shell check; pass = supervisor/manager auto-moves to ## Done>.
+  Verify: <optional one-line shell check asserting the END STATE the action produces, never a bookkeeping proxy for it (the code present on the host, not the crontab entry that would run it); a pass auto-moves to ## Done, so a proxy closes a live blocker>.
   Filed by: sst-supervisor at <utc-iso>.
   Source: <run-dir-name>/supervisor_verdict.md.
 ```
