@@ -117,6 +117,40 @@ Before writing a transferable proposal, the supervisor invokes the `sst-sanitize
 
 > Completed phases live in [docs/SPEC-DONE.md](SPEC-DONE.md); deferred phases live in [docs/FUTURE-WORK.md](FUTURE-WORK.md). Active phases live below.
 
+### Phase 71 -- the filing budget binds the SUM of both writers, and freeze is read per phase (2026-09-15, owner-directed)
+
+Phases 69 and 70 bounded each queue writer separately and instrumented the result. A 10-iteration run
+then demonstrated that this bounds nothing: every iteration was individually compliant on BOTH stages,
+12 items were closed, and the active phase still grew from 4 open to 6. Nobody broke a rule. The rules
+did not add up to the property they were written for, which is the failure mode worth recording, since
+the instrumentation was correct throughout and reported the growth faithfully while the control did
+not prevent it.
+
+The same run also showed freeze failing twice over: a `FROZEN` banner left under a CLOSED phase's
+subsection was read as governing the ACTIVE phase (two iterations reported `frozen=yes` for a phase
+with no banner), and the flag then fell back to `no` on its own, which the contract never permitted.
+
+- [x] 71.1 [medium] `sst-dev-review` (1.41.0): the budget inequality becomes
+  `filed_non_blocker + dev_filed <= max(1, closed)`. The dev commits first, so its count is readable
+  before the review files; an unresolvable `dev_filed` is treated as having spent the whole allowance
+  rather than as zero, so an unknown cannot buy headroom.
+- [x] 71.2 [medium] `sst-dev-cycle` (1.78.0): the dev's own cap becomes `min(2, max(1, closed))`,
+  tied to what its own commit closed. The flat cap of 2 it replaces let a cycle closing one item file
+  two, so the dev alone grew the phase and the review's subtraction could never bring the total below
+  the dev's number.
+- [x] 71.3 [medium] `sst-dev-review` (1.41.0): the freeze banner is matched to the subsection of the
+  phase named in `phase=`, a banner under any other phase's subsection is invisible, `frozen` may
+  never fall from `yes` to `no` without human action (a disagreement with the prior sample is a
+  finding about the earlier reading), and a phase's banner is struck when its branch merges so no
+  later phase can inherit it.
+
+Wrappers reconciled: `ssp-cm-dev-review` 1.44.0, `ssp-cm-dev` 1.118.0. Sanitize gate: 0 must-fix,
+0 should-fix, 0 nit on both transferables. The stale banner that caused the cross-phase read was
+struck in the consuming project.
+
+Tests: none added; all changes are skill prose. `bin/validate-frontmatter.py` and
+`bin/check-ssp-sync.py` clean across all three consuming trees.
+
 ### Phase 70 -- backlog telemetry counts BOTH queue writers (2026-09-09, owner-directed)
 
 Phase 69's first real run instrumented three iterations and its own supervisor found the metric
