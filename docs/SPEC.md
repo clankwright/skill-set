@@ -144,7 +144,7 @@ with no banner), and the flag then fell back to `no` on its own, which the contr
   finding about the earlier reading), and a phase's banner is struck when its branch merges so no
   later phase can inherit it.
 
-Wrappers reconciled: `ssp-alpha-dev-review` 1.44.0, `ssp-alpha-dev` 1.118.0. Sanitize gate: 0 must-fix,
+Consuming-project dev + review wrappers reconciled. Sanitize gate: 0 must-fix,
 0 should-fix, 0 nit on both transferables. The stale banner that caused the cross-phase read was
 struck in the consuming project.
 
@@ -171,9 +171,9 @@ value where a fresh count was required.
   flat-backlog trigger re-runs the `phase_open` count for the current iter before counting its
   sample, and a stale reading is a receipt error against the review skill.
 
-Wrappers reconciled: `ssp-alpha-dev-review` 1.40.0, `ssp-alpha-dev` 1.113.0 (also gained a re-measure rule
+Consuming-project wrappers reconciled: dev-review, dev (also gained a re-measure rule
 for inherited environmental blockers, after a dev routed around a DB outage the user had fixed inside
-that dev's own run window), `ssp-alpha-supervisor` 2.8.0, `ssp-alpha-tester` 1.36.0 (saved-session reuse is
+that dev's own run window), supervisor, tester (saved-session reuse is
 now explicitly the intended design per owner directive; a stale state is re-signed in-stage instead of
 degrading; cookie values may never reach a tool argument, after a run wrote 20 live-cookie references
 into its own raw logs), `ssp-manager` 1.2.0 (this repo's own wrapper, previously missed and behind its
@@ -218,8 +218,8 @@ the loop's observation rate instead of its defect count and the phase could neve
   growing ticks (the point at which no autonomous stage can fix it).
 - [x] 69.8 [easy] `templates/SPEC.md` + `templates/FUTURE-WORK.md`: two-severity rule and bounded filing rate documented in the spec template; new `## Deferred review findings` section defined in the FUTURE-WORK template as the overflow destination the review writes to.
 
-Wrappers reconciled in the same pass: `ssp-alpha-dev-review` 1.39.0, `ssp-alpha-dev` 1.109.0,
-`ssp-alpha-supervisor` 2.7.0, `ssp-alpha-manager` 1.5.0, `ssp-beta-manager` 1.2.0 (the last two were
+Consuming-project wrappers reconciled in the same pass: dev-review, dev, supervisor, and two
+manager wrappers (the two managers were
 also behind their base before this change). Sanitize gate: 0 must-fix across all four transferables;
 3 should-fix found and applied (undeclared caps, phase-structure assumption).
 

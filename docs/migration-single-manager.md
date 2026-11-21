@@ -1,6 +1,6 @@
 # Migration: per-project managers → single operator-level manager
 
-This runbook collapses N proprietary `<persona>-manager/` skill dirs (e.g. `alpha-manager`, `beta-manager`, `skill-set-manager`) into one operator-level `<operator>-manager/` (e.g. `rob-manager`) that watches every project from a single yaml block. The per-project context moves into each project's `docs/MANAGER.md`; the per-project objectives merge into one file with `## Project:` sections.
+This runbook collapses N proprietary `<persona>-manager/` skill dirs (e.g. `app-manager`, `site-manager`, `skill-set-manager`) into one operator-level `<operator>-manager/` (e.g. `rob-manager`) that watches every project from a single yaml block. The per-project context moves into each project's `docs/MANAGER.md`; the per-project objectives merge into one file with `## Project:` sections.
 
 The transferable `sst-manager` already walks N watched-projects per invocation, so the only thing the per-project shape was adding was multiplication: N cron entries, N env-file paths, N skill files, N folders to keep in sync as the transferable evolves. Collapse removes that multiplication while preserving every per-project nuance via `docs/MANAGER.md` and `## Project:`-scoped objectives.
 
@@ -16,7 +16,7 @@ Confirm the inventory of currently-installed per-project managers:
 ls ~/.claude/skills/ | grep -E '\-manager$'
 ```
 
-You should see something like `alpha-manager`, `beta-manager`, `skill-set-manager`. Pick an operator name; it labels the new skill file and is not used as a routable token. (Examples: your given name, your handle, `ops`, `meta`.) The persona tokens the bot routes on continue to be the per-project names (`alpha`, `beta`, `skill-set`); they come from the new manager's `watched-projects[*].name`.
+You should see something like `app-manager`, `site-manager`, `skill-set-manager`. Pick an operator name; it labels the new skill file and is not used as a routable token. (Examples: your given name, your handle, `ops`, `meta`.) The persona tokens the bot routes on continue to be the per-project names (`app`, `site`, `skill-set`); they come from the new manager's `watched-projects[*].name`.
 
 If a per-project manager has a corresponding cron entry, locate it first:
 
@@ -54,11 +54,11 @@ Inherits the full transferable contract at `~/.claude/skills/sst-manager/SKILL.m
 ```yaml
 operator-level: true
 watched-projects:
-  - path: /home/rob/Dev/alpha_app
-    name: alpha
-  - path: /home/rob/Dev/beta-site
-    name: beta
-  - path: /home/rob/Dev/skill-set
+  - path: /home/<user>/Dev/my-app
+    name: app
+  - path: /home/<user>/Dev/my-site
+    name: site
+  - path: /home/<user>/Dev/skill-set
     name: skill-set
 objectives-path: <abs-path>/.claude/skills/<operator>-manager/objectives.md
 telegram-env: ~/.config/<operator>-telegram.env
@@ -68,7 +68,7 @@ telegram-env: ~/.config/<operator>-telegram.env
 Notes:
 
 - The `operator-level: true` line is what the bot's `_discover_manager_personas` keys on to emit one persona per `watched-projects[*].name` (SPEC 30.3). Without it, the file falls back to folder-derived persona (`<operator>` itself) and the project tokens are NOT registered.
-- The `name:` field in each `watched-projects` entry is the persona token the user types as the first arg on `/feedback <token> ...`, `/status <token>`, `/pause <token>`, etc. (per SPEC 28.3). Keep them stable across the migration: a user typing `/feedback alpha` before and after must still hit the alpha project.
+- The `name:` field in each `watched-projects` entry is the persona token the user types as the first arg on `/feedback <token> ...`, `/status <token>`, `/pause <token>`, etc. (per SPEC 28.3). Keep them stable across the migration: a user typing `/feedback app` before and after must still hit the same project.
 - `objectives-path:` points at the consolidated objectives file (step (c)).
 - `telegram-env:` is the operator-level env file. Either symlink `~/.config/<operator>-telegram.env -> ~/.config/skill-set-telegram.env` (or any existing env file you already use), or create a fresh `.env` per `sst-setup-telegram`. The chat-id allowlist and bot token stay the same; only the env-file path is operator-named.
 
@@ -146,7 +146,7 @@ Verify with `sudo crontab -l -u rob` or `sudo cat /etc/crontab | grep <operator>
 
 ## (e) Archive per-project `<persona>-manager/` skill dirs
 
-Do not delete — archive. The audit trail matters when investigating "where did this old digest format come from" or "what was the alpha-specific hard rule that got dropped."
+Do not delete — archive. The audit trail matters when investigating "where did this old digest format come from" or "what was the project-specific hard rule that got dropped."
 
 For each old `<persona>-manager/`:
 

@@ -55,13 +55,13 @@ def test_discover_empty_skills_dir():
 def test_discover_single_persona():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        _make_manager_skill(root, "alpha", [{"path": "/home/rob/Dev/alpha_app", "name": "alpha_app"}])
+        _make_manager_skill(root, "alpha", [{"path": "/home/rob/Dev/alpha-app", "name": "alpha_app"}])
         result = mb._discover_manager_personas(root)
     assert len(result) == 1
     r = result[0]
     assert r["persona"] == "alpha"
     assert len(r["projects"]) == 1
-    assert r["projects"][0]["path"] == "/home/rob/Dev/alpha_app"
+    assert r["projects"][0]["path"] == "/home/rob/Dev/alpha-app"
 
 
 def test_discover_multiple_personas():
@@ -111,7 +111,7 @@ def test_discover_keeps_proprietary_skill():
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(
             "---\nname: alpha-manager\ntransferable: sst-manager\n---\n\n"
-            "```yaml\nwatched-projects:\n  - path: /home/rob/Dev/alpha_app\n    name: alpha_app\n```\n"
+            "```yaml\nwatched-projects:\n  - path: /home/rob/Dev/alpha-app\n    name: alpha_app\n```\n"
         )
         result = mb._discover_manager_personas(root)
     assert len(result) == 1
@@ -475,7 +475,7 @@ def test_discover_operator_level_emits_one_persona_per_project():
             root,
             "rob",
             [
-                {"path": "/home/rob/Dev/alpha_app", "name": "alpha"},
+                {"path": "/home/rob/Dev/alpha-app", "name": "alpha"},
                 {"path": "/home/rob/Dev/beta-site", "name": "beta"},
                 {"path": "/home/rob/Dev/skill-set", "name": "skill-set"},
             ],
@@ -504,13 +504,13 @@ def test_discover_operator_level_persona_path_matches_project():
             root,
             "rob",
             [
-                {"path": "/home/rob/Dev/alpha_app", "name": "alpha"},
+                {"path": "/home/rob/Dev/alpha-app", "name": "alpha"},
                 {"path": "/home/rob/Dev/beta-site", "name": "beta"},
             ],
         )
         result = mb._discover_manager_personas(root)
     by_persona = {r["persona"]: r for r in result}
-    assert by_persona["alpha"]["projects"][0]["path"] == "/home/rob/Dev/alpha_app"
+    assert by_persona["alpha"]["projects"][0]["path"] == "/home/rob/Dev/alpha-app"
     assert by_persona["beta"]["projects"][0]["path"] == "/home/rob/Dev/beta-site"
 
 
@@ -524,7 +524,7 @@ def test_discover_operator_level_single_project():
         _make_operator_manager_skill(
             root,
             "rob",
-            [{"path": "/home/rob/Dev/alpha_app", "name": "alpha"}],
+            [{"path": "/home/rob/Dev/alpha-app", "name": "alpha"}],
         )
         result = mb._discover_manager_personas(root)
     assert len(result) == 1
@@ -543,7 +543,7 @@ def test_discover_legacy_per_project_manager_unchanged():
         root = Path(tmpdir)
         # Legacy shape: name= path-basename, no operator-level flag
         _make_manager_skill(
-            root, "alpha", [{"path": "/home/rob/Dev/alpha_app", "name": "alpha_app"}]
+            root, "alpha", [{"path": "/home/rob/Dev/alpha-app", "name": "alpha_app"}]
         )
         result = mb._discover_manager_personas(root)
     assert len(result) == 1
@@ -559,7 +559,7 @@ def test_discover_mixed_legacy_and_operator_level():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
         _make_manager_skill(
-            root, "alpha", [{"path": "/home/rob/Dev/alpha_app", "name": "alpha_app"}]
+            root, "alpha", [{"path": "/home/rob/Dev/alpha-app", "name": "alpha_app"}]
         )
         _make_operator_manager_skill(
             root,
@@ -596,14 +596,14 @@ def test_projects_reply_lists_operator_level_personas(monkeypatch):
     """/projects must list each operator-level persona separately even when
     they all originate from one operator manager file."""
     fake_data = [
-        {"persona": "alpha", "projects": [{"path": "/home/rob/Dev/alpha_app", "name": "alpha"}]},
+        {"persona": "alpha", "projects": [{"path": "/home/rob/Dev/alpha-app", "name": "alpha"}]},
         {"persona": "beta", "projects": [{"path": "/home/rob/Dev/beta-site", "name": "beta"}]},
     ]
     monkeypatch.setattr(mb, "_discover_manager_personas", lambda *a, **kw: fake_data)
     reply = mb.handle_command("/projects", chat_id=1)
     assert "alpha" in reply
     assert "beta" in reply
-    assert "/home/rob/Dev/alpha_app" in reply
+    assert "/home/rob/Dev/alpha-app" in reply
     assert "/home/rob/Dev/beta-site" in reply
 
 
@@ -1069,7 +1069,7 @@ def test_service_file_rwpaths_comment_not_misleading_dev_ancestor():
     """The EXTRA_ROOTS comment must not imply %h/Dev/ is a covered ReadWritePaths ancestor.
 
     Only %h/Dev/skill-set is listed in ReadWritePaths.  A sibling like
-    %h/Dev/alpha_app is NOT covered.  The old phrase "outside %h/Dev/"
+    %h/Dev/alpha-app is NOT covered.  The old phrase "outside %h/Dev/"
     implies the whole %h/Dev/ tree is already allowed, misleading operators.
     """
     content = _SERVICE_FILE.read_text()
@@ -1077,7 +1077,7 @@ def test_service_file_rwpaths_comment_not_misleading_dev_ancestor():
         "manager-bot.service comment says 'outside %h/Dev/' but only %h/Dev/skill-set is in "
         "ReadWritePaths; the comment misleads users into thinking the entire %h/Dev/ tree is "
         "covered.  Fix: say 'outside any already-listed ReadWritePaths entry' and give a "
-        "concrete example (e.g. %h/Dev/alpha_app must be listed explicitly)."
+        "concrete example (e.g. %h/Dev/alpha-app must be listed explicitly)."
     )
 
 
@@ -1086,8 +1086,8 @@ def test_service_file_rwpaths_comment_mentions_explicit_listing():
 
     After the fix the comment should state that any project NOT under an
     already-listed ReadWritePaths ancestor must be added explicitly, so an
-    operator setting MANAGER_SKILLS_EXTRA_ROOTS to %h/Dev/alpha_app
-    knows to also add %h/Dev/alpha_app to ReadWritePaths.
+    operator setting MANAGER_SKILLS_EXTRA_ROOTS to %h/Dev/alpha-app
+    knows to also add %h/Dev/alpha-app to ReadWritePaths.
     """
     content = _SERVICE_FILE.read_text()
     has_explicit_guidance = (

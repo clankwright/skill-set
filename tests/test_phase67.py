@@ -4,7 +4,7 @@
 Skill-tool sub-invocation), so no sub-skill return exists anywhere in the dev
 cycle to be mistaken for task-completion. The Phase 66 runner commit re-prompt
 stays as the generic backstop (its behavior tests live in test_skill_chain.py).
-Mirrors (ssp-alpha-dev, ssp-beta-dev) are reconciled to base 1.21.0.
+Proprietary dev mirrors are reconciled to base 1.21.0 in their own projects.
 """
 import re
 from pathlib import Path
@@ -13,8 +13,6 @@ import pytest
 
 _REPO = Path(__file__).parent.parent
 _DEV_CYCLE = _REPO / "skills" / "dev" / "sst-dev-cycle" / "SKILL.md"
-_SSP_ALPHA_DEV = Path("/home/rob/Dev/alpha_app/.claude/skills/ssp-alpha-dev/SKILL.md")
-_SSP_BETA_DEV = Path("/home/rob/Dev/beta-site/.claude/skills/ssp-beta-dev/SKILL.md")
 
 
 def _ver(text: str) -> tuple:
@@ -83,24 +81,3 @@ def test_dev_cycle_s5_documents_inline_seam_fix_and_backstop():
     assert "never rely on it" in text
 
 
-@pytest.mark.skipif(not _SSP_ALPHA_DEV.exists(), reason="ssp-alpha-dev not present")
-def test_ssp_alpha_dev_reconciled_to_phase67_base():
-    """67.1: the Alpha dev mirror pins base-version to the bumped base and
-    carries the in-session gate wording.
-    """
-    text = _SSP_ALPHA_DEV.read_text()
-    assert _base_ver(text) == _ver(_DEV_CYCLE.read_text())
-    assert "IN-SESSION" in text
-    assert "Skill-tool sub-invocation" in text
-
-
-@pytest.mark.skipif(not _SSP_BETA_DEV.exists(),
-                    reason="ssp-beta-dev not present")
-def test_ssp_beta_dev_reconciled_to_phase67_base():
-    """67.1: the beta dev mirror pins base-version to the bumped base and
-    carries the in-session gate wording.
-    """
-    text = _SSP_BETA_DEV.read_text()
-    assert _base_ver(text) == _ver(_DEV_CYCLE.read_text())
-    assert "IN-SESSION" in text
-    assert "Skill-tool sub-invocation" in text

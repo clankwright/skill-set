@@ -223,5 +223,5 @@ def test_no_port_literal_or_project_noun():
     text = _tester_text()
     assert not re.search(r"localhost:\d{2,5}", text), "no concrete port:literal"
     assert not re.search(r":\d{4}\b", text), "no bare 4-digit port literal"
-    for noun in ("alpha_app", "beta", "botlab", "ssp-alpha"):
+    for noun in ("botlab",):
         assert noun.lower() not in text.lower(), f"transferable must not name {noun}"

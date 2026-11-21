@@ -21,17 +21,7 @@
          within the existing budget, not unbounded.
        Version must be bumped to at least 1.7.0.
 
-51.2 — `ssp-alpha-tester` (at /home/rob/Dev/alpha_app/.claude/skills/
-       ssp-alpha-tester/SKILL.md) must carry the inherited blast-radius mandate
-       (base-version bumped to >= 1.7.0) PLUS Alpha-specific heuristics:
-       - merged items table: scroll/virtualization (scraped rows), select-all
-         across both partitions, fly-zoom;
-       - AppContext/shared client-data or data-fetch path: Dashboard + Expenses
-         + Reports for "All clients" aggregate AND specific client AND
-         switch-back, client dropdown must not disappear;
-       - map styling/CSS vars: legend swatch must match the rendered layer;
-       - report/credit path: sanity-check numbers, not merely that it renders.
-       The SSP sync checker must report the wrapper as in-sync.
+51.2 — proprietary tester mirror (checked in its own project, not here).
 
 51.3 — README.md must describe the tester as ALSO deriving and running its own
        adjacent/blast-radius cases (guidance is a floor, not a ceiling), not
@@ -47,18 +37,12 @@ import pytest
 
 _REPO = Path(__file__).parent.parent
 _SST_TESTER = _REPO / "skills/framework/sst-tester/SKILL.md"
-_SSP_ALPHA_TESTER = Path("/home/rob/Dev/alpha_app/.claude/skills/ssp-alpha-tester/SKILL.md")
 _README = _REPO / "README.md"
 
 
 def _tester_text() -> str:
     assert _SST_TESTER.exists(), f"{_SST_TESTER} must exist"
     return _SST_TESTER.read_text()
-
-
-def _alpha_tester_text() -> str:
-    assert _SSP_ALPHA_TESTER.exists(), f"{_SSP_ALPHA_TESTER} must exist"
-    return _SSP_ALPHA_TESTER.read_text()
 
 
 def _readme_text() -> str:
@@ -145,112 +129,6 @@ def test_sst_tester_version_bumped_to_at_least_1_7_0():
     assert (major, minor, patch) >= (1, 7, 0), (
         f"sst-tester version is {major}.{minor}.{patch}; must be >= 1.7.0 to "
         "record the Phase 51 blast-radius mandate"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 51.2 -- ssp-alpha-tester inherits mandate + Alpha-specific heuristics
-# ---------------------------------------------------------------------------
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_base_version_bumped():
-    """ssp-alpha-tester base-version must be >= 1.7.0 to reflect the mandate sync."""
-    text = _alpha_tester_text()
-    m = re.search(r"^base-version:\s*(\d+)\.(\d+)\.(\d+)", text, re.MULTILINE)
-    assert m, "ssp-alpha-tester SKILL.md must carry a 'base-version:' field"
-    major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    assert (major, minor, patch) >= (1, 7, 0), (
-        f"ssp-alpha-tester base-version is {major}.{minor}.{patch}; must be >= 1.7.0 "
-        "so the Alpha wrapper reflects the Phase 51 blast-radius mandate"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_heuristic_merged_table_virtualization():
-    """ssp-alpha-tester must include the merged items table scroll/virtualization heuristic."""
-    text = _alpha_tester_text()
-    assert re.search(r"(?i)scroll.*virtual|virtual.*scroll|scraped.*row|merged.*table.*scroll", text), (
-        "ssp-alpha-tester must include Alpha heuristic: a change touching the merged claims "
-        "table -> test scroll/virtualization (scraped rows stay rendered when the "
-        "custom block scrolls in)"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_heuristic_select_all_partitions():
-    """ssp-alpha-tester must include the select-all across both partitions heuristic."""
-    text = _alpha_tester_text()
-    assert re.search(r"(?i)select.all.*partition|both.*partition.*select|scraped.*custom.*select", text), (
-        "ssp-alpha-tester must include Alpha heuristic: test select-all across BOTH scraped "
-        "and custom partitions when the merged items table is touched"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_heuristic_shared_state_all_clients():
-    """ssp-alpha-tester must include the AppContext/shared state -> all-clients aggregate heuristic."""
-    text = _alpha_tester_text()
-    assert re.search(r"(?i)AppContext|shared.*client.data|data.fetch.*path", text), (
-        "ssp-alpha-tester must include Alpha heuristic: a change touching AppContext/shared "
-        "client-data or a data-fetch path"
-    )
-    assert re.search(r"(?i)all\s+clients.*aggregate|aggregate.*all\s+clients|all.clients.*drop\w*", text), (
-        "ssp-alpha-tester must include Alpha heuristic: test Dashboard + Expenses + Reports "
-        "for the 'All clients' aggregate AND a specific client AND switch-back"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_heuristic_client_dropdown_never_disappears():
-    """ssp-alpha-tester must assert the client dropdown must not disappear."""
-    text = _alpha_tester_text()
-    assert re.search(r"(?i)dropdown.*disappear|client.*dropdown.*not.*disappear|dropdown.*never.*disappear", text), (
-        "ssp-alpha-tester must include Alpha heuristic: asserting the client dropdown "
-        "never disappears when testing shared state / data-fetch changes"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_heuristic_legend_swatch_matches_layer():
-    """ssp-alpha-tester must include the map styling -> legend swatch vs rendered layer heuristic."""
-    text = _alpha_tester_text()
-    assert re.search(r"(?i)legend.*swatch.*match|swatch.*match.*layer|legend.*layer.*match|legend.*rendered", text), (
-        "ssp-alpha-tester must include Alpha heuristic: a change touching map styling/CSS "
-        "vars -> verify the legend swatch matches the rendered layer"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_heuristic_report_credit_sanity():
-    """ssp-alpha-tester must include the report/credit path sanity-check heuristic."""
-    text = _alpha_tester_text()
-    assert re.search(r"(?i)sanity.check.*number|credit.*number|report.*credit.*source|number.*source.*data", text), (
-        "ssp-alpha-tester must include Alpha heuristic: a change touching the report/credit "
-        "path -> sanity-check the numbers against the source data (not merely that "
-        "a report renders)"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_ssp_sync_checker_clean():
-    """check-ssp-sync.py must report ssp-alpha-tester specifically as in-sync.
-    Uses --skills-dir scoped to the Alpha skills dir; other pre-existing drift
-    in the Alpha dir is not the responsibility of Phase 51.
-    """
-    alpha_skills_dir = str(_SSP_ALPHA_TESTER.parent.parent)
-    result = subprocess.run(
-        [sys.executable, str(_REPO / "bin" / "check-ssp-sync.py"),
-         "--skills-dir", alpha_skills_dir],
-        capture_output=True, text=True, cwd=str(_REPO)
-    )
-    # ssp-alpha-tester must appear in the "in sync" line, not the DRIFT list.
-    # Other pre-existing drift in the Alpha skills dir is not Phase 51's scope.
-    stdout = result.stdout
-    assert "ssp-alpha-tester" not in stdout.split("in sync")[0] or "in sync" in stdout, (
-        f"check-ssp-sync.py output did not place ssp-alpha-tester in the 'in sync' group:\n{stdout}"
-    )
-    assert re.search(r"in sync.*ssp-alpha-tester", stdout), (
-        f"ssp-alpha-tester must appear in check-ssp-sync.py's 'in sync' list:\n{stdout}"
     )
 
 

@@ -20,7 +20,7 @@ Optional env:
   MANAGER_STATE_DIR          — default ~/.claude/state
   MANAGER_SKILL_NAME         — any truthy value enables on-demand command routing;
                                the actual skill name is derived from the project token
-                               (e.g. token "alpha" -> /alpha-manager). When unset, every
+                               (e.g. token "myapp" -> /myapp-manager). When unset, every
                                project-scoped command queues for the next periodic tick.
   MANAGER_SKILLS_EXTRA_ROOTS — colon-separated list of extra directories to scan for
                                *-manager/SKILL.md persona files, in addition to the
@@ -134,7 +134,7 @@ def route_queue_payload(
     arg (`args[0]` for command payloads; `body.split()[0]` for feedback). The
     project-token convention is anti-fork: this function never defaults to
     `my_persona` when the token is missing — silently assuming would let a
-    skill-set-intended message corrupt alpha's state file (and vice versa).
+    skill-set-intended message corrupt another project's state file (and vice versa).
 
     Returns (action, detail) where action is one of:
       - "act": this manager should process the command.
@@ -201,7 +201,7 @@ def _discover_manager_personas(
     1. **Legacy per-project manager** (no `operator-level: true` in the yaml
        block). The folder name minus `-manager` is the persona token; all
        watched-projects are attached to that single persona. This preserves
-       alpha-manager and similar pre-collapse instances.
+       legacy <project>-manager pre-collapse instances.
     2. **Operator-level manager** (`operator-level: true` in the yaml block).
        Each watched-project's `name:` field is a separate persona token; one
        record is emitted per watched-project, scoped to that single project.
@@ -230,7 +230,7 @@ def _discover_manager_personas(
         if not scan_root.exists():
             continue
         for skill_md in sorted(scan_root.glob("*-manager/SKILL.md")):
-            folder = skill_md.parent.name  # e.g. "alpha-manager"
+            folder = skill_md.parent.name  # e.g. "myapp-manager"
             if not folder.endswith("-manager"):
                 continue
             body = skill_md.read_text(encoding="utf-8", errors="replace")
@@ -632,7 +632,7 @@ def handle_command(text: str, chat_id: int) -> str:
             "/ping — bot liveness check\n"
             "/help — this message\n\n"
             "Project token is REQUIRED for all commands except /ping, /help, and /projects\n"
-            "(e.g. `/status alpha`, `/feedback alpha <text>`). Run `/projects` to see the live\n"
+            "(e.g. `/status myapp`, `/feedback myapp <text>`). Run `/projects` to see the live\n"
             "token-to-project registry.\n\n"
             "Token-required commands write a queue file at "
             f"`{QUEUE_DIR}` and spawn the matching manager skill when routing is enabled.\n\n"

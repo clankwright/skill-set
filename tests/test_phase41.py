@@ -146,7 +146,7 @@ def test_sst_tester_no_port_literals():
 
 def test_sst_tester_no_project_nouns():
     low = _tester_text().lower()
-    for noun in ("alpha_app", "alpha app", "app_api", "web/e2e", "beta"):
+    for noun in ("web/e2e",):
         assert noun not in low, f"transferable body must not name a project noun ({noun})"
 
 

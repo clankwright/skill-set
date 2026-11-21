@@ -1,6 +1,6 @@
 """Tests for Phase 52: test-design anti-pattern guards.
 
-52.1 — `skills/framework/sst-tester/SKILL.md` (and its `ssp-alpha-tester` mirror) must
+52.1 — `skills/framework/sst-tester/SKILL.md` must
        enumerate FOUR anti-pattern RED-FLAGS that the tester MUST flag when assessing
        a change's tests:
        (a) SYNTHETIC-DATA MASKING: a unit test pre-populates the data the change is
@@ -31,7 +31,6 @@ import pytest
 _REPO = Path(__file__).parent.parent
 _SST_TESTER = _REPO / "skills/framework/sst-tester/SKILL.md"
 _SST_DEV_CYCLE = _REPO / "skills/dev/sst-dev-cycle/SKILL.md"
-_SSP_ALPHA_TESTER = Path("/home/rob/Dev/alpha_app/.claude/skills/ssp-alpha-tester/SKILL.md")
 
 
 def _tester_text() -> str:
@@ -42,11 +41,6 @@ def _tester_text() -> str:
 def _dev_cycle_text() -> str:
     assert _SST_DEV_CYCLE.exists(), f"{_SST_DEV_CYCLE} must exist"
     return _SST_DEV_CYCLE.read_text()
-
-
-def _alpha_tester_text() -> str:
-    assert _SSP_ALPHA_TESTER.exists(), f"{_SSP_ALPHA_TESTER} must exist"
-    return _SSP_ALPHA_TESTER.read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -155,38 +149,6 @@ def test_validate_frontmatter_sst_tester():
     assert result.returncode == 0, (
         f"validate-frontmatter.py failed on sst-tester:\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 52.1 -- ssp-alpha-tester mirror
-# ---------------------------------------------------------------------------
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_base_version_bumped_for_52():
-    """ssp-alpha-tester base-version must be >= 1.8.0 to reflect the anti-pattern sync."""
-    text = _alpha_tester_text()
-    m = re.search(r"^base-version:\s*(\d+)\.(\d+)\.(\d+)", text, re.MULTILINE)
-    assert m, "ssp-alpha-tester SKILL.md must carry a 'base-version:' field"
-    major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    assert (major, minor, patch) >= (1, 8, 0), (
-        f"ssp-alpha-tester base-version is {major}.{minor}.{patch}; must be >= 1.8.0 "
-        "to reflect the Phase 52 anti-pattern guards synced from sst-tester"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_TESTER.exists(), reason="ssp-alpha-tester not present")
-def test_ssp_alpha_tester_ssp_sync_checker_clean_for_52():
-    """check-ssp-sync.py must report ssp-alpha-tester as in-sync after Phase 52 bump."""
-    alpha_skills_dir = str(_SSP_ALPHA_TESTER.parent.parent)
-    result = subprocess.run(
-        [sys.executable, str(_REPO / "bin" / "check-ssp-sync.py"),
-         "--skills-dir", alpha_skills_dir],
-        capture_output=True, text=True, cwd=str(_REPO),
-    )
-    stdout = result.stdout
-    assert re.search(r"in sync.*ssp-alpha-tester", stdout), (
-        f"ssp-alpha-tester must appear in check-ssp-sync.py's 'in sync' list:\n{stdout}"
     )
 
 

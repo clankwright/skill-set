@@ -11,9 +11,8 @@
        The §4 HUMAN.md admission-test gate is removed; human-only findings route
        to `docs/FUTURE-WORK.md` instead. Version bumped.
 
-54.3 — Mirror 54.1 + 54.2 into the Alpha proprietary skills (`ssp-alpha-dev` and
-       `ssp-alpha-dev-review`). Neither Alpha mirror may read/write HUMAN.md.
-       Base-versions bumped. SSP sync checker clean.
+54.3 — Mirror 54.1 + 54.2 into the proprietary dev + review wrappers
+       (checked in their own projects, not here).
 
 54.4 — Lock the invariant: ONLY `sst-supervisor` and `sst-manager` (+ their
        mirrors) may read or write `docs/HUMAN.md`. A grep test asserts no
@@ -31,8 +30,6 @@ _REPO = Path(__file__).parent.parent
 
 _DEV_CYCLE = _REPO / "skills/dev/sst-dev-cycle/SKILL.md"
 _DEV_REVIEW = _REPO / "skills/dev/sst-dev-review/SKILL.md"
-_SSP_ALPHA_DEV = Path.home() / "Dev/alpha_app/.claude/skills/ssp-alpha-dev/SKILL.md"
-_SSP_ALPHA_DEV_REVIEW = Path.home() / "Dev/alpha_app/.claude/skills/ssp-alpha-dev-review/SKILL.md"
 _SUPERVISOR = _REPO / "skills/framework/sst-supervisor/SKILL.md"
 _MANAGER = _REPO / "skills/framework/sst-manager/SKILL.md"
 _SPEC = _REPO / "docs/SPEC.md"
@@ -273,113 +270,6 @@ def test_dev_review_version_bumped_for_54():
     assert (major, minor, patch_) >= (1, 13, 0), (
         f"sst-dev-review version is {major}.{minor}.{patch_}; "
         "must be >= 1.13.0 after Phase 54 HUMAN.md revocation"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 54.3 — Alpha proprietary mirrors: no HUMAN.md read or write
-# ---------------------------------------------------------------------------
-
-@pytest.mark.skipif(not _SSP_ALPHA_DEV.exists(), reason="ssp-alpha-dev not present on this host")
-def test_ssp_alpha_dev_no_blocked_on_human_gate():
-    """ssp-alpha-dev SKILL.md must NOT contain the [blocked-on-human] gate text
-    after Phase 54."""
-    text = _text(_SSP_ALPHA_DEV)
-    assert "blocked-on-human" not in text, (
-        "ssp-alpha-dev SKILL.md must NOT reference [blocked-on-human]; "
-        "that gating is re-homed to sst-manager in Phase 54"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_DEV.exists(), reason="ssp-alpha-dev not present on this host")
-def test_ssp_alpha_dev_no_human_md_filing():
-    """ssp-alpha-dev SKILL.md must NOT instruct filing follow-ups to HUMAN.md
-    mid-cycle after Phase 54 (those now go to FUTURE-WORK.md)."""
-    text = _text(_SSP_ALPHA_DEV)
-    # The old text had: "file it to docs/HUMAN.md under ## High"
-    assert not re.search(
-        r"file.*docs/HUMAN\.md.*##\s*High|"
-        r"append.*HUMAN\.md.*##\s*High|"
-        r"HUMAN\.md\s+under\s+##\s*High",
-        text,
-        re.IGNORECASE,
-    ), (
-        "ssp-alpha-dev SKILL.md must NOT instruct filing human-only follow-ups to "
-        "HUMAN.md ## High mid-cycle; those now route to FUTURE-WORK.md (Phase 54)"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_DEV.exists(), reason="ssp-alpha-dev not present on this host")
-def test_ssp_alpha_dev_no_human_md_backlog_reference():
-    """ssp-alpha-dev SKILL.md §0b must NOT reference docs/HUMAN.md as the
-    'Human-blocker backlog' read on every cycle."""
-    text = _text(_SSP_ALPHA_DEV)
-    assert not re.search(
-        r"Human.blocker\s+backlog.*HUMAN\.md|"
-        r"docs/HUMAN\.md.*read\s+on\s+every\s+cycle|"
-        r"read.*HUMAN\.md.*blocked.on.human\s+gating",
-        text,
-        re.IGNORECASE,
-    ), (
-        "ssp-alpha-dev §0b must NOT list docs/HUMAN.md as a file read on every cycle; "
-        "the [blocked-on-human] gating is re-homed to sst-manager (Phase 54)"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_DEV.exists(), reason="ssp-alpha-dev not present on this host")
-def test_ssp_alpha_dev_base_version_updated():
-    """ssp-alpha-dev base-version must be >= 1.14.0 to track the bumped sst-dev-cycle."""
-    text = _text(_SSP_ALPHA_DEV)
-    m = re.search(r"^base-version:\s*(\d+)\.(\d+)\.(\d+)", text, re.MULTILINE)
-    assert m, "ssp-alpha-dev must carry a 'base-version:' field"
-    major, minor, patch_ = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    assert (major, minor, patch_) >= (1, 14, 0), (
-        f"ssp-alpha-dev base-version is {major}.{minor}.{patch_}; "
-        "must be >= 1.14.0 to track the Phase 54 sst-dev-cycle bump"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_DEV_REVIEW.exists(), reason="ssp-alpha-dev-review not present on this host")
-def test_ssp_alpha_dev_review_no_inherited_human_md_section():
-    """ssp-alpha-dev-review SKILL.md must NOT contain the 'Inherited Phase 31
-    HUMAN.md routing' section after Phase 54."""
-    text = _text(_SSP_ALPHA_DEV_REVIEW)
-    assert not re.search(
-        r"Inherited\s+Phase\s+31\s+HUMAN\.md\s+routing|"
-        r"##\s+Inherited\s+Phase\s+31",
-        text,
-        re.IGNORECASE,
-    ), (
-        "ssp-alpha-dev-review SKILL.md must NOT contain the 'Inherited Phase 31 "
-        "HUMAN.md routing' section; it is removed wholesale in Phase 54"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_DEV_REVIEW.exists(), reason="ssp-alpha-dev-review not present on this host")
-def test_ssp_alpha_dev_review_no_human_md_write():
-    """ssp-alpha-dev-review SKILL.md must NOT instruct appending to HUMAN.md."""
-    text = _text(_SSP_ALPHA_DEV_REVIEW)
-    assert not re.search(
-        r"append.*HUMAN\.md|file.*HUMAN\.md|notify-human-md\.sh|"
-        r"write.*HUMAN\.md",
-        text,
-        re.IGNORECASE,
-    ), (
-        "ssp-alpha-dev-review SKILL.md must NOT instruct writing to HUMAN.md; "
-        "that path is removed in Phase 54"
-    )
-
-
-@pytest.mark.skipif(not _SSP_ALPHA_DEV_REVIEW.exists(), reason="ssp-alpha-dev-review not present on this host")
-def test_ssp_alpha_dev_review_base_version_updated():
-    """ssp-alpha-dev-review base-version must be >= 1.13.0 to track bumped sst-dev-review."""
-    text = _text(_SSP_ALPHA_DEV_REVIEW)
-    m = re.search(r"^base-version:\s*(\d+)\.(\d+)\.(\d+)", text, re.MULTILINE)
-    assert m, "ssp-alpha-dev-review must carry a 'base-version:' field"
-    major, minor, patch_ = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    assert (major, minor, patch_) >= (1, 13, 0), (
-        f"ssp-alpha-dev-review base-version is {major}.{minor}.{patch_}; "
-        "must be >= 1.13.0 to track the Phase 54 sst-dev-review bump"
     )
 
 

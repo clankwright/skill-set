@@ -7,6 +7,7 @@
 <!-- nothing in flight -->
 
 ## Just shipped (last cycle)
+- Scrub consuming-project names from tracked files: genericize docs/tests/HUMAN template example, drop tests that read proprietary ssp-* mirrors outside this repo (Sanitize: n/a) — by owner request at 2026-11-21T03:48:58Z
 - Phase 71 (71.1-71.3): filing budget binds `filed + dev_filed <= max(1, closed)` across BOTH writers, dev cap tied to its own closures, freeze read per phase and never self-unset; 2 wrappers reconciled (Sanitize: must-fix=0) -- by owner request at 2026-09-15T17:55:57Z
 - Phase 70 (70.1-70.3): `[queue-delta]` counts both queue writers via `dev_filed=`, `phase_open` re-counted not carried; 5 wrappers reconciled incl. tester cookie-channel + saved-session-reuse fixes (Sanitize: must-fix=0) -- by owner request at 2026-09-09T17:14:15Z
 - Phase 69 (69.1-69.7): backlog-growth control across the dev loop, filing budget + phase freeze + `[queue-delta]` telemetry + supervisor §3.7 + manager digest bullet; 5 wrappers reconciled (Sanitize: must-fix=0, should-fix=3 applied) -- by owner request at 2026-09-08T17:58:33Z
@@ -16,7 +17,6 @@
 - 66.1: runner commit re-prompt on incomplete-cycle before review handoff (H43.1 option 2; Sanitize: n/a) — by owner request at 2026-07-17T00:40:07Z
 - 50.4: Widen OVERLOAD_TEXT_RE for resource_exhausted + Server error mid-response (Phase 50 backoff before supervisor) — by owner request at 2026-07-16T07:32:31Z
 - Phase 65.2: gate post-iter `[totals after iter N]` behind `if looping:` (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:28:24Z
-- Phase 65.1: cumulative run totals in MANIFEST `totals:` + `[totals]` stdout (Sanitize: n/a) — by ssp-dev at 2026-07-14T02:22:33Z
 
 <!--
   Append-on-close, newest first. Format:

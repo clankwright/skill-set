@@ -24,10 +24,10 @@ Each entry uses the form:
 (Highest-urgency items — open `## Blocking` entries block the dev cycle from picking dependent SPEC items. The cycle emits `[blocked-on-human]` and bails if its picked item's SPEC ID appears in any `Blocks:` line here.)
 
 <!-- example, delete on instantiation
-- [ ] H3.1 [easy] **Set 7 CMS_* GitHub Actions secrets**
-  The beta-site deploy workflow (`.github/workflows/deploy_backup_to_vm.yml:56-62`) passes 7 `secrets.X` values to the VM-side provision script. None of the 7 are currently set at github.com/<org>/<repo> -> Settings -> Secrets and variables -> Actions, so every deploy aborts at `vm/provision-cms-postgres.sh:13` (or now, after Phase 3.18, at the workflow's pre-flight step). Required values: `CMS_DB_PASSWORD`, `CMS_APP_KEYS`, `CMS_API_TOKEN_SALT`, `CMS_ADMIN_JWT_SECRET`, `CMS_TRANSFER_TOKEN_SALT`, `CMS_JWT_SECRET`, `CMS_ENCRYPTION_KEY`. Generation guidance lives in `cms/README.md > Required GitHub Actions secrets`. Until set, Phase 3.1-3.5 cannot be runtime-validated and CMS is not live on staging.
+- [ ] H3.1 [easy] **Set 3 CMS_* GitHub Actions secrets**
+  The deploy workflow (`.github/workflows/deploy.yml:40-46`) passes 3 `secrets.X` values to the server-side provision script. None are set at github.com/<org>/<repo> -> Settings -> Secrets and variables -> Actions, so every deploy aborts at `scripts/provision.sh:13`. Required values: `CMS_DB_PASSWORD`, `CMS_APP_KEYS`, `CMS_JWT_SECRET`. Generation guidance lives in `cms/README.md > Required GitHub Actions secrets`. Until set, Phase 3.1-3.5 cannot be runtime-validated and the CMS is not live on staging.
   Blocks: 3.1, 3.2, 3.3, 3.4, 3.5 (Phase 3 deploys + runtime validation), 4.2, 4.3 (Editor workflow needs a live admin), 5.1 (soak gate cannot start).
-  Verify: gh secret list --repo <org>/<repo> 2>/dev/null | awk '{print $1}' | grep -c '^CMS_' | grep -qx 7
+  Verify: gh secret list --repo <org>/<repo> 2>/dev/null | awk '{print $1}' | grep -c '^CMS_' | grep -qx 3
   Filed by: sst-supervisor at 2026-05-22T<utc>.
   Source: docs/TODO.md 3.10, 3.18 + chat with user 2026-05-22.
 -->

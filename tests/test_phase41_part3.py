@@ -8,7 +8,6 @@
 
 41.8 — Wire tooling, install, and docs:
         bin/install-skills.sh --list-new surfaces sst-tester;
-        ssp-alpha-tester base-version pin matches sst-tester version (check-ssp-sync clean);
         README.md describes the dev→tester→review chain order and floor table;
         CLAUDE.md updated for the inserted tester stage.
 """
@@ -22,20 +21,13 @@ import pytest
 
 _REPO = Path(__file__).parent.parent
 _SST_TESTER = _REPO / "skills/framework/sst-tester/SKILL.md"
-_ALPHA_TESTER = Path.home() / "Dev/alpha_app/.claude/skills/ssp-alpha-tester/SKILL.md"
 _README = _REPO / "README.md"
 _FIXTURE = _REPO / "tests/fixtures/tester-findings.json"
 _INSTALL_SCRIPT = _REPO / "bin/install-skills.sh"
 
-_ALPHA_TESTER_EXISTS = _ALPHA_TESTER.exists()
-
 
 def _sst_text() -> str:
     return _SST_TESTER.read_text()
-
-
-def _alpha_text() -> str:
-    return _ALPHA_TESTER.read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -95,51 +87,6 @@ def test_sst_tester_documents_no_orphan_processes():
 
 
 # ---------------------------------------------------------------------------
-# 41.7: ssp-alpha-tester artifact-hygiene and teardown documentation
-# ---------------------------------------------------------------------------
-
-@pytest.mark.skipif(not _ALPHA_TESTER_EXISTS, reason="alpha_app project not available")
-def test_ssp_alpha_tester_documents_git_status_porcelain():
-    """41.7: ssp-alpha-tester must document git status --porcelain must be clean after a run."""
-    text = _alpha_text()
-    assert "git status --porcelain" in text, (
-        "ssp-alpha-tester must state 'git status --porcelain' must be clean after a run"
-    )
-
-
-@pytest.mark.skipif(not _ALPHA_TESTER_EXISTS, reason="alpha_app project not available")
-def test_ssp_alpha_tester_documents_finally_trap_teardown():
-    """41.7: ssp-alpha-tester must document a finally/trap guaranteed-teardown path."""
-    text = _alpha_text()
-    assert "finally" in text or "trap" in text, (
-        "ssp-alpha-tester must document a finally/trap guaranteed-teardown path"
-    )
-
-
-@pytest.mark.skipif(not _ALPHA_TESTER_EXISTS, reason="alpha_app project not available")
-def test_ssp_alpha_tester_documents_ports_5003_and_3000_freed():
-    """41.7: ssp-alpha-tester teardown must confirm ports :5003 and :3000 are free."""
-    text = _alpha_text()
-    # Both port numbers must appear in the teardown context
-    assert "5003" in text, "ssp-alpha-tester must document port 5003"
-    assert "3000" in text, "ssp-alpha-tester must document port 3000"
-    # And teardown must reference port-free confirmation
-    low = text.lower()
-    assert "listener" in low or "no listener" in low, (
-        "ssp-alpha-tester teardown must confirm no listener remains on documented ports"
-    )
-
-
-@pytest.mark.skipif(not _ALPHA_TESTER_EXISTS, reason="alpha_app project not available")
-def test_ssp_alpha_tester_documents_no_orphan_processes():
-    """41.7: ssp-alpha-tester teardown must state that no orphan processes survive."""
-    text = _alpha_text()
-    assert "orphan" in text.lower(), (
-        "ssp-alpha-tester must document that no orphan python/node/chromium processes survive"
-    )
-
-
-# ---------------------------------------------------------------------------
 # 41.7: fixture evidence paths are out of tree
 # ---------------------------------------------------------------------------
 
@@ -179,28 +126,6 @@ def test_install_skills_lists_sst_tester_as_new(tmp_path):
     assert "sst-tester" in result.stdout, (
         f"install-skills.sh --list-new must list sst-tester; got:\n{result.stdout}"
     )
-
-
-# ---------------------------------------------------------------------------
-# 41.8: ssp-alpha-tester base-version pin matches sst-tester version (check-ssp-sync clean)
-# ---------------------------------------------------------------------------
-
-def test_ssp_alpha_tester_base_version_matches_sst_tester_version():
-    """41.8: ssp-alpha-tester base-version must match the current sst-tester version
-    so check-ssp-sync reports 'ok' (not stale or unpinned)."""
-    tester_text = _SST_TESTER.read_text()
-    m = re.search(r"^version:\s*(\d+\.\d+\.\d+)", tester_text, re.MULTILINE)
-    assert m, "sst-tester SKILL.md must have a version: field"
-    sst_version = m.group(1)
-
-    if _ALPHA_TESTER_EXISTS:
-        alpha_text = _alpha_text()
-        bm = re.search(r"^base-version:\s*(\d+\.\d+\.\d+)", alpha_text, re.MULTILINE)
-        assert bm, "ssp-alpha-tester SKILL.md must have a base-version: field"
-        alpha_base = bm.group(1)
-        assert alpha_base == sst_version, (
-            f"ssp-alpha-tester base-version ({alpha_base}) must match sst-tester version ({sst_version})"
-        )
 
 
 # ---------------------------------------------------------------------------
